@@ -1,0 +1,200 @@
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+/* Terminal Theme - CSS Variables */
+:root {
+  /* Layout */
+  --sidebar-width: 280px;
+
+  /* Background colors */
+  --bg-primary: #0a0a0a;
+  --bg-surface: #141414;
+  --bg-elevated: #1a1a1a;
+
+  /* Border colors */
+  --border-default: #2a2a2a;
+  --border-active: #3a3a3a;
+  --border-bright: #4a4a4a;
+
+  /* Text colors */
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0a0;
+  --text-dim: #606060;
+
+  /* Accent colors */
+  --accent-green: #00ff00;
+  --accent-yellow: #ffff00;
+  --accent-red: #ff4444;
+  --accent-cyan: #00ffff;
+  --accent-magenta: #ff00ff;
+
+  /* Typography */
+  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-xs: 12px;
+  --font-sm: 13px;
+  --font-base: 14px;
+  --font-md: 15px;
+  --font-lg: 16px;
+  --font-xl: 18px;
+}
+
+/* Base styles */
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-base);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Remove all border-radius by default */
+*, *::before, *::after {
+  border-radius: 0 !important;
+}
+
+/* Disable text selection and drag on interactive elements */
+button, a {
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Terminal-style scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-active);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-bright);
+}
+
+::-webkit-scrollbar-corner {
+  background: var(--bg-primary);
+}
+
+/* Utility classes for terminal styling */
+.term-border {
+  border: 1px solid var(--border-default);
+}
+
+.term-border-active {
+  border: 1px solid var(--border-active);
+}
+
+.term-border-t {
+  border-top: 1px solid var(--border-default);
+}
+
+.term-border-b {
+  border-bottom: 1px solid var(--border-default);
+}
+
+.term-border-l {
+  border-left: 1px solid var(--border-default);
+}
+
+.term-border-r {
+  border-right: 1px solid var(--border-default);
+}
+
+/* Status colors */
+.status-running {
+  color: var(--accent-green);
+  border-color: var(--accent-green);
+}
+
+.status-waiting {
+  color: var(--accent-yellow);
+  border-color: var(--accent-yellow);
+}
+
+.status-error {
+  color: var(--accent-red);
+  border-color: var(--accent-red);
+}
+
+.status-completed {
+  color: var(--text-secondary);
+  border-color: var(--text-secondary);
+}
+
+.status-manual {
+  color: var(--accent-magenta);
+  border-color: var(--accent-magenta);
+}
+
+/* Text utilities */
+.text-mono {
+  font-family: var(--font-mono);
+}
+
+.text-dim {
+  color: var(--text-dim);
+}
+
+.text-secondary {
+  color: var(--text-secondary);
+}
+
+.text-accent-green {
+  color: var(--accent-green);
+}
+
+.text-accent-cyan {
+  color: var(--accent-cyan);
+}
+
+.text-accent-yellow {
+  color: var(--accent-yellow);
+}
+
+.text-accent-red {
+  color: var(--accent-red);
+}
+
+.text-accent-magenta {
+  color: var(--accent-magenta);
+}
+
+/* Background utilities */
+.bg-surface {
+  background-color: var(--bg-surface);
+}
+
+.bg-elevated {
+  background-color: var(--bg-elevated);
+}
+
+/* Focus states - terminal style */
+input:focus, textarea:focus, select:focus, button:focus {
+  outline: none;
+  border-color: var(--border-bright);
+}
+
+/* Terminal-style block cursor */
+input, textarea {
+  caret-color: var(--accent-green);
+  caret-shape: block;
+}
+
+/* Selection */
+::selection {
+  background-color: var(--accent-cyan);
+  color: var(--bg-primary);
+}

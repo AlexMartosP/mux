@@ -1,0 +1,101 @@
+/* Syntax highlighting for diff viewer - terminal-inspired theme */
+
+/* Keywords and control flow */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-built_in,
+.hljs-name {
+  color: var(--accent-magenta);
+}
+
+/* Strings */
+.hljs-string,
+.hljs-attr,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--accent-green);
+}
+
+/* Numbers */
+.hljs-number,
+.hljs-literal {
+  color: var(--accent-cyan);
+}
+
+/* Types and classes */
+.hljs-type,
+.hljs-class,
+.hljs-title {
+  color: var(--accent-yellow);
+}
+
+/* Functions */
+.hljs-title.function_,
+.hljs-function {
+  color: var(--accent-cyan);
+}
+
+/* Comments */
+.hljs-comment,
+.hljs-quote {
+  color: var(--text-dim);
+  font-style: italic;
+}
+
+/* Variables and properties */
+.hljs-variable,
+.hljs-template-variable,
+.hljs-property {
+  color: var(--text-primary);
+}
+
+/* Attributes */
+.hljs-attribute {
+  color: var(--accent-cyan);
+}
+
+/* Tags (HTML/XML) */
+.hljs-tag {
+  color: var(--accent-red);
+}
+
+/* Regex and special */
+.hljs-regexp,
+.hljs-link {
+  color: var(--accent-yellow);
+}
+
+/* Meta and preprocessor */
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: var(--accent-magenta);
+}
+
+/* Deletion and addition specific - slightly dimmed to let diff colors show */
+.diff-line-deletion .hljs-keyword,
+.diff-line-deletion .hljs-string,
+.diff-line-deletion .hljs-number,
+.diff-line-deletion .hljs-type,
+.diff-line-deletion .hljs-title,
+.diff-line-deletion .hljs-comment,
+.diff-line-deletion .hljs-variable,
+.diff-line-deletion .hljs-attribute,
+.diff-line-deletion .hljs-tag,
+.diff-line-deletion .hljs-regexp,
+.diff-line-deletion .hljs-meta {
+  opacity: 0.85;
+}
+
+.diff-line-addition .hljs-keyword,
+.diff-line-addition .hljs-string,
+.diff-line-addition .hljs-number,
+.diff-line-addition .hljs-type,
+.diff-line-addition .hljs-title,
+.diff-line-addition .hljs-comment,
+.diff-line-addition .hljs-variable,
+.diff-line-addition .hljs-attribute,
+.diff-line-addition .hljs-tag,
+.diff-line-addition .hljs-regexp,
+.diff-line-addition .hljs-meta {
+  opacity: 0.9;
+}

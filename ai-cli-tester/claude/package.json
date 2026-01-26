@@ -1,0 +1,15 @@
+{
+  "name": "claude-cli-tester",
+  "version": "1.0.0",
+  "description": "Playground for testing Claude CLI spawn interactions",
+  "type": "module",
+  "scripts": {
+    "start": "npx tsx src/index.ts",
+    "dev": "npx tsx watch src/index.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0"
+  }
+}

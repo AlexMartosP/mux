@@ -1,0 +1,405 @@
+use crate::error::{AppError, Result};
+use crate::models::{Task, TaskStatus};
+use directories::ProjectDirs;
+use rusqlite::{params, Connection, OptionalExtension};
+use std::path::PathBuf;
+use std::sync::Mutex;
+
+pub struct Database {
+    conn: Mutex<Connection>,
+}
+
+impl Database {
+    pub fn new() -> Result<Self> {
+        let db_path = Self::get_db_path()?;
+
+        // Ensure parent directory exists
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let conn = Connection::open(&db_path)?;
+        let db = Self {
+            conn: Mutex::new(conn),
+        };
+        db.init()?;
+        Ok(db)
+    }
+
+    fn get_db_path() -> Result<PathBuf> {
+        let proj_dirs = ProjectDirs::from("com", "agent-coordinator", "AgentCoordinator")
+            .ok_or_else(|| AppError::Other("Could not determine app data directory".into()))?;
+
+        Ok(proj_dirs.data_dir().join("tasks.db"))
+    }
+
+    fn init(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS tasks (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                repository_path TEXT NOT NULL,
+                branch TEXT NOT NULL,
+                worktree_path TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'idle',
+                prompt TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                pr_url TEXT,
+                metadata_loading INTEGER NOT NULL DEFAULT 0
+            )",
+            [],
+        )?;
+
+        // Migration: Add description column if it doesn't exist
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN description TEXT NOT NULL DEFAULT ''", []);
+
+        // Migration: Add metadata_loading column if it doesn't exist
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN metadata_loading INTEGER NOT NULL DEFAULT 0", []);
+
+        // Output logs table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS task_output (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL,
+                output_type TEXT NOT NULL,
+                content TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                tool_name TEXT,
+                tool_input TEXT,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Migration: Add tool_name and tool_input columns if they don't exist
+        let _ = conn.execute("ALTER TABLE task_output ADD COLUMN tool_name TEXT", []);
+        let _ = conn.execute("ALTER TABLE task_output ADD COLUMN tool_input TEXT", []);
+
+        // Create index for faster lookups
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_task_output_task_id ON task_output(task_id)",
+            [],
+        )?;
+
+        // Settings table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )",
+            [],
+        )?;
+
+        // Migration: Add takeover state columns
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN takeover_original_branch TEXT", []);
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN takeover_wip_commit TEXT", []);
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN takeover_had_stash INTEGER DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN takeover_started_at TEXT", []);
+
+        Ok(())
+    }
+
+    // Settings methods
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let value = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?",
+                [key],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(value)
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_all_settings(&self) -> Result<std::collections::HashMap<String, String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
+        let settings = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<std::result::Result<std::collections::HashMap<_, _>, _>>()?;
+        Ok(settings)
+    }
+
+    pub fn get_all_tasks(&self) -> Result<Vec<Task>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading
+             FROM tasks ORDER BY created_at DESC",
+        )?;
+
+        let tasks = stmt
+            .query_map([], |row| {
+                Ok(Task {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    repository_path: row.get(3)?,
+                    branch: row.get(4)?,
+                    worktree_path: row.get(5)?,
+                    status: TaskStatus::from_str(&row.get::<_, String>(6)?),
+                    prompt: row.get(7)?,
+                    created_at: row.get(8)?,
+                    pr_url: row.get(9)?,
+                    metadata_loading: row.get::<_, i32>(10)? != 0,
+                    pid: None,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(tasks)
+    }
+
+    pub fn get_task(&self, id: &str) -> Result<Option<Task>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading
+             FROM tasks WHERE id = ?",
+        )?;
+
+        let task = stmt
+            .query_row([id], |row| {
+                Ok(Task {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    repository_path: row.get(3)?,
+                    branch: row.get(4)?,
+                    worktree_path: row.get(5)?,
+                    status: TaskStatus::from_str(&row.get::<_, String>(6)?),
+                    prompt: row.get(7)?,
+                    created_at: row.get(8)?,
+                    pr_url: row.get(9)?,
+                    metadata_loading: row.get::<_, i32>(10)? != 0,
+                    pid: None,
+                })
+            })
+            .optional()?;
+
+        Ok(task)
+    }
+
+    pub fn insert_task(&self, task: &Task) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO tasks (id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            params![
+                task.id,
+                task.name,
+                task.description,
+                task.repository_path,
+                task.branch,
+                task.worktree_path,
+                task.status.as_str(),
+                task.prompt,
+                task.created_at,
+                task.pr_url,
+                task.metadata_loading as i32,
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Update task metadata (name, description, branch) and clear loading flag
+    pub fn update_task_metadata(
+        &self,
+        id: &str,
+        name: &str,
+        description: &str,
+        branch: &str,
+        worktree_path: &str,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET name = ?, description = ?, branch = ?, worktree_path = ?, metadata_loading = 0 WHERE id = ?",
+            params![name, description, branch, worktree_path, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_task_status(&self, id: &str, status: TaskStatus) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET status = ? WHERE id = ?",
+            params![status.as_str(), id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_task_pr_url(&self, id: &str, pr_url: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET pr_url = ? WHERE id = ?",
+            params![pr_url, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_task_description(&self, id: &str, description: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET description = ? WHERE id = ?",
+            params![description, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_task_name(&self, id: &str, name: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET name = ? WHERE id = ?",
+            params![name, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_task(&self, id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        // Delete output first due to foreign key
+        conn.execute("DELETE FROM task_output WHERE task_id = ?", [id])?;
+        conn.execute("DELETE FROM tasks WHERE id = ?", [id])?;
+        Ok(())
+    }
+
+    // Output log methods
+    pub fn append_output(
+        &self,
+        task_id: &str,
+        output_type: &str,
+        content: &str,
+        tool_name: Option<&str>,
+        tool_input: Option<&serde_json::Value>,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        let tool_input_str = tool_input.map(|v| v.to_string());
+        conn.execute(
+            "INSERT INTO task_output (task_id, output_type, content, timestamp, tool_name, tool_input) VALUES (?, ?, ?, ?, ?, ?)",
+            params![task_id, output_type, content, timestamp, tool_name, tool_input_str],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_task_output(&self, task_id: &str, limit: Option<i64>) -> Result<Vec<OutputLine>> {
+        let conn = self.conn.lock().unwrap();
+        let limit = limit.unwrap_or(1000);
+        let mut stmt = conn.prepare(
+            "SELECT output_type, content, timestamp, tool_name, tool_input FROM task_output
+             WHERE task_id = ? ORDER BY id ASC LIMIT ?",
+        )?;
+
+        let output = stmt
+            .query_map(params![task_id, limit], |row| {
+                let tool_input_str: Option<String> = row.get(4)?;
+                let tool_input = tool_input_str
+                    .and_then(|s| serde_json::from_str(&s).ok());
+                Ok(OutputLine {
+                    output_type: row.get(0)?,
+                    content: row.get(1)?,
+                    timestamp: row.get(2)?,
+                    tool_name: row.get(3)?,
+                    tool_input,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(output)
+    }
+
+    pub fn clear_task_output(&self, task_id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM task_output WHERE task_id = ?", [task_id])?;
+        Ok(())
+    }
+
+    /// Set takeover state for a task
+    pub fn set_takeover_state(
+        &self,
+        task_id: &str,
+        original_branch: &str,
+        wip_commit: &str,
+        had_stash: bool,
+    ) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "UPDATE tasks SET takeover_original_branch = ?, takeover_wip_commit = ?, takeover_had_stash = ?, takeover_started_at = ? WHERE id = ?",
+            params![original_branch, wip_commit, had_stash as i32, timestamp, task_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get takeover state for a task
+    pub fn get_takeover_state(&self, task_id: &str) -> Result<Option<TakeoverState>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT takeover_original_branch, takeover_wip_commit, takeover_had_stash, takeover_started_at FROM tasks WHERE id = ?",
+        )?;
+
+        let state = stmt
+            .query_row([task_id], |row| {
+                let original_branch: Option<String> = row.get(0)?;
+                let wip_commit: Option<String> = row.get(1)?;
+                let had_stash: i32 = row.get(2)?;
+                let started_at: Option<String> = row.get(3)?;
+
+                if original_branch.is_some() && wip_commit.is_some() {
+                    Ok(Some(TakeoverState {
+                        original_branch: original_branch.unwrap(),
+                        wip_commit: wip_commit.unwrap(),
+                        had_stash: had_stash != 0,
+                        started_at,
+                    }))
+                } else {
+                    Ok(None)
+                }
+            })
+            .optional()?
+            .flatten();
+
+        Ok(state)
+    }
+
+    /// Clear takeover state for a task
+    pub fn clear_takeover_state(&self, task_id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET takeover_original_branch = NULL, takeover_wip_commit = NULL, takeover_had_stash = 0, takeover_started_at = NULL WHERE id = ?",
+            [task_id],
+        )?;
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TakeoverState {
+    pub original_branch: String,
+    pub wip_commit: String,
+    pub had_stash: bool,
+    pub started_at: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OutputLine {
+    pub output_type: String,
+    pub content: String,
+    pub timestamp: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_input: Option<serde_json::Value>,
+}

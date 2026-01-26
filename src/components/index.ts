@@ -1,0 +1,10 @@
+export { Sidebar } from "./Sidebar";
+export { TaskList } from "./TaskList";
+export { ChatView } from "./ChatView";
+export { ChangesPanel } from "./ChangesPanel";
+export { DiffViewer } from "./DiffViewer";
+export { FileTree } from "./FileTree";
+export { CommitHistory } from "./CommitHistory";
+export { ActivityFeed } from "./ActivityFeed";
+export { OutputRenderer } from "./OutputRenderer";
+export { CreatePRModal } from "./CreatePRModal";
