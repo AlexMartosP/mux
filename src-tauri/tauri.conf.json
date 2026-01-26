@@ -40,7 +40,7 @@
   "plugins": {
     "updater": {
       "endpoints": [
-        "https://github.com/AlexMartosP/mux/releases/latest/download/latest.json"
+        "https://github.com/AlexMartosP/mux-releases/releases/latest/download/latest.json"
       ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDM2MTU4OUM1NDA1Nzk1OTYKUldTV2xWZEF4WWtWTnZTOGNwbW9vTFZicGQyZEkxRlYwQWxaK2dIYklhUXljdUVYSHF2dW93bmIK"
     }
