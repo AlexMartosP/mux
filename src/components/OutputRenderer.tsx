@@ -8,15 +8,20 @@ interface OutputRendererProps {
 }
 
 interface OutputSection {
-  type: "text" | "tool" | "result" | "system" | "thinking";
+  type: "text" | "tool" | "result" | "system" | "thinking" | "agent-group";
   content: string;
   toolName?: string;
   toolInput?: Record<string, unknown>;
+  /** For agent-group sections: the child sections within the agent */
+  children?: OutputSection[];
+  /** For agent-group: description of the agent task */
+  agentDescription?: string;
 }
 
 export function OutputRenderer({ output, isRunning }: OutputRendererProps) {
   const sections = useMemo(() => {
-    const result: OutputSection[] = [];
+    // First pass: build flat sections
+    const flat: OutputSection[] = [];
     let currentTextContent = "";
 
     for (const line of output) {
@@ -24,29 +29,67 @@ export function OutputRenderer({ output, isRunning }: OutputRendererProps) {
         currentTextContent += (currentTextContent ? "\n" : "") + line.content;
       } else {
         if (currentTextContent) {
-          result.push({ type: "text", content: currentTextContent });
+          flat.push({ type: "text", content: currentTextContent });
           currentTextContent = "";
         }
 
         if (line.output_type === "tool") {
-          result.push({
+          flat.push({
             type: "tool",
             content: line.content,
             toolName: line.tool_name || extractToolName(line.content),
             toolInput: line.tool_input,
           });
         } else if (line.output_type === "result") {
-          result.push({ type: "result", content: line.content });
+          flat.push({ type: "result", content: line.content });
         } else if (line.output_type === "system") {
-          result.push({ type: "system", content: line.content });
+          flat.push({ type: "system", content: line.content });
         } else if (line.output_type === "thinking") {
-          result.push({ type: "thinking", content: line.content });
+          flat.push({ type: "thinking", content: line.content });
         }
       }
     }
 
     if (currentTextContent) {
-      result.push({ type: "text", content: currentTextContent });
+      flat.push({ type: "text", content: currentTextContent });
+    }
+
+    // Second pass: group Task (agent) tool sections with their children
+    const result: OutputSection[] = [];
+    let i = 0;
+    while (i < flat.length) {
+      const section = flat[i];
+
+      if (section.type === "tool" && section.toolName === "Task") {
+        // Collect all subsequent non-text sections as children of this agent group
+        const children: OutputSection[] = [];
+        const description = section.toolInput?.description
+          ? str(section.toolInput.description)
+          : section.content;
+        i++;
+
+        while (i < flat.length) {
+          const child = flat[i];
+          // Stop grouping when we hit text (parent agent resumed) or another Task tool
+          if (child.type === "text" || (child.type === "tool" && child.toolName === "Task")) {
+            break;
+          }
+          children.push(child);
+          i++;
+        }
+
+        result.push({
+          type: "agent-group",
+          content: section.content,
+          toolName: "Task",
+          toolInput: section.toolInput,
+          children,
+          agentDescription: description,
+        });
+      } else {
+        result.push(section);
+        i++;
+      }
     }
 
     return result;
@@ -79,6 +122,16 @@ export function OutputRenderer({ output, isRunning }: OutputRendererProps) {
 
 function Section({ section }: { section: OutputSection }) {
   const [isExpanded, setIsExpanded] = useState(false);
+
+  if (section.type === "agent-group") {
+    return (
+      <AgentGroupSection
+        section={section}
+        isExpanded={isExpanded}
+        onToggle={() => setIsExpanded(!isExpanded)}
+      />
+    );
+  }
 
   if (section.type === "thinking") {
     return (
@@ -254,6 +307,79 @@ function ThinkingSection({
           style={{ color: 'var(--text-secondary)' }}
         >
           {content}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AgentGroupSection({
+  section,
+  isExpanded,
+  onToggle,
+}: {
+  section: OutputSection;
+  isExpanded: boolean;
+  onToggle: () => void;
+}) {
+  const childCount = section.children?.length ?? 0;
+  const toolCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const child of section.children ?? []) {
+      if (child.type === "tool" && child.toolName) {
+        counts[child.toolName] = (counts[child.toolName] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [section.children]);
+
+  const summaryParts = Object.entries(toolCounts)
+    .map(([name, count]) => `${count} ${name}`)
+    .join(", ");
+
+  return (
+    <div
+      className="text-xs"
+      style={{
+        backgroundColor: "var(--accent-yellow)08",
+        borderLeft: "2px solid var(--accent-yellow)",
+      }}
+    >
+      <button
+        onClick={onToggle}
+        className="w-full text-left flex items-center gap-2 px-3 py-2 transition-colors hover:bg-white/5"
+        style={{ color: "var(--accent-yellow)" }}
+      >
+        <span>[T]</span>
+        {section.toolInput?.subagent_type != null && (
+          <span
+            className="px-1.5 py-0.5 text-xs font-medium"
+            style={{
+              backgroundColor: "var(--accent-yellow)20",
+              color: "var(--accent-yellow)",
+            }}
+          >
+            {str(section.toolInput.subagent_type)}
+          </span>
+        )}
+        <span className="flex-1 truncate">
+          {section.agentDescription || "Agent"}
+        </span>
+        <span className="text-xs" style={{ color: "var(--text-dim)" }}>
+          {childCount > 0 ? `(${summaryParts || `${childCount} actions`})` : ""}
+        </span>
+        <span className={`transition-transform ${isExpanded ? "rotate-180" : ""}`}>
+          ▼
+        </span>
+      </button>
+      {isExpanded && section.children && section.children.length > 0 && (
+        <div
+          className="ml-4 pl-2 space-y-1 pb-2"
+          style={{ borderLeft: "1px solid var(--border-default)" }}
+        >
+          {section.children.map((child, idx) => (
+            <Section key={idx} section={child} />
+          ))}
         </div>
       )}
     </div>

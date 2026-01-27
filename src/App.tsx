@@ -1,10 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { Settings } from "./components/Settings";
 import { Onboarding } from "./components/Onboarding";
 import { useTasks } from "./hooks/useTasks";
+import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { ReviewProvider } from "./contexts/ReviewContext";
+import { ThemeProvider } from "./contexts/ThemeContext";
 import * as tauri from "./lib/tauri";
 
 type View = "chat" | "settings";
@@ -27,6 +30,92 @@ function App() {
     refresh: refreshTasks,
   } = useTasks();
 
+  // Ref for focusing search input in sidebar
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // Keyboard shortcuts handlers
+  const handlePreviousTask = useCallback(() => {
+    if (tasks.length === 0) return;
+    const currentIndex = tasks.findIndex((t) => t.id === selectedTaskId);
+    if (currentIndex > 0) {
+      setSelectedTaskId(tasks[currentIndex - 1].id);
+    } else if (currentIndex === -1) {
+      setSelectedTaskId(tasks[0].id);
+    }
+  }, [tasks, selectedTaskId, setSelectedTaskId]);
+
+  const handleNextTask = useCallback(() => {
+    if (tasks.length === 0) return;
+    const currentIndex = tasks.findIndex((t) => t.id === selectedTaskId);
+    if (currentIndex < tasks.length - 1) {
+      setSelectedTaskId(tasks[currentIndex + 1].id);
+    } else if (currentIndex === -1) {
+      setSelectedTaskId(tasks[0].id);
+    }
+  }, [tasks, selectedTaskId, setSelectedTaskId]);
+
+  const handleSelectTaskByIndex = useCallback(
+    (index: number) => {
+      if (index < tasks.length) {
+        setSelectedTaskId(tasks[index].id);
+        setCurrentView("chat");
+      }
+    },
+    [tasks, setSelectedTaskId]
+  );
+
+  const handleCopyBranch = useCallback(async () => {
+    if (selectedTask) {
+      await writeText(selectedTask.branch);
+    }
+  }, [selectedTask]);
+
+  const handleCreatePR = useCallback(() => {
+    // This will be handled by the ChatView component
+    // For now, we could open a modal or trigger the PR flow
+    console.log("Create PR shortcut triggered");
+  }, []);
+
+  const handleOnboardingComplete = useCallback(() => {
+    setShowOnboarding(false);
+  }, []);
+
+  const handleNewChat = useCallback(() => {
+    setSelectedTaskId(null);
+    setCurrentView("chat");
+  }, [setSelectedTaskId]);
+
+  const handleOpenSettings = useCallback(() => {
+    setCurrentView("settings");
+  }, []);
+
+  const handleCloseSettings = useCallback(() => {
+    setCurrentView("chat");
+  }, []);
+
+  // Set up keyboard shortcuts
+  useKeyboardShortcuts({
+    onNewTask: handleNewChat,
+    onOpenSettings: handleOpenSettings,
+    onCloseModal: () => {
+      if (currentView === "settings") {
+        setCurrentView("chat");
+      }
+    },
+    onFocusSearch: () => {
+      searchInputRef.current?.focus();
+    },
+    onPreviousTask: handlePreviousTask,
+    onNextTask: handleNextTask,
+    onSelectTaskByIndex: handleSelectTaskByIndex,
+    selectedTaskId,
+    onStopTask: selectedTaskId ? () => stopTask(selectedTaskId) : undefined,
+    onRestartTask: selectedTaskId ? () => restartTask(selectedTaskId) : undefined,
+    onCopyBranch: handleCopyBranch,
+    onCreatePR: handleCreatePR,
+    isSettingsOpen: currentView === "settings",
+  });
+
   // Check if onboarding has been completed
   useEffect(() => {
     const checkOnboarding = async () => {
@@ -40,23 +129,6 @@ function App() {
     };
     checkOnboarding();
   }, []);
-
-  const handleOnboardingComplete = () => {
-    setShowOnboarding(false);
-  };
-
-  const handleNewChat = () => {
-    setSelectedTaskId(null);
-    setCurrentView("chat");
-  };
-
-  const handleOpenSettings = () => {
-    setCurrentView("settings");
-  };
-
-  const handleCloseSettings = () => {
-    setCurrentView("chat");
-  };
 
   const handleCreateTask = async (repositoryPath: string, prompt: string) => {
     await createTask({ repository_path: repositoryPath, prompt });
@@ -112,12 +184,13 @@ function App() {
   }
 
   return (
-    <ReviewProvider>
-      <div
-        className="h-screen flex"
-        style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-      >
-        <Sidebar
+    <ThemeProvider>
+      <ReviewProvider>
+        <div
+          className="h-screen flex"
+          style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+        >
+          <Sidebar
           tasks={tasks}
           selectedTaskId={selectedTaskId}
           onSelectTask={(id) => {
@@ -135,6 +208,7 @@ function App() {
             // Refresh task list
             await refreshTasks();
           }}
+          searchInputRef={searchInputRef}
         />
 
         {currentView === "settings" ? (
@@ -151,9 +225,10 @@ function App() {
             onDelete={deleteTask}
             onUpdateTask={updateTask}
           />
-        )}
-      </div>
-    </ReviewProvider>
+          )}
+        </div>
+      </ReviewProvider>
+    </ThemeProvider>
   );
 }
 

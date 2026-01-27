@@ -11,6 +11,8 @@ pub enum TaskStatus {
     Completed,
     Error,
     ManualControl,
+    /// Task was running but process died unexpectedly (app restart, crash, etc.)
+    Interrupted,
 }
 
 impl TaskStatus {
@@ -22,6 +24,7 @@ impl TaskStatus {
             TaskStatus::Completed => "completed",
             TaskStatus::Error => "error",
             TaskStatus::ManualControl => "manual_control",
+            TaskStatus::Interrupted => "interrupted",
         }
     }
 
@@ -32,6 +35,7 @@ impl TaskStatus {
             "completed" => TaskStatus::Completed,
             "error" => TaskStatus::Error,
             "manual_control" => TaskStatus::ManualControl,
+            "interrupted" => TaskStatus::Interrupted,
             _ => TaskStatus::Idle,
         }
     }
@@ -52,6 +56,9 @@ pub struct Task {
     /// Whether the task is still loading metadata (title, description, branch name)
     #[serde(default)]
     pub metadata_loading: bool,
+    /// Whether to auto-accept edit/write tool calls without prompting
+    #[serde(default)]
+    pub auto_accept_edits: bool,
     #[serde(skip)]
     pub pid: Option<u32>,
 }
@@ -109,6 +116,7 @@ impl Task {
             created_at: chrono::Utc::now().to_rfc3339(),
             pr_url: None,
             metadata_loading,
+            auto_accept_edits: false,
             pid: None,
         }
     }

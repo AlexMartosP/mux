@@ -49,8 +49,16 @@ export async function handbackTask(
   return invoke("handback_task", { id, commitMessage, prompt });
 }
 
-export async function getTaskOutput(taskId: string, limit?: number): Promise<OutputLine[]> {
-  return invoke("get_task_output", { taskId, limit });
+export async function getTaskOutput(
+  taskId: string,
+  limit?: number,
+  offset?: number
+): Promise<OutputLine[]> {
+  return invoke("get_task_output", { taskId, limit, offset });
+}
+
+export async function getTaskOutputCount(taskId: string): Promise<number> {
+  return invoke("get_task_output_count", { taskId });
 }
 
 // Git functions
@@ -119,6 +127,7 @@ export interface AppSettings {
   notify_on_completion: boolean;
   notify_on_error: boolean;
   prompt_for_permissions: boolean;
+  theme: string | null;
 }
 
 export async function getSettings(): Promise<AppSettings> {
@@ -164,6 +173,10 @@ export async function updateTaskName(id: string, name: string): Promise<void> {
 
 export async function updateTaskDescription(id: string, description: string): Promise<void> {
   return invoke("update_task_description", { id, description });
+}
+
+export async function setTaskAutoAcceptEdits(id: string, enabled: boolean): Promise<void> {
+  return invoke("set_task_auto_accept_edits", { id, enabled });
 }
 
 // Permission handling
@@ -233,4 +246,15 @@ export async function checkCLIStatus(): Promise<CLIStatus> {
 
 export async function installCLI(): Promise<string> {
   return invoke("install_cli");
+}
+
+// Export
+export interface ExportOptions {
+  format: "json" | "csv" | "markdown";
+  task_ids: string[];
+  include_output: boolean;
+}
+
+export async function exportTasks(options: ExportOptions): Promise<string> {
+  return invoke("export_tasks", { options });
 }

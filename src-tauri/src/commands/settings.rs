@@ -16,6 +16,8 @@ pub struct AppSettings {
     pub notify_on_error: bool,
     /// If true, prompt user for permissions. If false, auto-approve all permissions.
     pub prompt_for_permissions: bool,
+    /// Theme ID (e.g., "terminal", "clean", "clean-light")
+    pub theme: Option<String>,
 }
 
 impl Default for AppSettings {
@@ -26,6 +28,7 @@ impl Default for AppSettings {
             notify_on_completion: true,
             notify_on_error: true,
             prompt_for_permissions: false, // Default to auto-approve for backward compatibility
+            theme: Some("terminal".to_string()),
         }
     }
 }
@@ -50,6 +53,7 @@ pub fn get_settings(state: State<Arc<AppState>>) -> Result<AppSettings> {
             .get("prompt_for_permissions")
             .map(|v| v == "true")
             .unwrap_or(false),
+        theme: settings_map.get("theme").cloned(),
     })
 }
 

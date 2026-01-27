@@ -19,6 +19,15 @@ impl Database {
         }
 
         let conn = Connection::open(&db_path)?;
+
+        // Enable WAL mode for better concurrent read/write performance
+        // WAL allows readers and writers to operate simultaneously
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+
+        // Reduce fsync frequency for better write performance
+        // NORMAL is safe for most cases (data loss only on OS crash, not app crash)
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+
         let db = Self {
             conn: Mutex::new(conn),
         };
@@ -98,6 +107,12 @@ impl Database {
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN takeover_had_stash INTEGER DEFAULT 0", []);
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN takeover_started_at TEXT", []);
 
+        // Migration: Add last_pid column for process state persistence
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN last_pid INTEGER", []);
+
+        // Migration: Add auto_accept_edits column
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN auto_accept_edits INTEGER NOT NULL DEFAULT 0", []);
+
         Ok(())
     }
 
@@ -137,7 +152,7 @@ impl Database {
     pub fn get_all_tasks(&self) -> Result<Vec<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits
              FROM tasks ORDER BY created_at DESC",
         )?;
 
@@ -155,6 +170,7 @@ impl Database {
                     created_at: row.get(8)?,
                     pr_url: row.get(9)?,
                     metadata_loading: row.get::<_, i32>(10)? != 0,
+                    auto_accept_edits: row.get::<_, i32>(11).unwrap_or(0) != 0,
                     pid: None,
                 })
             })?
@@ -166,7 +182,7 @@ impl Database {
     pub fn get_task(&self, id: &str) -> Result<Option<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits
              FROM tasks WHERE id = ?",
         )?;
 
@@ -184,6 +200,7 @@ impl Database {
                     created_at: row.get(8)?,
                     pr_url: row.get(9)?,
                     metadata_loading: row.get::<_, i32>(10)? != 0,
+                    auto_accept_edits: row.get::<_, i32>(11).unwrap_or(0) != 0,
                     pid: None,
                 })
             })
@@ -195,8 +212,8 @@ impl Database {
     pub fn insert_task(&self, task: &Task) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tasks (id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 task.id,
                 task.name,
@@ -209,6 +226,7 @@ impl Database {
                 task.created_at,
                 task.pr_url,
                 task.metadata_loading as i32,
+                task.auto_accept_edits as i32,
             ],
         )?;
         Ok(())
@@ -231,6 +249,15 @@ impl Database {
         Ok(())
     }
 
+    pub fn set_task_auto_accept_edits(&self, id: &str, enabled: bool) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET auto_accept_edits = ? WHERE id = ?",
+            params![enabled as i32, id],
+        )?;
+        Ok(())
+    }
+
     pub fn update_task_status(&self, id: &str, status: TaskStatus) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
@@ -238,6 +265,32 @@ impl Database {
             params![status.as_str(), id],
         )?;
         Ok(())
+    }
+
+    /// Update task status and PID together
+    pub fn update_task_status_and_pid(&self, id: &str, status: TaskStatus, pid: Option<u32>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET status = ?, last_pid = ? WHERE id = ?",
+            params![status.as_str(), pid, id],
+        )?;
+        Ok(())
+    }
+
+    /// Get all tasks that have a "running" status (for startup recovery check)
+    pub fn get_running_tasks_with_pids(&self) -> Result<Vec<(String, Option<u32>)>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, last_pid FROM tasks WHERE status = 'running'"
+        )?;
+
+        let tasks = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, Option<u32>>(1)?))
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(tasks)
     }
 
     pub fn update_task_pr_url(&self, id: &str, pr_url: &str) -> Result<()> {
@@ -294,16 +347,41 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_task_output(&self, task_id: &str, limit: Option<i64>) -> Result<Vec<OutputLine>> {
+    /// Batch insert multiple output lines in a single transaction
+    /// This is much faster than individual inserts for high-throughput scenarios
+    pub fn append_output_batch<'a>(
+        &self,
+        outputs: impl Iterator<Item = (&'a str, &'a str, &'a str, Option<&'a str>, Option<&'a serde_json::Value>, &'a str)>,
+    ) -> Result<()> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn.transaction()?;
+
+        {
+            let mut stmt = tx.prepare_cached(
+                "INSERT INTO task_output (task_id, output_type, content, timestamp, tool_name, tool_input) VALUES (?, ?, ?, ?, ?, ?)",
+            )?;
+
+            for (task_id, output_type, content, tool_name, tool_input, timestamp) in outputs {
+                let tool_input_str = tool_input.map(|v| v.to_string());
+                stmt.execute(params![task_id, output_type, content, timestamp, tool_name, tool_input_str])?;
+            }
+        }
+
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn get_task_output(&self, task_id: &str, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<OutputLine>> {
         let conn = self.conn.lock().unwrap();
-        let limit = limit.unwrap_or(1000);
+        let limit = limit.unwrap_or(200);
+        let offset = offset.unwrap_or(0);
         let mut stmt = conn.prepare(
             "SELECT output_type, content, timestamp, tool_name, tool_input FROM task_output
-             WHERE task_id = ? ORDER BY id ASC LIMIT ?",
+             WHERE task_id = ? ORDER BY id ASC LIMIT ? OFFSET ?",
         )?;
 
         let output = stmt
-            .query_map(params![task_id, limit], |row| {
+            .query_map(params![task_id, limit, offset], |row| {
                 let tool_input_str: Option<String> = row.get(4)?;
                 let tool_input = tool_input_str
                     .and_then(|s| serde_json::from_str(&s).ok());
@@ -318,6 +396,17 @@ impl Database {
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
         Ok(output)
+    }
+
+    /// Get total count of output lines for a task
+    pub fn get_task_output_count(&self, task_id: &str) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM task_output WHERE task_id = ?",
+            [task_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
     }
 
     pub fn clear_task_output(&self, task_id: &str) -> Result<()> {

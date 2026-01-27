@@ -1,14 +1,8 @@
-//! Output multiplexer for Claude Code responses
+//! Output types for Claude Code responses
 //!
-//! This module provides a unified interface for handling output from Claude Code.
-//! Output is parsed once and then sent to both:
-//! - The database for persistence
-//! - The frontend via Tauri events
+//! This module provides types for representing and transmitting Claude output.
 
-use crate::db::Database;
 use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
 
 /// Unified output type that represents parsed Claude output
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,115 +67,6 @@ pub struct ActivityEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     pub timestamp: String,
-}
-
-/// Output multiplexer that handles sending output to both DB and frontend
-pub struct OutputMux {
-    db: Arc<Database>,
-    app_handle: AppHandle,
-    task_id: String,
-}
-
-impl OutputMux {
-    pub fn new(db: Arc<Database>, app_handle: AppHandle, task_id: String) -> Self {
-        Self {
-            db,
-            app_handle,
-            task_id,
-        }
-    }
-
-    /// Emit parsed output to both database and frontend
-    pub fn emit(&self, output: ParsedOutput) {
-        let timestamp = chrono::Utc::now().to_rfc3339();
-
-        // Store in database
-        let _ = self.db.append_output(
-            &self.task_id,
-            output.output_type.as_str(),
-            &output.content,
-            output.tool_name.as_deref(),
-            output.tool_input.as_ref(),
-        );
-
-        // Emit to frontend
-        let event = OutputEvent {
-            task_id: self.task_id.clone(),
-            output_type: output.output_type.as_str().to_string(),
-            content: output.content.clone(),
-            timestamp: timestamp.clone(),
-            tool_name: output.tool_name.clone(),
-            tool_input: output.tool_input.clone(),
-        };
-        let _ = self.app_handle.emit("task-output", event);
-
-        // Also emit activity for certain types
-        match output.output_type {
-            OutputType::Text => {
-                let activity = ActivityEvent {
-                    task_id: self.task_id.clone(),
-                    activity_type: "text".to_string(),
-                    tool_name: None,
-                    tool_input: None,
-                    content: Some(output.content),
-                    timestamp,
-                };
-                let _ = self.app_handle.emit("task-activity", activity);
-            }
-            OutputType::Thinking => {
-                let activity = ActivityEvent {
-                    task_id: self.task_id.clone(),
-                    activity_type: "thinking".to_string(),
-                    tool_name: None,
-                    tool_input: None,
-                    content: Some(output.content),
-                    timestamp,
-                };
-                let _ = self.app_handle.emit("task-activity", activity);
-            }
-            OutputType::Tool => {
-                let activity = ActivityEvent {
-                    task_id: self.task_id.clone(),
-                    activity_type: "tool_use".to_string(),
-                    tool_name: output.tool_name,
-                    tool_input: output.tool_input,
-                    content: None,
-                    timestamp,
-                };
-                let _ = self.app_handle.emit("task-activity", activity);
-            }
-            _ => {}
-        }
-    }
-
-    /// Emit a tool result activity (doesn't store in DB, just activity feed)
-    pub fn emit_tool_result(&self, content: String) {
-        let timestamp = chrono::Utc::now().to_rfc3339();
-        let activity = ActivityEvent {
-            task_id: self.task_id.clone(),
-            activity_type: "tool_result".to_string(),
-            tool_name: None,
-            tool_input: None,
-            content: Some(content),
-            timestamp,
-        };
-        let _ = self.app_handle.emit("task-activity", activity);
-    }
-
-    /// Get reference to database for other operations
-    pub fn db(&self) -> &Arc<Database> {
-        &self.db
-    }
-
-    /// Get reference to app handle for other operations
-    pub fn app_handle(&self) -> &AppHandle {
-        &self.app_handle
-    }
-
-    /// Get the task ID
-    pub fn task_id(&self) -> &str {
-        &self.task_id
-    }
 }
 
 /// Builder functions for creating ParsedOutput

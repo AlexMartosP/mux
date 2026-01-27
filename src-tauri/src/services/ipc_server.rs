@@ -2,6 +2,7 @@ use crate::db::Database;
 use crate::error::Result;
 use crate::models::TaskStatus;
 use crate::services::ClaudeProcessService;
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
@@ -9,6 +10,7 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, Emitter};
+use directories::BaseDirs;
 
 const IPC_PORT: u16 = 19532; // Random port for IPC
 
@@ -137,10 +139,41 @@ impl IPCServer {
     }
 
     pub fn start(self) -> Result<()> {
-        let listener = TcpListener::bind(format!("127.0.0.1:{}", IPC_PORT))
-            .map_err(|e| crate::error::AppError::Other(format!("Failed to bind IPC server: {}", e)))?;
+        // Try to bind, and if port is in use, try to kill stale process and retry
+        let listener = match TcpListener::bind(format!("127.0.0.1:{}", IPC_PORT)) {
+            Ok(l) => l,
+            Err(e) if e.kind() == std::io::ErrorKind::AddrInUse => {
+                warn!("IPC port {} already in use, attempting to recover...", IPC_PORT);
 
-        eprintln!("IPC server listening on port {}", IPC_PORT);
+                // Try to find and kill the process using this port
+                if let Ok(output) = std::process::Command::new("lsof")
+                    .args(["-ti", &format!(":{}", IPC_PORT)])
+                    .output()
+                {
+                    let pids = String::from_utf8_lossy(&output.stdout);
+                    for pid_str in pids.lines() {
+                        if let Ok(pid) = pid_str.trim().parse::<i32>() {
+                            info!("Killing stale process {} on port {}", pid, IPC_PORT);
+                            unsafe {
+                                libc::kill(pid, libc::SIGTERM);
+                            }
+                        }
+                    }
+
+                    // Wait a moment for the port to be released
+                    std::thread::sleep(std::time::Duration::from_millis(500));
+                }
+
+                // Try again
+                TcpListener::bind(format!("127.0.0.1:{}", IPC_PORT))
+                    .map_err(|e| crate::error::AppError::Other(format!("Failed to bind IPC server after recovery attempt: {}", e)))?
+            }
+            Err(e) => {
+                return Err(crate::error::AppError::Other(format!("Failed to bind IPC server: {}", e)));
+            }
+        };
+
+        info!("IPC server listening on port {}", IPC_PORT);
 
         thread::spawn(move || {
             for stream in listener.incoming() {
@@ -254,6 +287,65 @@ fn handle_permission_request(
         stream.write_all(b"\n")?;
         stream.flush()?;
         return Ok(());
+    }
+
+    // Check if this is a read-only operation that can be auto-approved
+    if let Some(reason) = is_safe_read_only_operation(&tool_name, &tool_input) {
+        info!("[{}] Auto-approving read-only operation: {} - {}", task_id, tool_name, reason);
+        let hook_response = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "permissionDecisionReason": reason
+            }
+        });
+
+        let response_json = serde_json::to_string(&hook_response).unwrap_or_default();
+        stream.write_all(response_json.as_bytes())?;
+        stream.write_all(b"\n")?;
+        stream.flush()?;
+        return Ok(());
+    }
+
+    // Check if auto_accept_edits is enabled for this task (Write/Edit auto-approve)
+    {
+        let task = db.get_task(&task_id).ok().flatten();
+        if let Some(ref t) = task {
+            if t.auto_accept_edits && (tool_name == "Write" || tool_name == "Edit" || tool_name == "NotebookEdit") {
+                info!("[{}] Auto-approving edit (auto_accept_edits enabled): {}", task_id, tool_name);
+                let hook_response = serde_json::json!({
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "allow",
+                        "permissionDecisionReason": "Auto-approved (auto_accept_edits enabled for task)"
+                    }
+                });
+
+                let response_json = serde_json::to_string(&hook_response).unwrap_or_default();
+                stream.write_all(response_json.as_bytes())?;
+                stream.write_all(b"\n")?;
+                stream.flush()?;
+                return Ok(());
+            }
+        }
+
+        let working_dir = task.map(|t| t.worktree_path.clone());
+        if let Some(reason) = is_allowed_by_claude_settings(&tool_name, &tool_input, working_dir.as_deref()) {
+            info!("[{}] Auto-approving via Claude settings: {} - {}", task_id, tool_name, reason);
+            let hook_response = serde_json::json!({
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "allow",
+                    "permissionDecisionReason": reason
+                }
+            });
+
+            let response_json = serde_json::to_string(&hook_response).unwrap_or_default();
+            stream.write_all(response_json.as_bytes())?;
+            stream.write_all(b"\n")?;
+            stream.flush()?;
+            return Ok(());
+        }
     }
 
     // Create a channel for receiving the user's decision
@@ -465,4 +557,359 @@ fn handle_handback(
 /// Get the IPC port for CLI to connect to
 pub fn get_ipc_port() -> u16 {
     IPC_PORT
+}
+
+/// Check if a tool operation is a safe read-only operation that can be auto-approved.
+/// Returns Some(reason) if safe to auto-approve, None if it requires user approval.
+fn is_safe_read_only_operation(tool_name: &str, tool_input: &serde_json::Value) -> Option<String> {
+    match tool_name {
+        // Glob, Grep, Task, and Todo tools are always safe
+        "Glob" | "Grep" => Some(format!("{} is a read-only search operation", tool_name)),
+        "Task" => Some("Task (agent spawn) is a safe operation".to_string()),
+        "TodoWrite" | "TodoRead" | "TodoClear" => Some(format!("{} is a safe todo operation", tool_name)),
+
+        // Read is safe unless it's a sensitive file
+        "Read" => {
+            if let Some(file_path) = tool_input.get("file_path").and_then(|v| v.as_str()) {
+                if is_sensitive_file(file_path) {
+                    None // Require approval for sensitive files
+                } else {
+                    Some("Read is a read-only operation".to_string())
+                }
+            } else {
+                None // No file path, require approval
+            }
+        }
+
+        // Bash commands need to be checked for read-only commands
+        "Bash" => {
+            if let Some(command) = tool_input.get("command").and_then(|v| v.as_str()) {
+                if is_read_only_bash_command(command) {
+                    Some(format!("Read-only bash command: {}", truncate_str(command, 50)))
+                } else {
+                    None // Not a read-only command, require approval
+                }
+            } else {
+                None
+            }
+        }
+
+        // All other tools require approval
+        _ => None,
+    }
+}
+
+/// Check if a file path is sensitive and should require approval
+fn is_sensitive_file(file_path: &str) -> bool {
+    let path_lower = file_path.to_lowercase();
+    let file_name = std::path::Path::new(file_path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("")
+        .to_lowercase();
+
+    // Check for .env files
+    if file_name.starts_with(".env") || file_name == "env" {
+        return true;
+    }
+
+    // Check for common sensitive file patterns
+    let sensitive_patterns = [
+        ".env",
+        "credentials",
+        "secrets",
+        ".secret",
+        "password",
+        ".pem",
+        ".key",
+        "id_rsa",
+        "id_ed25519",
+        ".ssh/",
+        "aws/credentials",
+        ".netrc",
+        ".npmrc", // Can contain auth tokens
+        ".pypirc",
+        "token",
+    ];
+
+    for pattern in sensitive_patterns {
+        if path_lower.contains(pattern) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a bash command is read-only (doesn't modify anything)
+fn is_read_only_bash_command(command: &str) -> bool {
+    let command_trimmed = command.trim();
+
+    // Get the first word (the actual command)
+    let first_word = command_trimmed
+        .split_whitespace()
+        .next()
+        .unwrap_or("")
+        .to_lowercase();
+
+    // Also check for commands after pipes, &&, ||, ;
+    // If ANY command in the chain is not read-only, reject
+    let dangerous_chars = ['>', '|', '&', ';', '`', '$', '('];
+
+    // Simple commands without pipes/redirects are easiest to validate
+    // For complex commands, be conservative and require approval
+    if command_trimmed.chars().any(|c| dangerous_chars.contains(&c)) {
+        // Exception: allow simple pipes to grep, head, tail, wc, sort, etc.
+        if is_safe_piped_command(command_trimmed) {
+            return true;
+        }
+        return false;
+    }
+
+    // List of known read-only commands
+    let read_only_commands = [
+        "ls", "cat", "head", "tail", "less", "more",
+        "grep", "egrep", "fgrep", "rg", "ag",
+        "find", "locate", "which", "whereis", "type",
+        "wc", "sort", "uniq", "diff", "cmp",
+        "file", "stat", "du", "df",
+        "pwd", "echo", "printf", "date", "whoami", "id",
+        "env", "printenv",
+        "git status", "git log", "git diff", "git show", "git branch", "git remote",
+        "ps", "top", "htop",
+        "tree", "exa", "eza", "bat",
+        "jq", "yq", // JSON/YAML query tools
+        "curl", "wget", // These CAN be dangerous but typically used for reading
+    ];
+
+    // Check if the command starts with a read-only command
+    for ro_cmd in read_only_commands {
+        if first_word == ro_cmd || command_trimmed.starts_with(&format!("{} ", ro_cmd)) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if a piped command is safe (all commands in pipeline are read-only)
+fn is_safe_piped_command(command: &str) -> bool {
+    // Only handle simple pipes for now
+    if !command.contains('|') {
+        return false;
+    }
+
+    // Don't allow output redirection
+    if command.contains('>') {
+        return false;
+    }
+
+    // Don't allow command substitution or subshells
+    if command.contains('`') || command.contains("$(") {
+        return false;
+    }
+
+    // Split by pipe and check each command
+    let safe_pipe_commands = [
+        "grep", "egrep", "fgrep", "rg", "ag",
+        "head", "tail", "sort", "uniq", "wc",
+        "cut", "awk", "sed", // sed without -i is read-only
+        "tr", "tee", "xargs",
+        "jq", "yq",
+    ];
+
+    for part in command.split('|') {
+        let part_trimmed = part.trim();
+        let first_word = part_trimmed
+            .split_whitespace()
+            .next()
+            .unwrap_or("")
+            .to_lowercase();
+
+        // First command can be any read-only command
+        let is_first = part_trimmed == command.split('|').next().unwrap_or("").trim();
+
+        if is_first {
+            // Use the full read-only check for the first command
+            if !is_read_only_bash_command(part_trimmed.split('|').next().unwrap_or("")) {
+                // But also allow commands that start with cat, ls, find, etc.
+                let allowed_first = ["ls", "cat", "find", "grep", "rg", "ag", "git", "echo", "ps"];
+                if !allowed_first.iter().any(|&cmd| first_word == cmd) {
+                    return false;
+                }
+            }
+        } else {
+            // Subsequent commands must be safe pipe commands
+            if !safe_pipe_commands.iter().any(|&cmd| first_word == cmd) {
+                return false;
+            }
+        }
+    }
+
+    true
+}
+
+/// Check if a tool call is allowed by the user's Claude Code settings.
+/// Reads permissions.allow from ~/.claude/settings.json and project .claude/settings.local.json.
+/// Returns Some(reason) if allowed, None if not.
+fn is_allowed_by_claude_settings(
+    tool_name: &str,
+    tool_input: &serde_json::Value,
+    working_dir: Option<&str>,
+) -> Option<String> {
+    let mut allowed_rules: Vec<String> = Vec::new();
+
+    // Read global settings
+    if let Some(base_dirs) = BaseDirs::new() {
+        let global_settings = base_dirs.home_dir().join(".claude").join("settings.json");
+        if let Ok(content) = std::fs::read_to_string(&global_settings) {
+            if let Ok(settings) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(allow) = settings
+                    .get("permissions")
+                    .and_then(|p| p.get("allow"))
+                    .and_then(|a| a.as_array())
+                {
+                    for rule in allow {
+                        if let Some(s) = rule.as_str() {
+                            allowed_rules.push(s.to_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Read project-level settings
+    if let Some(dir) = working_dir {
+        // Check the worktree dir and parents for .claude/settings.local.json
+        let mut path = std::path::PathBuf::from(dir);
+        for _ in 0..5 {
+            let project_settings = path.join(".claude").join("settings.local.json");
+            if let Ok(content) = std::fs::read_to_string(&project_settings) {
+                if let Ok(settings) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if let Some(allow) = settings
+                        .get("permissions")
+                        .and_then(|p| p.get("allow"))
+                        .and_then(|a| a.as_array())
+                    {
+                        for rule in allow {
+                            if let Some(s) = rule.as_str() {
+                                allowed_rules.push(s.to_string());
+                            }
+                        }
+                    }
+                }
+                break; // Found a settings file, stop searching
+            }
+            if !path.pop() {
+                break;
+            }
+        }
+    }
+
+    if allowed_rules.is_empty() {
+        return None;
+    }
+
+    // Build the tool descriptor to match against rules
+    // Format: "ToolName" or "ToolName(argument)"
+    let tool_arg = get_tool_match_argument(tool_name, tool_input);
+
+    for rule in &allowed_rules {
+        if matches_permission_rule(rule, tool_name, tool_arg.as_deref()) {
+            return Some(format!("Allowed by Claude settings: {}", rule));
+        }
+    }
+
+    None
+}
+
+/// Extract the argument used for permission matching from a tool input.
+/// For Bash: the command string. For Read/Write/Edit: file_path. For WebFetch: domain. etc.
+fn get_tool_match_argument(tool_name: &str, tool_input: &serde_json::Value) -> Option<String> {
+    match tool_name {
+        "Bash" => tool_input.get("command").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        "Read" | "Write" | "Edit" => tool_input.get("file_path").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        "Glob" => tool_input.get("pattern").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        "Grep" => tool_input.get("pattern").and_then(|v| v.as_str()).map(|s| s.to_string()),
+        "WebFetch" => {
+            // WebFetch rules use "domain:example.com"
+            tool_input.get("url").and_then(|v| v.as_str()).map(|url| {
+                // Extract domain from URL: strip protocol, take host part
+                let without_proto = url
+                    .strip_prefix("https://").or_else(|| url.strip_prefix("http://"))
+                    .unwrap_or(url);
+                let host = without_proto.split('/').next().unwrap_or(without_proto);
+                let host = host.split(':').next().unwrap_or(host); // strip port
+                format!("domain:{}", host)
+            })
+        }
+        _ => None,
+    }
+}
+
+/// Check if a permission rule matches the tool call.
+/// Rules are in format: "ToolName" (matches all), "ToolName(pattern)" where pattern uses * as wildcard.
+fn matches_permission_rule(rule: &str, tool_name: &str, tool_arg: Option<&str>) -> bool {
+    // Simple case: rule is just the tool name (no parens) → matches all calls to that tool
+    if rule == tool_name {
+        return true;
+    }
+
+    // Check format: ToolName(pattern)
+    if let Some(paren_start) = rule.find('(') {
+        let rule_tool = &rule[..paren_start];
+        if rule_tool != tool_name {
+            return false;
+        }
+
+        // Extract pattern between parens
+        if rule.ends_with(')') {
+            let pattern = &rule[paren_start + 1..rule.len() - 1];
+
+            if let Some(arg) = tool_arg {
+                return glob_match(pattern, arg);
+            }
+            return false;
+        }
+    }
+
+    false
+}
+
+/// Simple glob matching: * matches any substring, ** matches any path including separators.
+/// The pattern from Claude settings uses * for wildcards.
+fn glob_match(pattern: &str, text: &str) -> bool {
+    // Handle the common case: pattern ends with :* (e.g., "git:*" matches "git status")
+    // Claude uses colon as separator between command prefix and args
+    if let Some(prefix) = pattern.strip_suffix(":*") {
+        // Match if text starts with the prefix followed by space or is exactly the prefix
+        return text == prefix || text.starts_with(&format!("{} ", prefix));
+    }
+
+    // Handle pattern ending with just *
+    if let Some(prefix) = pattern.strip_suffix('*') {
+        if !prefix.contains('*') {
+            return text.starts_with(prefix);
+        }
+    }
+
+    // Handle ** for path matching (e.g., /path/**)
+    if pattern.contains("**") {
+        let parts: Vec<&str> = pattern.split("**").collect();
+        if parts.len() == 2 {
+            return text.starts_with(parts[0]) && (parts[1].is_empty() || text.ends_with(parts[1]));
+        }
+    }
+
+    // Exact match
+    pattern == text
+}
+
+fn truncate_str(s: &str, max_len: usize) -> String {
+    if s.len() > max_len {
+        format!("{}...", &s[..max_len])
+    } else {
+        s.to_string()
+    }
 }

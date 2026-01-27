@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import * as tauri from "../lib/tauri";
-import type { AppSettings } from "../lib/tauri";
+import type { AppSettings, ExportOptions } from "../lib/tauri";
 import { useUpdater } from "../hooks/useUpdater";
+import { useTheme } from "../contexts/ThemeContext";
 
 interface SettingsProps {
   onClose: () => void;
@@ -16,9 +17,19 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
     notify_on_completion: true,
     notify_on_error: true,
     prompt_for_permissions: false,
+    theme: "terminal",
   });
+
+  // Theme context
+  const { theme, setThemeId, themes } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+  // Export state
+  const [exportFormat, setExportFormat] = useState<"json" | "csv" | "markdown">("json");
+  const [includeOutput, setIncludeOutput] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportMessage, setExportMessage] = useState<string | null>(null);
 
   // Updater
   const {
@@ -71,6 +82,48 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
       setSaveMessage("Failed to save");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handleExport = async () => {
+    setIsExporting(true);
+    setExportMessage(null);
+    try {
+      const options: ExportOptions = {
+        format: exportFormat,
+        task_ids: [], // Export all tasks
+        include_output: includeOutput,
+      };
+
+      const content = await tauri.exportTasks(options);
+
+      // Get file extension based on format
+      const extensions: Record<string, string[]> = {
+        json: ["json"],
+        csv: ["csv"],
+        markdown: ["md"],
+      };
+
+      const filePath = await save({
+        filters: [{
+          name: exportFormat.toUpperCase(),
+          extensions: extensions[exportFormat],
+        }],
+        defaultPath: `mux-export-${new Date().toISOString().split('T')[0]}.${extensions[exportFormat][0]}`,
+      });
+
+      if (filePath) {
+        // Write the content using Tauri fs plugin
+        const { writeTextFile } = await import("@tauri-apps/plugin-fs");
+        await writeTextFile(filePath, content);
+        setExportMessage(`Exported to ${filePath.split('/').pop()}`);
+        setTimeout(() => setExportMessage(null), 3000);
+      }
+    } catch (err) {
+      console.error("Failed to export:", err);
+      setExportMessage("Export failed");
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -173,6 +226,46 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
                 color: 'var(--text-primary)',
               }}
             />
+          </div>
+
+          {/* Theme */}
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+              APPEARANCE
+            </label>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
+              Choose a visual theme for the application.
+            </p>
+            <div className="space-y-2">
+              {themes.map((t) => (
+                <label
+                  key={t.id}
+                  className="flex items-start gap-3 p-3 cursor-pointer transition-colors"
+                  style={{
+                    backgroundColor: theme.id === t.id ? 'var(--bg-elevated)' : 'var(--bg-surface)',
+                    border: `1px solid ${theme.id === t.id ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
+                  }}
+                  onClick={() => setThemeId(t.id)}
+                >
+                  <input
+                    type="radio"
+                    name="theme"
+                    value={t.id}
+                    checked={theme.id === t.id}
+                    onChange={() => setThemeId(t.id)}
+                    style={{ accentColor: 'var(--accent-cyan)', marginTop: '2px' }}
+                  />
+                  <div>
+                    <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+                      {t.name}
+                    </span>
+                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-dim)' }}>
+                      {t.description}
+                    </p>
+                  </div>
+                </label>
+              ))}
+            </div>
           </div>
 
           {/* Notifications */}
@@ -332,6 +425,104 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
                 <p className="mt-1 whitespace-pre-wrap">{updateAvailable.body}</p>
               </div>
             )}
+          </div>
+
+          {/* Export */}
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+              EXPORT DATA
+            </label>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
+              Export task history for backup, reporting, or sharing.
+            </p>
+
+            <div className="space-y-3">
+              {/* Format selection */}
+              <div className="flex items-center gap-4">
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Format:</span>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="exportFormat"
+                    value="json"
+                    checked={exportFormat === "json"}
+                    onChange={() => setExportFormat("json")}
+                    style={{ accentColor: 'var(--accent-cyan)' }}
+                  />
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>JSON</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="exportFormat"
+                    value="csv"
+                    checked={exportFormat === "csv"}
+                    onChange={() => setExportFormat("csv")}
+                    style={{ accentColor: 'var(--accent-cyan)' }}
+                  />
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>CSV</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="radio"
+                    name="exportFormat"
+                    value="markdown"
+                    checked={exportFormat === "markdown"}
+                    onChange={() => setExportFormat("markdown")}
+                    style={{ accentColor: 'var(--accent-cyan)' }}
+                  />
+                  <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Markdown</span>
+                </label>
+              </div>
+
+              {/* Include output option */}
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeOutput}
+                  onChange={(e) => setIncludeOutput(e.target.checked)}
+                  className="w-4 h-4"
+                  style={{ accentColor: 'var(--accent-cyan)' }}
+                />
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  Include full task output (larger file size)
+                </span>
+              </label>
+
+              {/* Export button */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleExport}
+                  disabled={isExporting}
+                  className="px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
+                  style={{
+                    backgroundColor: 'transparent',
+                    border: '1px solid var(--border-active)',
+                    color: 'var(--text-secondary)',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isExporting) {
+                      e.currentTarget.style.borderColor = 'var(--accent-cyan)';
+                      e.currentTarget.style.color = 'var(--accent-cyan)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border-active)';
+                    e.currentTarget.style.color = 'var(--text-secondary)';
+                  }}
+                >
+                  {isExporting ? "EXPORTING..." : "EXPORT ALL TASKS"}
+                </button>
+                {exportMessage && (
+                  <span
+                    className="text-xs"
+                    style={{ color: exportMessage.includes("failed") ? 'var(--accent-red)' : 'var(--accent-green)' }}
+                  >
+                    {exportMessage}
+                  </span>
+                )}
+              </div>
+            </div>
           </div>
 
           {/* Save Button */}

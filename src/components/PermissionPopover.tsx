@@ -11,6 +11,12 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
   const [isResponding, setIsResponding] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
+  // Reset state when request changes (new request comes in)
+  useEffect(() => {
+    setIsResponding(false);
+    setExpanded(false);
+  }, [request.request_id]);
+
   const handleAllow = useCallback(async () => {
     if (isResponding) return;
     setIsResponding(true);

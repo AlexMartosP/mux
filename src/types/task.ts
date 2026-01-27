@@ -4,7 +4,8 @@ export type TaskStatus =
   | "waiting_input"
   | "completed"
   | "error"
-  | "manual_control";
+  | "manual_control"
+  | "interrupted";
 
 export interface Task {
   id: string;
@@ -18,6 +19,7 @@ export interface Task {
   created_at: string;
   pr_url?: string;
   metadata_loading?: boolean;
+  auto_accept_edits?: boolean;
 }
 
 export interface TaskMetadataEvent {

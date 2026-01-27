@@ -11,6 +11,7 @@ import { ActivityFeed } from "./ActivityFeed";
 import { OutputRenderer } from "./OutputRenderer";
 import { PermissionPopover } from "./PermissionPopover";
 import { HandbackModal } from "./HandbackModal";
+import { InlineError } from "./ErrorDisplay";
 import * as tauri from "../lib/tauri";
 import type { RepoInfo } from "../lib/tauri";
 
@@ -18,6 +19,7 @@ interface FollowUpMessage {
   id: string;
   content: string;
   timestamp: string;
+  outputIndex: number; // Output array index when this follow-up was sent
 }
 
 interface ChatViewProps {
@@ -36,6 +38,7 @@ const statusConfig: Record<Task["status"], { indicator: string; color: string }>
   completed: { indicator: "COMPLETED", color: "var(--text-secondary)" },
   error: { indicator: "ERROR", color: "var(--accent-red)" },
   manual_control: { indicator: "MANUAL", color: "var(--accent-magenta)" },
+  interrupted: { indicator: "INTERRUPTED", color: "var(--accent-orange, #f97316)" },
 };
 
 export function ChatView({
@@ -93,7 +96,7 @@ export function ChatView({
     fetchRepos();
   }, []);
 
-  const { output, outputRef } = useTaskOutput(task?.id ?? null);
+  const { output, outputRef, isLoadingMore, hasMore, remainingCount, loadMore } = useTaskOutput(task?.id ?? null);
   const { currentActivity } = useTaskActivity(task?.id ?? null);
   const { currentRequest: permissionRequest, dismissRequest } = usePermissions(task?.id);
 
@@ -298,11 +301,13 @@ export function ChatView({
 
   const handleFollowUpSubmit = () => {
     if (!task || !followUpPrompt.trim()) return;
-    // Add message to local state for display
+    // Add message to local state for display, recording current output index
+    // so we can render the follow-up between the right output segments
     const newMessage: FollowUpMessage = {
       id: crypto.randomUUID(),
       content: followUpPrompt.trim(),
       timestamp: new Date().toISOString(),
+      outputIndex: output.length, // Mark where in the output this follow-up was sent
     };
     setFollowUpMessages((prev) => [...prev, newMessage]);
     onRestart(task.id, followUpPrompt.trim());
@@ -425,15 +430,8 @@ export function ChatView({
 
         <div className="p-4 relative" style={{ borderTop: '1px solid var(--border-default)' }}>
           {error && (
-            <div
-              className="mb-4 p-3 text-xs"
-              style={{
-                backgroundColor: 'rgba(255, 68, 68, 0.1)',
-                border: '1px solid var(--accent-red)',
-                color: 'var(--accent-red)'
-              }}
-            >
-              ERROR: {error}
+            <div className="mb-4">
+              <InlineError message={error} />
             </div>
           )}
 
@@ -827,6 +825,73 @@ export function ChatView({
         </div>
       )}
 
+      {/* Interrupted Banner */}
+      {task.status === "interrupted" && (
+        <div
+          className="px-6 py-3"
+          style={{
+            backgroundColor: 'rgba(249, 115, 22, 0.1)',
+            borderBottom: '1px solid var(--accent-orange, #f97316)',
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <span style={{ color: 'var(--accent-orange, #f97316)' }}>[!]</span>
+            <div className="flex-1">
+              <p className="text-xs" style={{ color: 'var(--accent-orange, #f97316)' }}>
+                TASK INTERRUPTED
+              </p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
+                This task was running when the app closed unexpectedly. Click RESUME to continue where it left off.
+              </p>
+            </div>
+            <button
+              onClick={() => onRestart(task.id)}
+              className="px-3 py-1.5 text-xs font-medium transition-colors"
+              style={{
+                backgroundColor: 'var(--accent-orange, #f97316)',
+                color: 'var(--bg-primary)',
+              }}
+            >
+              RESUME
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Error Banner */}
+      {task.status === "error" && (
+        <div
+          className="px-6 py-3"
+          style={{
+            backgroundColor: 'rgba(239, 68, 68, 0.1)',
+            borderBottom: '1px solid var(--accent-red)',
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <span style={{ color: 'var(--accent-red)' }}>[E]</span>
+            <div className="flex-1">
+              <p className="text-xs" style={{ color: 'var(--accent-red)' }}>
+                TASK FAILED
+              </p>
+              <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
+                The task encountered an error. Review the output below for details, or try restarting.
+              </p>
+            </div>
+            <button
+              onClick={() => onRestart(task.id)}
+              className="px-3 py-1.5 text-xs font-medium transition-colors"
+              style={{
+                backgroundColor: 'transparent',
+                border: '1px solid var(--accent-red)',
+                color: 'var(--accent-red)',
+              }}
+            >
+              RETRY
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Activity Feed */}
       <ActivityFeed
         currentActivity={currentActivity}
@@ -873,40 +938,109 @@ export function ChatView({
               </div>
             )}
 
-            {/* Output */}
-            {(output.length > 0 || isRunning) && (
-              <div className="overflow-x-auto">
-                <OutputRenderer output={output} isRunning={isRunning} />
-              </div>
-            )}
+            {/* Output interleaved with follow-up messages */}
+            {(() => {
+              // Build segments: output sliced at follow-up boundaries
+              const segments: { type: 'output' | 'followup'; outputSlice?: typeof output; message?: FollowUpMessage; isLast?: boolean }[] = [];
 
-            {/* Follow-up messages */}
-            {followUpMessages.map((msg) => (
-              <div key={msg.id} className="mt-6">
-                <div
-                  className="p-4"
+              let lastIndex = 0;
+              for (const msg of followUpMessages) {
+                // Output before this follow-up
+                if (msg.outputIndex > lastIndex || (msg.outputIndex === lastIndex && lastIndex === 0)) {
+                  const slice = output.slice(lastIndex, msg.outputIndex);
+                  if (slice.length > 0 || lastIndex === 0) {
+                    segments.push({ type: 'output', outputSlice: slice });
+                  }
+                }
+                // The follow-up message itself
+                segments.push({ type: 'followup', message: msg });
+                lastIndex = msg.outputIndex;
+              }
+
+              // Remaining output after the last follow-up
+              const remainingOutput = output.slice(lastIndex);
+              if (remainingOutput.length > 0 || isRunning) {
+                segments.push({ type: 'output', outputSlice: remainingOutput, isLast: true });
+              }
+
+              // If no follow-ups, just render all output
+              if (followUpMessages.length === 0 && (output.length > 0 || isRunning)) {
+                segments.length = 0;
+                segments.push({ type: 'output', outputSlice: output, isLast: true });
+              }
+
+              return segments.map((segment, idx) => {
+                if (segment.type === 'output' && segment.outputSlice) {
+                  return (
+                    <div key={`output-${idx}`} className="overflow-x-auto">
+                      <OutputRenderer
+                        output={segment.outputSlice}
+                        isRunning={segment.isLast ? isRunning : false}
+                      />
+                    </div>
+                  );
+                }
+                if (segment.type === 'followup' && segment.message) {
+                  const msg = segment.message;
+                  return (
+                    <div key={msg.id} className="mt-6">
+                      <div
+                        className="p-4"
+                        style={{
+                          backgroundColor: 'var(--bg-surface)',
+                          borderLeft: '2px solid var(--accent-cyan)',
+                        }}
+                      >
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs" style={{ color: 'var(--accent-cyan)' }}>USER</span>
+                          <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
+                            {new Date(msg.timestamp).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="whitespace-pre-wrap" style={{ color: 'var(--text-primary)', fontSize: 'var(--font-xs)' }}>
+                          {msg.content}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                }
+                return null;
+              });
+            })()}
+
+            {/* Load more button */}
+            {hasMore && !isRunning && (
+              <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border-default)' }}>
+                <button
+                  onClick={loadMore}
+                  disabled={isLoadingMore}
+                  className="w-full py-2 text-xs transition-colors disabled:opacity-50"
                   style={{
                     backgroundColor: 'var(--bg-surface)',
-                    borderLeft: '2px solid var(--accent-cyan)',
+                    border: '1px solid var(--border-default)',
+                    color: 'var(--text-secondary)',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isLoadingMore) {
+                      e.currentTarget.style.borderColor = 'var(--accent-cyan)';
+                      e.currentTarget.style.color = 'var(--accent-cyan)';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border-default)';
+                    e.currentTarget.style.color = 'var(--text-secondary)';
                   }}
                 >
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xs" style={{ color: 'var(--accent-cyan)' }}>USER</span>
-                    <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
-                      {new Date(msg.timestamp).toLocaleString()}
-                    </span>
-                  </div>
-                  <div className="whitespace-pre-wrap" style={{ color: 'var(--text-primary)', fontSize: 'var(--font-xs)' }}>
-                    {msg.content}
-                  </div>
-                </div>
+                  {isLoadingMore ? 'Loading...' : `Load more (${remainingCount} remaining)`}
+                </button>
               </div>
-            ))}
+            )}
           </div>
 
           {/* Permission request popover */}
           {permissionRequest && (
             <PermissionPopover
+              key={permissionRequest.request_id}
               request={permissionRequest}
               onDismiss={() => dismissRequest(permissionRequest.request_id)}
             />
@@ -1002,7 +1136,7 @@ export function ChatView({
                 }}
                 placeholder={
                   isRunning
-                    ? "Waiting for task to complete..."
+                    ? "Task is running... click ■ to stop"
                     : "Type / for commands, or send a follow-up... (⌘+Enter to send)"
                 }
                 disabled={isRunning}
@@ -1014,18 +1148,53 @@ export function ChatView({
                   color: 'var(--text-primary)',
                 }}
               />
-              <button
-                onClick={handleFollowUpSubmit}
-                disabled={isRunning || !followUpPrompt.trim()}
-                className="px-4 py-3 text-xs font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed self-end"
-                style={{
-                  backgroundColor: followUpPrompt.trim() && !isRunning ? 'var(--accent-cyan)' : 'var(--bg-surface)',
-                  border: '1px solid var(--border-default)',
-                  color: followUpPrompt.trim() && !isRunning ? 'var(--bg-primary)' : 'var(--text-dim)',
-                }}
+              {isRunning ? (
+                <button
+                  onClick={() => onStop(task.id)}
+                  className="px-4 py-3 text-xs font-medium transition-colors self-end"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    border: '1px solid var(--accent-red)',
+                    color: 'var(--accent-red)',
+                  }}
+                  title="Stop task"
+                >
+                  ■
+                </button>
+              ) : (
+                <button
+                  onClick={handleFollowUpSubmit}
+                  disabled={!followUpPrompt.trim()}
+                  className="px-4 py-3 text-xs font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed self-end"
+                  style={{
+                    backgroundColor: followUpPrompt.trim() ? 'var(--accent-cyan)' : 'var(--bg-surface)',
+                    border: '1px solid var(--border-default)',
+                    color: followUpPrompt.trim() ? 'var(--bg-primary)' : 'var(--text-dim)',
+                  }}
+                >
+                  &gt;
+                </button>
+              )}
+            </div>
+            {/* Auto-accept edits toggle */}
+            <div className="flex items-center gap-2 px-1 pt-1">
+              <label
+                className="flex items-center gap-1.5 text-xs cursor-pointer select-none"
+                style={{ color: 'var(--text-dim)' }}
               >
-                &gt;
-              </button>
+                <input
+                  type="checkbox"
+                  checked={task.auto_accept_edits ?? false}
+                  onChange={async (e) => {
+                    const enabled = e.target.checked;
+                    await tauri.setTaskAutoAcceptEdits(task.id, enabled);
+                    if (onUpdateTask) onUpdateTask({ ...task, auto_accept_edits: enabled });
+                  }}
+                  className="accent-current"
+                  style={{ accentColor: 'var(--accent-cyan)' }}
+                />
+                Auto-accept edits
+              </label>
             </div>
           </div>
         </div>
@@ -1054,10 +1223,16 @@ export function ChatView({
           />
           <ChangesPanel
             taskId={task.id}
-            onSendReview={(prompt) => {
-              if (onRestart) {
-                onRestart(task.id, prompt);
-              }
+            onSendReview={(reviewPrompt) => {
+              // Add as follow-up message for display
+              const newMessage: FollowUpMessage = {
+                id: crypto.randomUUID(),
+                content: reviewPrompt,
+                timestamp: new Date().toISOString(),
+                outputIndex: output.length,
+              };
+              setFollowUpMessages((prev) => [...prev, newMessage]);
+              onRestart(task.id, reviewPrompt);
             }}
             onFullScreen={() => setChangesPanelFullScreen(true)}
           />
@@ -1072,11 +1247,16 @@ export function ChatView({
         >
           <ChangesPanel
             taskId={task.id}
-            onSendReview={(prompt) => {
-              if (onRestart) {
-                onRestart(task.id, prompt);
-                setChangesPanelFullScreen(false);
-              }
+            onSendReview={(reviewPrompt) => {
+              const newMessage: FollowUpMessage = {
+                id: crypto.randomUUID(),
+                content: reviewPrompt,
+                timestamp: new Date().toISOString(),
+                outputIndex: output.length,
+              };
+              setFollowUpMessages((prev) => [...prev, newMessage]);
+              onRestart(task.id, reviewPrompt);
+              setChangesPanelFullScreen(false);
             }}
             isFullScreen
             onExitFullScreen={() => setChangesPanelFullScreen(false)}

@@ -1,9 +1,21 @@
 use std::collections::HashMap;
 use std::process::Command;
+use std::sync::OnceLock;
+
+/// Cached shell environment - loaded once on first use
+static CACHED_SHELL_ENV: OnceLock<Option<HashMap<String, String>>> = OnceLock::new();
 
 /// Get the user's shell environment by running their login shell.
 /// This ensures tools like nvm, pyenv, rbenv, etc. are properly initialized.
+/// The result is cached for subsequent calls.
 pub fn get_shell_env() -> Option<HashMap<String, String>> {
+    CACHED_SHELL_ENV
+        .get_or_init(|| load_shell_env())
+        .clone()
+}
+
+/// Actually load the shell environment (called once, then cached)
+fn load_shell_env() -> Option<HashMap<String, String>> {
     // Get the user's default shell and home directory
     let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
     let home = std::env::var("HOME").ok()?;

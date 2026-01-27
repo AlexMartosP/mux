@@ -1,8 +1,11 @@
-import { useState, useMemo, useRef, useEffect } from "react";
-import type { Task } from "../types/task";
+import { useState, useMemo, useRef, useEffect, RefObject } from "react";
+import type { Task, TaskStatus } from "../types/task";
 import { TaskList } from "./TaskList";
 import { usePermissions } from "../hooks/usePermissions";
+import { formatShortcut, SHORTCUTS } from "../hooks/useKeyboardShortcuts";
 import Logo from "../assets/logo.svg?react";
+
+type SortOption = "date_desc" | "date_asc" | "name_asc" | "name_desc" | "status";
 
 interface SidebarProps {
   tasks: Task[];
@@ -11,6 +14,7 @@ interface SidebarProps {
   onNewTask: () => void;
   onOpenSettings: () => void;
   onArchiveTasks: (taskIds: string[]) => Promise<void>;
+  searchInputRef?: RefObject<HTMLInputElement | null>;
 }
 
 export function Sidebar({
@@ -20,10 +24,18 @@ export function Sidebar({
   onNewTask,
   onOpenSettings,
   onArchiveTasks,
+  searchInputRef,
 }: SidebarProps) {
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
+  const [selectedStatuses, setSelectedStatuses] = useState<Set<TaskStatus>>(new Set());
+  const [sortBy, setSortBy] = useState<SortOption>("date_desc");
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [statusDropdownOpen, setStatusDropdownOpen] = useState(false);
+  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const statusDropdownRef = useRef<HTMLDivElement>(null);
+  const sortDropdownRef = useRef<HTMLDivElement>(null);
 
   // Multi-select state
   const [selectMode, setSelectMode] = useState(false);
@@ -43,11 +55,17 @@ export function Sidebar({
     return Array.from(repoSet).sort();
   }, [tasks]);
 
-  // Close dropdown when clicking outside
+  // Close dropdowns when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setDropdownOpen(false);
+      }
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(e.target as Node)) {
+        setStatusDropdownOpen(false);
+      }
+      if (sortDropdownRef.current && !sortDropdownRef.current.contains(e.target as Node)) {
+        setSortDropdownOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -55,13 +73,52 @@ export function Sidebar({
   }, []);
 
   const filteredTasks = useMemo(() => {
-    if (selectedRepos.size === 0) return tasks;
+    let result = tasks;
 
-    return tasks.filter(task => {
-      const repoName = task.repository_path.split('/').pop() || task.repository_path;
-      return selectedRepos.has(repoName);
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      result = result.filter(task =>
+        task.name.toLowerCase().includes(query) ||
+        task.description?.toLowerCase().includes(query) ||
+        task.prompt.toLowerCase().includes(query) ||
+        task.branch.toLowerCase().includes(query)
+      );
+    }
+
+    // Filter by repository
+    if (selectedRepos.size > 0) {
+      result = result.filter(task => {
+        const repoName = task.repository_path.split('/').pop() || task.repository_path;
+        return selectedRepos.has(repoName);
+      });
+    }
+
+    // Filter by status
+    if (selectedStatuses.size > 0) {
+      result = result.filter(task => selectedStatuses.has(task.status));
+    }
+
+    // Sort
+    result = [...result].sort((a, b) => {
+      switch (sortBy) {
+        case "date_desc":
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        case "date_asc":
+          return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+        case "name_asc":
+          return a.name.localeCompare(b.name);
+        case "name_desc":
+          return b.name.localeCompare(a.name);
+        case "status":
+          return a.status.localeCompare(b.status);
+        default:
+          return 0;
+      }
     });
-  }, [tasks, selectedRepos]);
+
+    return result;
+  }, [tasks, searchQuery, selectedRepos, selectedStatuses, sortBy]);
 
   const toggleRepo = (repo: string) => {
     setSelectedRepos(prev => {
@@ -75,9 +132,43 @@ export function Sidebar({
     });
   };
 
-  const clearFilter = () => {
-    setSelectedRepos(new Set());
+  const toggleStatus = (status: TaskStatus) => {
+    setSelectedStatuses(prev => {
+      const next = new Set(prev);
+      if (next.has(status)) {
+        next.delete(status);
+      } else {
+        next.add(status);
+      }
+      return next;
+    });
   };
+
+  const clearAllFilters = () => {
+    setSearchQuery("");
+    setSelectedRepos(new Set());
+    setSelectedStatuses(new Set());
+  };
+
+  const hasActiveFilters = searchQuery.trim() || selectedRepos.size > 0 || selectedStatuses.size > 0;
+
+  const statusOptions: { value: TaskStatus; label: string; color: string }[] = [
+    { value: "running", label: "Running", color: "var(--accent-green)" },
+    { value: "waiting_input", label: "Waiting", color: "var(--accent-yellow)" },
+    { value: "completed", label: "Completed", color: "var(--text-secondary)" },
+    { value: "error", label: "Error", color: "var(--accent-red)" },
+    { value: "idle", label: "Idle", color: "var(--text-dim)" },
+    { value: "manual_control", label: "Manual", color: "var(--accent-magenta)" },
+    { value: "interrupted", label: "Interrupted", color: "var(--accent-orange, #f97316)" },
+  ];
+
+  const sortOptions: { value: SortOption; label: string }[] = [
+    { value: "date_desc", label: "Newest first" },
+    { value: "date_asc", label: "Oldest first" },
+    { value: "name_asc", label: "Name A-Z" },
+    { value: "name_desc", label: "Name Z-A" },
+    { value: "status", label: "By status" },
+  ];
 
   const toggleTaskSelection = (taskId: string) => {
     setSelectedTaskIds(prev => {
@@ -163,6 +254,7 @@ export function Sidebar({
               e.currentTarget.style.borderColor = 'var(--border-active)';
               e.currentTarget.style.color = 'var(--text-primary)';
             }}
+            title={`New task (${formatShortcut(SHORTCUTS.newTask)})`}
           >
             <span style={{ color: 'var(--accent-cyan)' }}>+</span>
             NEW TASK
@@ -189,6 +281,137 @@ export function Sidebar({
               EDIT
             </button>
           )}
+        </div>
+
+        {/* Search Input */}
+        <div className="relative">
+          <input
+            ref={searchInputRef}
+            type="text"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder={`Search tasks... (${formatShortcut(SHORTCUTS.focusSearch)})`}
+            className="w-full px-3 py-2 text-xs"
+            style={{
+              backgroundColor: 'var(--bg-primary)',
+              border: `1px solid ${searchQuery ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
+              color: 'var(--text-primary)',
+            }}
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-xs transition-colors"
+              style={{ color: 'var(--text-dim)' }}
+              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-red)'}
+              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
+            >
+              [x]
+            </button>
+          )}
+        </div>
+
+        {/* Filter Row */}
+        <div className="flex gap-2">
+          {/* Status Filter Dropdown */}
+          <div className="flex-1 relative" ref={statusDropdownRef}>
+            <button
+              onClick={() => setStatusDropdownOpen(!statusDropdownOpen)}
+              className="w-full px-2 py-1.5 text-xs text-left flex items-center justify-between"
+              style={{
+                backgroundColor: 'var(--bg-primary)',
+                border: `1px solid ${selectedStatuses.size > 0 ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
+                color: selectedStatuses.size > 0 ? 'var(--text-primary)' : 'var(--text-dim)',
+              }}
+            >
+              <span className="truncate">
+                {selectedStatuses.size === 0
+                  ? 'Status'
+                  : selectedStatuses.size === 1
+                    ? statusOptions.find(s => s.value === Array.from(selectedStatuses)[0])?.label
+                    : `${selectedStatuses.size} statuses`}
+              </span>
+              <span style={{ color: 'var(--text-dim)' }}>{statusDropdownOpen ? '▲' : '▼'}</span>
+            </button>
+
+            {statusDropdownOpen && (
+              <div
+                className="absolute top-full left-0 right-0 mt-1 z-50"
+                style={{
+                  backgroundColor: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-active)',
+                }}
+              >
+                {statusOptions.map(status => (
+                  <label
+                    key={status.value}
+                    className="flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer transition-colors"
+                    style={{ color: 'var(--text-secondary)' }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-surface)'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedStatuses.has(status.value)}
+                      onChange={() => toggleStatus(status.value)}
+                      className="accent-cyan-400"
+                    />
+                    <span style={{ color: status.color }}>{status.label}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Sort Dropdown */}
+          <div className="relative" ref={sortDropdownRef}>
+            <button
+              onClick={() => setSortDropdownOpen(!sortDropdownOpen)}
+              className="px-2 py-1.5 text-xs flex items-center gap-1"
+              style={{
+                backgroundColor: 'var(--bg-primary)',
+                border: '1px solid var(--border-default)',
+                color: 'var(--text-dim)',
+              }}
+              title="Sort tasks"
+            >
+              <span>↕</span>
+              <span>{sortDropdownOpen ? '▲' : '▼'}</span>
+            </button>
+
+            {sortDropdownOpen && (
+              <div
+                className="absolute top-full right-0 mt-1 min-w-[120px] z-50"
+                style={{
+                  backgroundColor: 'var(--bg-elevated)',
+                  border: '1px solid var(--border-active)',
+                }}
+              >
+                {sortOptions.map(option => (
+                  <button
+                    key={option.value}
+                    onClick={() => {
+                      setSortBy(option.value);
+                      setSortDropdownOpen(false);
+                    }}
+                    className="w-full px-3 py-1.5 text-xs text-left transition-colors"
+                    style={{
+                      color: sortBy === option.value ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                      backgroundColor: sortBy === option.value ? 'var(--bg-surface)' : 'transparent',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (sortBy !== option.value) e.currentTarget.style.backgroundColor = 'var(--bg-surface)';
+                    }}
+                    onMouseLeave={(e) => {
+                      if (sortBy !== option.value) e.currentTarget.style.backgroundColor = 'transparent';
+                    }}
+                  >
+                    {sortBy === option.value ? '✓ ' : '  '}{option.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Repo Filter Dropdown */}
@@ -244,23 +467,34 @@ export function Sidebar({
               )}
             </div>
           )}
-
-          {selectedRepos.size > 0 && (
-            <button
-              onClick={clearFilter}
-              className="absolute right-8 top-1/2 -translate-y-1/2 text-xs transition-colors"
-              style={{ color: 'var(--text-dim)' }}
-              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-red)'}
-              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
-            >
-              [x]
-            </button>
-          )}
         </div>
+
+        {/* Clear all filters button */}
+        {hasActiveFilters && (
+          <button
+            onClick={clearAllFilters}
+            className="w-full px-3 py-1.5 text-xs transition-colors"
+            style={{
+              backgroundColor: 'transparent',
+              border: '1px solid var(--border-default)',
+              color: 'var(--text-dim)',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--accent-red)';
+              e.currentTarget.style.color = 'var(--accent-red)';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = 'var(--border-default)';
+              e.currentTarget.style.color = 'var(--text-dim)';
+            }}
+          >
+            Clear all filters
+          </button>
+        )}
       </div>
 
       {/* Task count */}
-      {selectedRepos.size > 0 && (
+      {hasActiveFilters && (
         <div
           className="px-3 pb-2 text-xs"
           style={{ color: 'var(--text-dim)' }}
@@ -374,6 +608,7 @@ export function Sidebar({
             e.currentTarget.style.borderColor = 'var(--border-default)';
             e.currentTarget.style.color = 'var(--text-dim)';
           }}
+          title={`Settings (${formatShortcut(SHORTCUTS.settings)})`}
         >
           [*] SETTINGS
         </button>

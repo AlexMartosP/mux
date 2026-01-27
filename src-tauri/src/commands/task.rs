@@ -277,8 +277,17 @@ pub fn get_task_output(
     state: State<Arc<AppState>>,
     task_id: String,
     limit: Option<i64>,
+    offset: Option<i64>,
 ) -> Result<Vec<OutputLine>> {
-    state.db.get_task_output(&task_id, limit)
+    state.db.get_task_output(&task_id, limit, offset)
+}
+
+#[tauri::command]
+pub fn get_task_output_count(
+    state: State<Arc<AppState>>,
+    task_id: String,
+) -> Result<i64> {
+    state.db.get_task_output_count(&task_id)
 }
 
 /// Generate task info (title, description, branch name) from a prompt
@@ -309,6 +318,15 @@ pub fn update_task_description(
     description: String,
 ) -> Result<()> {
     state.db.update_task_description(&id, &description)
+}
+
+#[tauri::command]
+pub fn set_task_auto_accept_edits(
+    state: State<Arc<AppState>>,
+    id: String,
+    enabled: bool,
+) -> Result<()> {
+    state.db.set_task_auto_accept_edits(&id, enabled)
 }
 
 /// Take over manual control of a task (stops Claude, checkouts branch in root)

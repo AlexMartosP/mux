@@ -89,6 +89,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         notify_on_completion: settings.notify_on_completion,
         notify_on_error: settings.notify_on_error,
         prompt_for_permissions: settings.prompt_for_permissions,
+        theme: null, // Default theme will be loaded from context
       });
 
       // Mark onboarding as complete

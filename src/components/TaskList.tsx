@@ -22,6 +22,7 @@ const statusConfig: Record<
   completed: { indicator: "C", color: "var(--text-secondary)", borderColor: "var(--text-secondary)" },
   error: { indicator: "E", color: "var(--accent-red)", borderColor: "var(--accent-red)" },
   manual_control: { indicator: "M", color: "var(--accent-magenta)", borderColor: "var(--accent-magenta)" },
+  interrupted: { indicator: "!", color: "var(--accent-orange, #f97316)", borderColor: "var(--accent-orange, #f97316)" },
 };
 
 interface TaskGroup {

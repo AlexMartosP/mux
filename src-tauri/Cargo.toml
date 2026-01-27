@@ -1,6 +1,6 @@
 [package]
 name = "agent-coordinator"
-version = "0.1.0"
+version = "0.2.0"
 description = "A native Mac app for managing Claude Code agents"
 authors = ["you"]
 edition = "2021"
@@ -21,6 +21,7 @@ tauri-plugin-notification = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-fs = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -28,6 +29,8 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 tokio = { version = "1", features = ["process", "sync", "rt-multi-thread"] }
 thiserror = "2"
+log = "0.4"
+env_logger = "0.11"
 directories = "5"
 slug = "0.1"
 regex = "1"

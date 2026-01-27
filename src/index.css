@@ -55,10 +55,7 @@ html, body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Remove all border-radius by default */
-*, *::before, *::after {
-  border-radius: 0 !important;
-}
+/* Border radius is now controlled by theme via JavaScript */
 
 /* Disable text selection and drag on interactive elements */
 button, a {

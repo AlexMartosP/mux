@@ -12,6 +12,8 @@
     "clipboard-manager:allow-write-text",
     "updater:default",
     "process:allow-restart",
-    "process:allow-exit"
+    "process:allow-exit",
+    "fs:default",
+    "fs:allow-write-text-file"
   ]
 }
