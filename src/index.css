@@ -17,16 +17,17 @@
   --border-bright: #4a4a4a;
 
   /* Text colors */
-  --text-primary: #ffffff;
-  --text-secondary: #a0a0a0;
-  --text-dim: #606060;
+  --text-primary: #e8e8e8;
+  --text-secondary: #a8a8a8;
+  --text-dim: #8a8a8a;
 
-  /* Accent colors */
-  --accent-green: #00ff00;
-  --accent-yellow: #ffff00;
-  --accent-red: #ff4444;
-  --accent-cyan: #00ffff;
-  --accent-magenta: #ff00ff;
+  /* Accent colors — accessible, color-blind friendly */
+  --accent-green: #4ade80;
+  --accent-yellow: #facc15;
+  --accent-red: #f87171;
+  --accent-cyan: #06b6d4;
+  --accent-magenta: #c084fc;
+  --accent-orange: #fb923c;
 
   /* Typography */
   --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -186,7 +187,7 @@ input:focus, textarea:focus, select:focus, button:focus {
 
 /* Terminal-style block cursor */
 input, textarea {
-  caret-color: var(--accent-green);
+  caret-color: var(--caret-color, var(--accent-green));
   caret-shape: block;
 }
 

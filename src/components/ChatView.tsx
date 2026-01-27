@@ -24,7 +24,7 @@ interface FollowUpMessage {
 
 interface ChatViewProps {
   task: Task | null;
-  onCreateTask: (repositoryPath: string, prompt: string) => Promise<void>;
+  onCreateTask: (repositoryPath: string, prompt: string, existingBranch?: string) => Promise<void>;
   onStop: (id: string) => void;
   onRestart: (id: string, prompt?: string) => void;
   onDelete: (id: string) => void;
@@ -39,6 +39,7 @@ const statusConfig: Record<Task["status"], { indicator: string; color: string }>
   error: { indicator: "ERROR", color: "var(--accent-red)" },
   manual_control: { indicator: "MANUAL", color: "var(--accent-magenta)" },
   interrupted: { indicator: "INTERRUPTED", color: "var(--accent-orange, #f97316)" },
+  queued: { indicator: "QUEUED", color: "var(--accent-cyan)" },
 };
 
 export function ChatView({
@@ -59,6 +60,11 @@ export function ChatView({
   const [showNewTaskSlashCommands, setShowNewTaskSlashCommands] = useState(false);
   const [newTaskSelectedCommandIndex, setNewTaskSelectedCommandIndex] = useState(0);
   const [availableRepos, setAvailableRepos] = useState<RepoInfo[]>([]);
+  const [selectedBranch, setSelectedBranch] = useState<string>("");
+  const [branchSearch, setBranchSearch] = useState("");
+  const [branches, setBranches] = useState<{ name: string; is_current: boolean; last_commit_date: string }[]>([]);
+  const [showBranchSelector, setShowBranchSelector] = useState(false);
+  const branchSelectorRef = useRef<HTMLDivElement>(null);
 
   // Use cached slash commands
   const { commands: slashCommands, refresh: refreshSlashCommands } = useSlashCommands(task?.repository_path);
@@ -95,6 +101,43 @@ export function ChatView({
     };
     fetchRepos();
   }, []);
+
+  // Load branches when repo path changes
+  useEffect(() => {
+    if (!repositoryPath) {
+      setBranches([]);
+      setSelectedBranch("");
+      return;
+    }
+    const loadBranches = async () => {
+      try {
+        const branchList = await tauri.listBranches(repositoryPath);
+        setBranches(branchList);
+      } catch {
+        setBranches([]);
+      }
+    };
+    loadBranches();
+  }, [repositoryPath]);
+
+  // Close branch selector on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (branchSelectorRef.current && !branchSelectorRef.current.contains(e.target as Node)) {
+        setShowBranchSelector(false);
+      }
+    };
+    if (showBranchSelector) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showBranchSelector]);
+
+  const filteredBranches = useMemo(() => {
+    if (!branchSearch) return branches;
+    const q = branchSearch.toLowerCase();
+    return branches.filter(b => b.name.toLowerCase().includes(q));
+  }, [branches, branchSearch]);
 
   const { output, outputRef, isLoadingMore, hasMore, remainingCount, loadMore } = useTaskOutput(task?.id ?? null);
   const { currentActivity } = useTaskActivity(task?.id ?? null);
@@ -189,7 +232,7 @@ export function ChatView({
     setError(null);
 
     try {
-      await onCreateTask(repositoryPath.trim(), prompt.trim());
+      await onCreateTask(repositoryPath.trim(), prompt.trim(), selectedBranch || undefined);
       setPrompt("");
     } catch (err) {
       console.error("Failed to create task:", err);
@@ -535,6 +578,105 @@ export function ChatView({
                 </span>
               )}
             </div>
+
+            {/* Branch selector */}
+            {repositoryPath && branches.length > 0 && (
+              <div className="relative" ref={branchSelectorRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowBranchSelector(!showBranchSelector)}
+                  className="px-3 py-2 text-xs transition-colors flex items-center gap-2"
+                  style={{
+                    backgroundColor: 'transparent',
+                    border: `1px solid ${selectedBranch ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
+                    color: selectedBranch ? 'var(--text-primary)' : 'var(--text-dim)',
+                  }}
+                >
+                  <span style={{ color: 'var(--accent-cyan)' }}>[B]</span>
+                  {selectedBranch ? (
+                    <span className="truncate max-w-[200px]">{selectedBranch}</span>
+                  ) : (
+                    <span>New branch (auto-generated)</span>
+                  )}
+                  <span style={{ color: 'var(--text-dim)' }}>{showBranchSelector ? '▲' : '▼'}</span>
+                </button>
+
+                {showBranchSelector && (
+                  <div
+                    className="absolute bottom-full left-0 mb-1 w-80 max-h-60 overflow-hidden flex flex-col z-50"
+                    style={{
+                      backgroundColor: 'var(--bg-elevated)',
+                      border: '1px solid var(--border-active)',
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={branchSearch}
+                      onChange={(e) => setBranchSearch(e.target.value)}
+                      placeholder="Search branches..."
+                      className="px-3 py-2 text-xs"
+                      style={{
+                        backgroundColor: 'var(--bg-surface)',
+                        border: 'none',
+                        borderBottom: '1px solid var(--border-default)',
+                        color: 'var(--text-primary)',
+                      }}
+                      autoFocus
+                    />
+                    <div className="overflow-y-auto flex-1">
+                      {/* Auto-generate option */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedBranch("");
+                          setShowBranchSelector(false);
+                          setBranchSearch("");
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs transition-colors"
+                        style={{
+                          backgroundColor: !selectedBranch ? 'var(--bg-surface)' : 'transparent',
+                          color: !selectedBranch ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                          borderBottom: '1px solid var(--border-default)',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-surface)'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = !selectedBranch ? 'var(--bg-surface)' : 'transparent'}
+                      >
+                        <span style={{ color: 'var(--accent-cyan)' }}>+</span> New branch (auto-generated)
+                      </button>
+
+                      {filteredBranches.map((branch) => (
+                        <button
+                          type="button"
+                          key={branch.name}
+                          onClick={() => {
+                            setSelectedBranch(branch.name);
+                            setShowBranchSelector(false);
+                            setBranchSearch("");
+                          }}
+                          className="w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2"
+                          style={{
+                            backgroundColor: selectedBranch === branch.name ? 'var(--bg-surface)' : 'transparent',
+                            color: selectedBranch === branch.name ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-surface)'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = selectedBranch === branch.name ? 'var(--bg-surface)' : 'transparent'}
+                        >
+                          <span className="truncate flex-1">{branch.name}</span>
+                          {branch.is_current && (
+                            <span style={{ color: 'var(--accent-green)' }}>*</span>
+                          )}
+                        </button>
+                      ))}
+                      {filteredBranches.length === 0 && branchSearch && (
+                        <div className="px-3 py-2 text-xs" style={{ color: 'var(--text-dim)' }}>
+                          No matching branches
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="flex gap-2">
               <textarea

@@ -5,14 +5,16 @@ mod models;
 mod services;
 
 use commands::{
-    check_claude_hook_status, check_cli_status, check_github_auth, complete_onboarding,
-    create_pull_request, create_task, delete_task, delete_tasks, export_tasks,
-    generate_task_metadata, get_file_diff, get_file_diff_with_context, get_full_diff, get_pr_preview,
-    get_settings, get_slash_commands, get_task, get_task_changes, get_task_commits, get_task_output,
-    get_task_output_count, get_tasks, handback_task, install_claude_hook, install_cli,
-    is_onboarding_completed, list_repositories, open_in_editor, open_pr_in_browser, reset_onboarding,
-    respond_permission, restart_task, set_setting, set_task_auto_accept_edits, stop_task,
-    takeover_task, uninstall_claude_hook, update_settings, update_task_description,
+    check_claude_hook_status, check_cli_status, check_github_auth, clear_notifications,
+    complete_onboarding, create_pull_request, create_task, delete_task, delete_tasks, export_tasks,
+    generate_task_metadata, get_file_diff, get_file_diff_with_context, get_full_diff,
+    get_notifications, get_pr_preview, get_settings, get_slash_commands, get_task, get_task_changes,
+    get_task_commits, get_task_output, get_task_output_count, get_tasks,
+    get_unread_notification_count, handback_task, install_claude_hook, install_cli,
+    is_onboarding_completed, list_branches, list_repositories, mark_all_notifications_read,
+    mark_notification_read, open_in_editor, open_pr_in_browser, reset_onboarding,
+    respond_permission, restart_task, revert_file_changes, set_setting, set_task_auto_accept_edits, set_task_pinned,
+    stop_task, takeover_task, uninstall_claude_hook, update_settings, update_task_description,
     update_task_name, AppState,
 };
 use db::Database;
@@ -132,6 +134,17 @@ pub fn run() {
             // CLI commands
             check_cli_status,
             install_cli,
+            // Task management
+            set_task_pinned,
+            // Notifications
+            get_notifications,
+            get_unread_notification_count,
+            mark_notification_read,
+            mark_all_notifications_read,
+            clear_notifications,
+            // Git
+            list_branches,
+            revert_file_changes,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

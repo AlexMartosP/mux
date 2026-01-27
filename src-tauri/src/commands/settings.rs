@@ -18,6 +18,8 @@ pub struct AppSettings {
     pub prompt_for_permissions: bool,
     /// Theme ID (e.g., "terminal", "clean", "clean-light")
     pub theme: Option<String>,
+    /// Maximum number of concurrently running tasks (0 = unlimited)
+    pub max_concurrent_tasks: u32,
 }
 
 impl Default for AppSettings {
@@ -29,6 +31,7 @@ impl Default for AppSettings {
             notify_on_error: true,
             prompt_for_permissions: false, // Default to auto-approve for backward compatibility
             theme: Some("terminal".to_string()),
+            max_concurrent_tasks: 0, // 0 = unlimited
         }
     }
 }
@@ -54,6 +57,10 @@ pub fn get_settings(state: State<Arc<AppState>>) -> Result<AppSettings> {
             .map(|v| v == "true")
             .unwrap_or(false),
         theme: settings_map.get("theme").cloned(),
+        max_concurrent_tasks: settings_map
+            .get("max_concurrent_tasks")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0),
     })
 }
 
@@ -75,6 +82,9 @@ pub fn update_settings(state: State<Arc<AppState>>, settings: AppSettings) -> Re
     state
         .db
         .set_setting("prompt_for_permissions", &settings.prompt_for_permissions.to_string())?;
+    state
+        .db
+        .set_setting("max_concurrent_tasks", &settings.max_concurrent_tasks.to_string())?;
     Ok(())
 }
 

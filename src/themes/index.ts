@@ -21,17 +21,23 @@ export const terminalTheme: Theme = {
     "--border-bright": "#4a4a4a",
 
     // Text
-    "--text-primary": "#ffffff",
-    "--text-secondary": "#a0a0a0",
-    "--text-dim": "#606060",
+    "--text-primary": "#e8e8e8",
+    "--text-secondary": "#a8a8a8",
+    "--text-dim": "#8a8a8a",
 
-    // Accents
-    "--accent-green": "#00ff00",
-    "--accent-yellow": "#ffff00",
-    "--accent-red": "#ff4444",
-    "--accent-cyan": "#00ffff",
-    "--accent-magenta": "#ff00ff",
-    "--accent-orange": "#f97316",
+    // Accents — accessible, distinguishable for all color vision types
+    // Green: shifted toward blue-green to separate from yellow for deuteranopia
+    "--accent-green": "#4ade80",
+    // Yellow: warm amber, distinct from green even in protanopia/deuteranopia
+    "--accent-yellow": "#facc15",
+    // Red: slightly orange-shifted for better deuteranopia visibility
+    "--accent-red": "#f87171",
+    // Cyan: deeper blue-cyan for better contrast as text and background
+    "--accent-cyan": "#06b6d4",
+    // Magenta: shifted to a pink-violet for tritanopia separation from blue
+    "--accent-magenta": "#c084fc",
+    // Orange: distinct warm tone
+    "--accent-orange": "#fb923c",
 
     // Typography
     "--font-family": '"Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
@@ -48,7 +54,7 @@ export const terminalTheme: Theme = {
     "--shadow-lg": "none",
 
     // Caret
-    "--caret-color": "#00ff00",
+    "--caret-color": "#4ade80",
   },
 };
 
@@ -70,15 +76,15 @@ export const cleanTheme: Theme = {
     // Text
     "--text-primary": "#f1f5f9",
     "--text-secondary": "#94a3b8",
-    "--text-dim": "#64748b",
+    "--text-dim": "#8294ab",
 
-    // Accents - modern, vibrant but not harsh
-    "--accent-green": "#22c55e",
-    "--accent-yellow": "#eab308",
-    "--accent-red": "#ef4444",
+    // Accents — accessible, color-blind friendly
+    "--accent-green": "#4ade80",
+    "--accent-yellow": "#facc15",
+    "--accent-red": "#f87171",
     "--accent-cyan": "#06b6d4",
-    "--accent-magenta": "#a855f7",
-    "--accent-orange": "#f97316",
+    "--accent-magenta": "#c084fc",
+    "--accent-orange": "#fb923c",
 
     // Typography - sans-serif
     "--font-family": '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
@@ -114,18 +120,18 @@ export const cleanLightTheme: Theme = {
     "--border-active": "#cbd5e1",
     "--border-bright": "#94a3b8",
 
-    // Text - dark for contrast
+    // Text — all pass 4.5:1 on #ffffff and #f8fafc
     "--text-primary": "#0f172a",
     "--text-secondary": "#475569",
-    "--text-dim": "#94a3b8",
+    "--text-dim": "#64748b",
 
-    // Accents - vibrant
+    // Accents — darker for light backgrounds, accessible contrast
     "--accent-green": "#16a34a",
-    "--accent-yellow": "#ca8a04",
+    "--accent-yellow": "#a16207",
     "--accent-red": "#dc2626",
-    "--accent-cyan": "#0891b2",
-    "--accent-magenta": "#9333ea",
-    "--accent-orange": "#ea580c",
+    "--accent-cyan": "#0e7490",
+    "--accent-magenta": "#7c3aed",
+    "--accent-orange": "#c2410c",
 
     // Typography
     "--font-family": '"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
@@ -142,7 +148,7 @@ export const cleanLightTheme: Theme = {
     "--shadow-lg": "0 10px 25px rgba(0, 0, 0, 0.12), 0 6px 10px rgba(0, 0, 0, 0.08)",
 
     // Caret
-    "--caret-color": "#0891b2",
+    "--caret-color": "#0e7490",
   },
 };
 

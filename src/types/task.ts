@@ -5,7 +5,8 @@ export type TaskStatus =
   | "completed"
   | "error"
   | "manual_control"
-  | "interrupted";
+  | "interrupted"
+  | "queued";
 
 export interface Task {
   id: string;
@@ -20,6 +21,24 @@ export interface Task {
   pr_url?: string;
   metadata_loading?: boolean;
   auto_accept_edits?: boolean;
+  pinned?: boolean;
+}
+
+export interface NotificationEntry {
+  id: number;
+  task_id?: string;
+  title: string;
+  body: string;
+  notification_type: string;
+  read: boolean;
+  created_at: string;
+}
+
+export interface BranchInfo {
+  name: string;
+  is_current: boolean;
+  short_hash: string;
+  last_commit_date: string;
 }
 
 export interface TaskMetadataEvent {
@@ -38,6 +57,7 @@ export interface DescriptionEvent {
 export interface CreateTaskInput {
   repository_path: string;
   prompt: string;
+  existing_branch?: string;
 }
 
 export interface OutputLine {

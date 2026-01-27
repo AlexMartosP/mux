@@ -3,6 +3,8 @@ import type { Task, TaskStatus } from "../types/task";
 import { TaskList } from "./TaskList";
 import { usePermissions } from "../hooks/usePermissions";
 import { formatShortcut, SHORTCUTS } from "../hooks/useKeyboardShortcuts";
+import * as tauri from "../lib/tauri";
+import { NotificationCenter } from "./NotificationCenter";
 import Logo from "../assets/logo.svg?react";
 
 type SortOption = "date_desc" | "date_asc" | "name_asc" | "name_desc" | "status";
@@ -14,6 +16,7 @@ interface SidebarProps {
   onNewTask: () => void;
   onOpenSettings: () => void;
   onArchiveTasks: (taskIds: string[]) => Promise<void>;
+  onUpdateTask?: (task: Task) => void;
   searchInputRef?: RefObject<HTMLInputElement | null>;
 }
 
@@ -24,6 +27,7 @@ export function Sidebar({
   onNewTask,
   onOpenSettings,
   onArchiveTasks,
+  onUpdateTask,
   searchInputRef,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
@@ -99,8 +103,12 @@ export function Sidebar({
       result = result.filter(task => selectedStatuses.has(task.status));
     }
 
-    // Sort
+    // Sort (pinned tasks always first)
     result = [...result].sort((a, b) => {
+      const aPinned = a.pinned ? 1 : 0;
+      const bPinned = b.pinned ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+
       switch (sortBy) {
         case "date_desc":
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
@@ -160,6 +168,7 @@ export function Sidebar({
     { value: "idle", label: "Idle", color: "var(--text-dim)" },
     { value: "manual_control", label: "Manual", color: "var(--accent-magenta)" },
     { value: "interrupted", label: "Interrupted", color: "var(--accent-orange, #f97316)" },
+    { value: "queued", label: "Queued", color: "var(--accent-cyan)" },
   ];
 
   const sortOptions: { value: SortOption; label: string }[] = [
@@ -551,6 +560,13 @@ export function Sidebar({
           selectedTaskId={selectedTaskId}
           onSelectTask={onSelectTask}
           pendingPermissionTaskIds={pendingTaskIds}
+          onTogglePin={async (taskId, pinned) => {
+            await tauri.setTaskPinned(taskId, pinned);
+            const task = tasks.find(t => t.id === taskId);
+            if (task && onUpdateTask) {
+              onUpdateTask({ ...task, pinned });
+            }
+          }}
           selectMode={selectMode}
           selectedTaskIds={selectedTaskIds}
           onToggleTaskSelection={toggleTaskSelection}
@@ -590,8 +606,13 @@ export function Sidebar({
         </div>
       )}
 
-      {/* Settings button */}
-      <div className="p-3" style={{ borderTop: '1px solid var(--border-default)' }}>
+      {/* Footer: notifications + settings */}
+      <div className="p-3 space-y-2" style={{ borderTop: '1px solid var(--border-default)' }}>
+        <NotificationCenter
+          onNavigateToTask={(taskId) => {
+            onSelectTask(taskId);
+          }}
+        />
         <button
           onClick={onOpenSettings}
           className="w-full px-4 py-2 text-xs font-medium transition-colors flex items-center justify-center gap-2"

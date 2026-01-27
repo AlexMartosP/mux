@@ -54,17 +54,74 @@ impl WorktreeService {
             default_branch = default_branch,
         );
 
-        let output = Command::new(&shell)
-            .args(["-l", "-c", &script])
+        // Retry with exponential backoff for transient git failures (lock contention, etc.)
+        let max_retries = 3;
+        let mut last_error = String::new();
+
+        for attempt in 0..=max_retries {
+            if attempt > 0 {
+                let delay = std::time::Duration::from_millis(500 * (1 << (attempt - 1)));
+                eprintln!("Retrying worktree creation (attempt {}/{}), waiting {:?}...", attempt + 1, max_retries + 1, delay);
+                std::thread::sleep(delay);
+            }
+
+            let output = Command::new(&shell)
+                .args(["-l", "-c", &script])
+                .current_dir(repo_path_obj)
+                .env("HOME", &home)
+                .output()?;
+
+            if output.status.success() {
+                return Ok(());
+            }
+
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            last_error = if stderr.is_empty() { stdout.to_string() } else { stderr.to_string() };
+
+            // Only retry on transient errors (lock, network)
+            let is_transient = last_error.contains("lock")
+                || last_error.contains("Unable to create")
+                || last_error.contains("could not lock")
+                || last_error.contains("Connection");
+
+            if !is_transient {
+                break;
+            }
+        }
+
+        Err(AppError::Git(format!("Failed to create worktree: {}", last_error)))
+    }
+
+    /// Create a worktree from an existing local branch
+    pub fn create_worktree_from_branch(
+        repo_path: &str,
+        branch: &str,
+        worktree_path: &str,
+    ) -> Result<()> {
+        let repo_path_obj = Path::new(repo_path);
+
+        if !repo_path_obj.join(".git").exists() && !repo_path_obj.join("../.git").exists() {
+            return Err(AppError::RepositoryNotFound(repo_path_obj.display().to_string()));
+        }
+
+        let worktree_path_obj = Path::new(worktree_path);
+        if let Some(parent) = worktree_path_obj.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        // Create worktree from the existing branch
+        let output = Command::new("git")
+            .args(["worktree", "add", worktree_path, branch])
             .current_dir(repo_path_obj)
-            .env("HOME", &home)
             .output()?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let combined = if stderr.is_empty() { stdout } else { stderr };
-            return Err(AppError::Git(format!("Failed to create worktree: {}", combined)));
+            return Err(AppError::Git(format!(
+                "Failed to create worktree from branch '{}': {}",
+                branch, stderr
+            )));
         }
 
         Ok(())

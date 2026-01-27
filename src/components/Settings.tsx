@@ -18,6 +18,7 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
     notify_on_error: true,
     prompt_for_permissions: false,
     theme: "terminal",
+    max_concurrent_tasks: 0,
   });
 
   // Theme context
@@ -364,6 +365,31 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
                 </pre>
               </div>
             )}
+          </div>
+
+          {/* Concurrency */}
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+              CONCURRENCY
+            </label>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
+              Maximum number of tasks that can run simultaneously. Set to 0 for unlimited.
+            </p>
+            <input
+              type="number"
+              min={0}
+              max={20}
+              value={settings.max_concurrent_tasks}
+              onChange={(e) =>
+                setSettings((prev) => ({ ...prev, max_concurrent_tasks: parseInt(e.target.value) || 0 }))
+              }
+              className="w-24 px-4 py-2 text-xs"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--border-default)',
+                color: 'var(--text-primary)',
+              }}
+            />
           </div>
 
           {/* Updates */}

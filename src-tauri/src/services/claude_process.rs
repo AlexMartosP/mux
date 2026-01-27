@@ -371,15 +371,22 @@ impl ClaudeProcessService {
             };
             let _ = app_handle.emit("task-status", event);
 
-            // Send notification
+            // Save notification to DB and emit event
+            let title = if status == TaskStatus::Completed { "Task Completed" } else { "Task Failed" };
+            let body = format!("Task has {}", if status == TaskStatus::Completed { "completed successfully" } else { "encountered an error" });
+            let notif_type = if status == TaskStatus::Completed { "success" } else { "error" };
+            let _ = db.insert_notification(Some(&task_id_for_monitor), title, &body, notif_type);
             let _ = app_handle.emit(
                 "task-notification",
                 serde_json::json!({
                     "task_id": task_id_for_monitor,
-                    "title": if status == TaskStatus::Completed { "Task Completed" } else { "Task Failed" },
-                    "body": format!("Task has {}", if status == TaskStatus::Completed { "completed successfully" } else { "encountered an error" }),
+                    "title": title,
+                    "body": body,
                 }),
             );
+
+            // Check queue: start next queued task if there's capacity
+            Self::drain_queue(Arc::clone(&db), app_handle, processes_ref);
         });
 
         Ok(pid)
@@ -481,6 +488,47 @@ impl ClaudeProcessService {
         std::thread::sleep(std::time::Duration::from_millis(1000));
 
         // Force kill any remaining (would need to track which didn't exit)
+    }
+
+    /// Check if there are queued tasks that should be started
+    fn drain_queue(
+        db: Arc<Database>,
+        app_handle: AppHandle,
+        processes: Arc<Mutex<HashMap<String, u32>>>,
+    ) {
+        let max_concurrent: u32 = db
+            .get_setting("max_concurrent_tasks")
+            .ok()
+            .flatten()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+
+        if max_concurrent == 0 {
+            return; // Unlimited, nothing to drain
+        }
+
+        let running_count = {
+            let procs = processes.lock().unwrap();
+            procs.len() as u32
+        };
+
+        if running_count >= max_concurrent {
+            return; // Still at capacity
+        }
+
+        // Get next queued task
+        if let Ok(queued_tasks) = db.get_queued_tasks() {
+            if let Some(next_task) = queued_tasks.into_iter().next() {
+                info!("Draining queue: starting task {}", next_task.id);
+                // Emit event so frontend knows to start this task
+                let _ = app_handle.emit(
+                    "queue-drain",
+                    serde_json::json!({
+                        "task_id": next_task.id,
+                    }),
+                );
+            }
+        }
     }
 }
 

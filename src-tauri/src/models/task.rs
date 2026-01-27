@@ -13,6 +13,8 @@ pub enum TaskStatus {
     ManualControl,
     /// Task was running but process died unexpectedly (app restart, crash, etc.)
     Interrupted,
+    /// Task is queued and waiting for a slot to run
+    Queued,
 }
 
 impl TaskStatus {
@@ -25,6 +27,7 @@ impl TaskStatus {
             TaskStatus::Error => "error",
             TaskStatus::ManualControl => "manual_control",
             TaskStatus::Interrupted => "interrupted",
+            TaskStatus::Queued => "queued",
         }
     }
 
@@ -36,6 +39,7 @@ impl TaskStatus {
             "error" => TaskStatus::Error,
             "manual_control" => TaskStatus::ManualControl,
             "interrupted" => TaskStatus::Interrupted,
+            "queued" => TaskStatus::Queued,
             _ => TaskStatus::Idle,
         }
     }
@@ -59,6 +63,9 @@ pub struct Task {
     /// Whether to auto-accept edit/write tool calls without prompting
     #[serde(default)]
     pub auto_accept_edits: bool,
+    /// Whether this task is pinned to the top of the sidebar
+    #[serde(default)]
+    pub pinned: bool,
     #[serde(skip)]
     pub pid: Option<u32>,
 }
@@ -117,6 +124,7 @@ impl Task {
             pr_url: None,
             metadata_loading,
             auto_accept_edits: false,
+            pinned: false,
             pid: None,
         }
     }
@@ -224,4 +232,6 @@ impl Task {
 pub struct CreateTaskInput {
     pub repository_path: String,
     pub prompt: String,
+    /// Optional: use an existing branch instead of creating a new one
+    pub existing_branch: Option<String>,
 }

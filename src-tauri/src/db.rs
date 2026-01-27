@@ -118,6 +118,24 @@ impl Database {
         // Migration: Add auto_accept_edits column
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN auto_accept_edits INTEGER NOT NULL DEFAULT 0", []);
 
+        // Migration: Add pinned column
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0", []);
+
+        // Notification log table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS notifications (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT,
+                title TEXT NOT NULL,
+                body TEXT NOT NULL,
+                notification_type TEXT NOT NULL DEFAULT 'info',
+                read INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL,
+                FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE SET NULL
+            )",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -157,7 +175,7 @@ impl Database {
     pub fn get_all_tasks(&self) -> Result<Vec<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned
              FROM tasks ORDER BY created_at DESC",
         )?;
 
@@ -176,6 +194,7 @@ impl Database {
                     pr_url: row.get(9)?,
                     metadata_loading: row.get::<_, i32>(10)? != 0,
                     auto_accept_edits: row.get::<_, i32>(11).unwrap_or(0) != 0,
+                    pinned: row.get::<_, i32>(12).unwrap_or(0) != 0,
                     pid: None,
                 })
             })?
@@ -187,7 +206,7 @@ impl Database {
     pub fn get_task(&self, id: &str) -> Result<Option<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned
              FROM tasks WHERE id = ?",
         )?;
 
@@ -206,6 +225,7 @@ impl Database {
                     pr_url: row.get(9)?,
                     metadata_loading: row.get::<_, i32>(10)? != 0,
                     auto_accept_edits: row.get::<_, i32>(11).unwrap_or(0) != 0,
+                    pinned: row.get::<_, i32>(12).unwrap_or(0) != 0,
                     pid: None,
                 })
             })
@@ -217,8 +237,8 @@ impl Database {
     pub fn insert_task(&self, task: &Task) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tasks (id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 task.id,
                 task.name,
@@ -232,6 +252,7 @@ impl Database {
                 task.pr_url,
                 task.metadata_loading as i32,
                 task.auto_accept_edits as i32,
+                task.pinned as i32,
             ],
         )?;
         Ok(())
@@ -251,6 +272,127 @@ impl Database {
             "UPDATE tasks SET name = ?, description = ?, branch = ?, worktree_path = ?, metadata_loading = 0 WHERE id = ?",
             params![name, description, branch, worktree_path, id],
         )?;
+        Ok(())
+    }
+
+    pub fn set_task_pinned(&self, id: &str, pinned: bool) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET pinned = ? WHERE id = ?",
+            params![pinned as i32, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_running_task_count(&self) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM tasks WHERE status = 'running'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    pub fn get_queued_tasks(&self) -> Result<Vec<Task>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned
+             FROM tasks WHERE status = 'queued' ORDER BY created_at ASC",
+        )?;
+
+        let tasks = stmt
+            .query_map([], |row| {
+                Ok(Task {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    repository_path: row.get(3)?,
+                    branch: row.get(4)?,
+                    worktree_path: row.get(5)?,
+                    status: TaskStatus::from_str(&row.get::<_, String>(6)?),
+                    prompt: row.get(7)?,
+                    created_at: row.get(8)?,
+                    pr_url: row.get(9)?,
+                    metadata_loading: row.get::<_, i32>(10)? != 0,
+                    auto_accept_edits: row.get::<_, i32>(11).unwrap_or(0) != 0,
+                    pinned: row.get::<_, i32>(12).unwrap_or(0) != 0,
+                    pid: None,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(tasks)
+    }
+
+    // Notification methods
+    pub fn insert_notification(
+        &self,
+        task_id: Option<&str>,
+        title: &str,
+        body: &str,
+        notification_type: &str,
+    ) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        conn.execute(
+            "INSERT INTO notifications (task_id, title, body, notification_type, created_at) VALUES (?, ?, ?, ?, ?)",
+            params![task_id, title, body, notification_type, timestamp],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+
+    pub fn get_notifications(&self, limit: i64, include_read: bool) -> Result<Vec<NotificationEntry>> {
+        let conn = self.conn.lock().unwrap();
+        let query = if include_read {
+            "SELECT id, task_id, title, body, notification_type, read, created_at FROM notifications ORDER BY created_at DESC LIMIT ?"
+        } else {
+            "SELECT id, task_id, title, body, notification_type, read, created_at FROM notifications WHERE read = 0 ORDER BY created_at DESC LIMIT ?"
+        };
+        let mut stmt = conn.prepare(query)?;
+
+        let notifications = stmt
+            .query_map(params![limit], |row| {
+                Ok(NotificationEntry {
+                    id: row.get(0)?,
+                    task_id: row.get(1)?,
+                    title: row.get(2)?,
+                    body: row.get(3)?,
+                    notification_type: row.get(4)?,
+                    read: row.get::<_, i32>(5)? != 0,
+                    created_at: row.get(6)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(notifications)
+    }
+
+    pub fn get_unread_notification_count(&self) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM notifications WHERE read = 0",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    pub fn mark_notification_read(&self, id: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("UPDATE notifications SET read = 1 WHERE id = ?", params![id])?;
+        Ok(())
+    }
+
+    pub fn mark_all_notifications_read(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("UPDATE notifications SET read = 1 WHERE read = 0", [])?;
+        Ok(())
+    }
+
+    pub fn clear_notifications(&self) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM notifications", [])?;
         Ok(())
     }
 
@@ -485,6 +627,17 @@ pub struct TakeoverState {
     pub wip_commit: String,
     pub had_stash: bool,
     pub started_at: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct NotificationEntry {
+    pub id: i64,
+    pub task_id: Option<String>,
+    pub title: String,
+    pub body: String,
+    pub notification_type: String,
+    pub read: bool,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]

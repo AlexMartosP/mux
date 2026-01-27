@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { detectLanguage, highlightLine } from "../lib/syntaxHighlight";
 import { useReview } from "../contexts/ReviewContext";
 import { CommentInput, CommentBubble } from "./CommentInput";
@@ -124,8 +124,21 @@ export function DiffViewer({
     lineType: "old" | "new" | "context";
   } | null>(null);
   const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
+  const [compactMode, setCompactMode] = useState(false);
 
   const review = useReview();
+
+  // Detect small container width
+  useEffect(() => {
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        setCompactMode(entry.contentRect.width < 500);
+      }
+    });
+    const el = document.getElementById("diff-viewer-root");
+    if (el) observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const toggleHunk = (index: number) => {
     setCollapsedHunks(prev => {
@@ -168,7 +181,7 @@ export function DiffViewer({
   }
 
   return (
-    <div className="text-xs overflow-auto">
+    <div id="diff-viewer-root" className="text-xs overflow-auto">
       {fileName && (
         <div
           className="px-4 py-2 font-medium sticky top-0 z-10"
@@ -190,7 +203,7 @@ export function DiffViewer({
             style={getLineStyle(line.type)}
           >
             <div
-              className="flex-shrink-0 w-20 flex select-none"
+              className={`flex-shrink-0 ${compactMode ? 'w-10' : 'w-20'} flex select-none`}
               style={{
                 color: 'var(--text-dim)',
                 borderRight: '1px solid var(--border-default)',
@@ -304,7 +317,7 @@ export function DiffViewer({
                         onMouseLeave={() => enableComments && setHoveredLine(null)}
                       >
                         <div
-                          className="flex-shrink-0 w-20 flex select-none relative"
+                          className={`flex-shrink-0 ${compactMode ? 'w-10' : 'w-20'} flex select-none relative`}
                           style={{
                             color: 'var(--text-dim)',
                             borderRight: '1px solid var(--border-default)',
@@ -337,12 +350,20 @@ export function DiffViewer({
                               ●
                             </span>
                           )}
-                          <span className="w-10 text-right px-1">
-                            {line.oldLineNum ?? ""}
-                          </span>
-                          <span className="w-10 text-right px-1">
-                            {line.newLineNum ?? ""}
-                          </span>
+                          {compactMode ? (
+                            <span className="w-10 text-right px-1">
+                              {line.type === "deletion" ? line.oldLineNum : line.newLineNum ?? ""}
+                            </span>
+                          ) : (
+                            <>
+                              <span className="w-10 text-right px-1">
+                                {line.oldLineNum ?? ""}
+                              </span>
+                              <span className="w-10 text-right px-1">
+                                {line.newLineNum ?? ""}
+                              </span>
+                            </>
+                          )}
                         </div>
                         <span className="flex-shrink-0 w-5 text-center select-none">
                           {getLinePrefix(line.type)}
@@ -362,7 +383,7 @@ export function DiffViewer({
                       {/* Inline comments */}
                       {lineComments.length > 0 && (
                         <div
-                          className="ml-20 mr-2"
+                          className={`${compactMode ? 'ml-10' : 'ml-20'} mr-2`}
                           style={{ backgroundColor: 'var(--bg-primary)' }}
                         >
                           {lineComments.map((comment) => (
@@ -393,7 +414,7 @@ export function DiffViewer({
 
                       {/* Comment input */}
                       {isCommenting && (
-                        <div className="ml-20 mr-2 py-1">
+                        <div className={`${compactMode ? 'ml-10' : 'ml-20'} mr-2 py-1`}>
                           <CommentInput
                             onSubmit={handleSubmitComment}
                             onCancel={handleCancelComment}

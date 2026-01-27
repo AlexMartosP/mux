@@ -5,7 +5,7 @@ import { DiffViewer } from "./DiffViewer";
 import { CommitHistory } from "./CommitHistory";
 import { ReviewSummary } from "./ReviewSummary";
 import { useReview } from "../contexts/ReviewContext";
-import { getTaskChanges, getFileDiff, getFileDiffWithContext, getTaskCommits } from "../lib/tauri";
+import { getTaskChanges, getFileDiff, getFileDiffWithContext, getTaskCommits, revertFileChanges } from "../lib/tauri";
 import type { FileChange, FileDiff, CommitInfo } from "../types/task";
 
 interface ChangesPanelProps {
@@ -284,6 +284,28 @@ export function ChangesPanel({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {fileDiff && activeTab === "files" && (
+            <button
+              onClick={async () => {
+                if (!selectedFile) return;
+                const confirmed = window.confirm(`Revert all changes to ${selectedFile}?`);
+                if (!confirmed) return;
+                try {
+                  await revertFileChanges(taskId, selectedFile);
+                  await loadChanges();
+                } catch (err) {
+                  console.error("Failed to revert:", err);
+                }
+              }}
+              className="text-xs transition-colors"
+              style={{ color: 'var(--text-dim)' }}
+              title="Revert this file's changes"
+              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-red)'}
+              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
+            >
+              [REVERT]
+            </button>
+          )}
           {fileDiff && activeTab === "files" && !isFullScreen && (
             <button
               onClick={() => setIsDiffFullScreen(true)}

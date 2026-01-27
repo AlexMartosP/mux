@@ -9,7 +9,7 @@ mod task;
 
 pub use editor::open_in_editor;
 pub use export::export_tasks;
-pub use git::{get_file_diff, get_file_diff_with_context, get_full_diff, get_task_changes, get_task_commits};
+pub use git::{get_file_diff, get_file_diff_with_context, get_full_diff, get_task_changes, get_task_commits, list_branches, revert_file_changes};
 pub use github::{check_github_auth, create_pull_request, get_pr_preview, open_pr_in_browser};
 pub use permissions::respond_permission;
 pub use settings::{
@@ -19,7 +19,9 @@ pub use settings::{
 };
 pub use slash_commands::get_slash_commands;
 pub use task::{
-    create_task, delete_task, delete_tasks, generate_task_metadata, get_task, get_task_output,
-    get_task_output_count, get_tasks, handback_task, restart_task, set_task_auto_accept_edits,
-    stop_task, takeover_task, update_task_description, update_task_name, AppState,
+    clear_notifications, create_task, delete_task, delete_tasks, generate_task_metadata,
+    get_notifications, get_task, get_task_output, get_task_output_count, get_tasks,
+    get_unread_notification_count, handback_task, mark_all_notifications_read,
+    mark_notification_read, restart_task, set_task_auto_accept_edits, set_task_pinned, stop_task,
+    takeover_task, update_task_description, update_task_name, AppState,
 };

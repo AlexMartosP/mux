@@ -130,8 +130,8 @@ function App() {
     checkOnboarding();
   }, []);
 
-  const handleCreateTask = async (repositoryPath: string, prompt: string) => {
-    await createTask({ repository_path: repositoryPath, prompt });
+  const handleCreateTask = async (repositoryPath: string, prompt: string, existingBranch?: string) => {
+    await createTask({ repository_path: repositoryPath, prompt, existing_branch: existingBranch });
   };
 
   // Show loading while checking onboarding status
@@ -208,6 +208,7 @@ function App() {
             // Refresh task list
             await refreshTasks();
           }}
+          onUpdateTask={updateTask}
           searchInputRef={searchInputRef}
         />
 

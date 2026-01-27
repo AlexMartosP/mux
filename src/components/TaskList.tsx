@@ -6,6 +6,7 @@ interface TaskListProps {
   selectedTaskId: string | null;
   onSelectTask: (taskId: string) => void;
   pendingPermissionTaskIds?: Set<string>;
+  onTogglePin?: (taskId: string, pinned: boolean) => void;
   // Multi-select props
   selectMode?: boolean;
   selectedTaskIds?: Set<string>;
@@ -23,6 +24,7 @@ const statusConfig: Record<
   error: { indicator: "E", color: "var(--accent-red)", borderColor: "var(--accent-red)" },
   manual_control: { indicator: "M", color: "var(--accent-magenta)", borderColor: "var(--accent-magenta)" },
   interrupted: { indicator: "!", color: "var(--accent-orange, #f97316)", borderColor: "var(--accent-orange, #f97316)" },
+  queued: { indicator: "Q", color: "var(--accent-cyan)", borderColor: "var(--accent-cyan)" },
 };
 
 interface TaskGroup {
@@ -92,6 +94,7 @@ export function TaskList({
   selectedTaskId,
   onSelectTask,
   pendingPermissionTaskIds,
+  onTogglePin,
   selectMode = false,
   selectedTaskIds = new Set(),
   onToggleTaskSelection,
@@ -178,7 +181,7 @@ export function TaskList({
                   return (
                     <li key={task.id}>
                       <div
-                        className="w-full text-left px-3 py-2 pl-6 transition-colors flex items-start gap-2"
+                        className="group w-full text-left px-3 py-2 pl-6 transition-colors flex items-start gap-2"
                         style={{
                           backgroundColor: isSelected ? 'var(--bg-elevated)' : isChecked ? 'var(--bg-surface)' : 'transparent',
                           borderLeft: `2px solid ${isSelected ? config.borderColor : hasPendingPermission ? 'var(--accent-yellow)' : 'transparent'}`,
@@ -219,6 +222,16 @@ export function TaskList({
                               [?]
                             </span>
                           )}
+                          {task.pinned && (
+                            <span
+                              className="text-xs cursor-pointer"
+                              style={{ color: 'var(--accent-yellow)' }}
+                              title="Pinned - click to unpin"
+                              onClick={(e) => { e.stopPropagation(); onTogglePin?.(task.id, false); }}
+                            >
+                              [^]
+                            </span>
+                          )}
                           {isLoading ? (
                             <SkeletonText width="120px" />
                           ) : (
@@ -249,6 +262,18 @@ export function TaskList({
                           {task.branch}
                         </p>
                         </button>
+                        {!selectMode && !task.pinned && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); onTogglePin?.(task.id, true); }}
+                            className="opacity-0 group-hover:opacity-100 text-xs px-1 self-start mt-1 transition-opacity"
+                            style={{ color: 'var(--text-dim)' }}
+                            title="Pin task"
+                            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-yellow)'}
+                            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
+                          >
+                            [^]
+                          </button>
+                        )}
                       </div>
                     </li>
                   );

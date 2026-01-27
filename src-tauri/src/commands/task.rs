@@ -37,7 +37,19 @@ pub async fn create_task(
     input: CreateTaskInput,
 ) -> Result<Task> {
     // 1. Create task immediately with temp name for instant UI feedback
-    let task = Task::new_with_temp_name(input.repository_path.clone(), input.prompt.clone());
+    let task = if let Some(ref existing_branch) = input.existing_branch {
+        // Use existing branch - create task with that branch name
+        Task::new_with_metadata(
+            input.repository_path.clone(),
+            input.prompt.clone(),
+            format!("Working on {}", existing_branch),
+            String::new(),
+            existing_branch.clone(),
+            true, // metadata_loading
+        )
+    } else {
+        Task::new_with_temp_name(input.repository_path.clone(), input.prompt.clone())
+    };
 
     // 2. Save to database immediately (with metadata_loading: true)
     state.db.insert_task(&task)?;
@@ -48,9 +60,21 @@ pub async fn create_task(
     let branch = task.branch.clone();
     let worktree_path = task.worktree_path.clone();
     let prompt = task.prompt.clone();
+    let existing_branch = input.existing_branch.clone();
     let db = Arc::clone(&state.db);
     let claude = Arc::clone(&state.claude);
     let app_handle_clone = app_handle.clone();
+
+    // Check max concurrent tasks setting
+    let max_concurrent: u32 = state.db
+        .get_setting("max_concurrent_tasks")
+        .ok()
+        .flatten()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(0);
+
+    let running_count = state.db.get_running_task_count().unwrap_or(0) as u32;
+    let should_queue = max_concurrent > 0 && running_count >= max_concurrent;
 
     // 3. Spawn background task for worktree creation + Claude work
     tokio::spawn(async move {
@@ -59,22 +83,38 @@ pub async fn create_task(
             let repo_path = repo_path.clone();
             let branch = branch.clone();
             let worktree_path = worktree_path.clone();
-            move || WorktreeService::create_worktree(&repo_path, &branch, &worktree_path)
+            let existing_branch = existing_branch.clone();
+            move || {
+                if existing_branch.is_some() {
+                    WorktreeService::create_worktree_from_branch(&repo_path, &branch, &worktree_path)
+                } else {
+                    WorktreeService::create_worktree(&repo_path, &branch, &worktree_path)
+                }
+            }
         })
         .await;
 
         match wt_result {
             Ok(Ok(())) => {
-                // Worktree created, start Claude to work on the task
-                let _ = claude.start(
-                    app_handle_clone.clone(),
-                    Arc::clone(&db),
-                    &task_id,
-                    &worktree_path,
-                    &prompt,
-                    false,
-                );
-                let _ = db.update_task_status(&task_id, TaskStatus::Running);
+                if should_queue {
+                    // Queue the task - it will be started when a slot opens
+                    let _ = db.update_task_status(&task_id, TaskStatus::Queued);
+                    let _ = app_handle_clone.emit("task-status", serde_json::json!({
+                        "task_id": task_id,
+                        "status": "queued"
+                    }));
+                } else {
+                    // Worktree created, start Claude to work on the task
+                    let _ = claude.start(
+                        app_handle_clone.clone(),
+                        Arc::clone(&db),
+                        &task_id,
+                        &worktree_path,
+                        &prompt,
+                        false,
+                    );
+                    let _ = db.update_task_status(&task_id, TaskStatus::Running);
+                }
             }
             Ok(Err(e)) => {
                 // Worktree creation failed
@@ -318,6 +358,53 @@ pub fn update_task_description(
     description: String,
 ) -> Result<()> {
     state.db.update_task_description(&id, &description)
+}
+
+#[tauri::command]
+pub fn set_task_pinned(
+    state: State<Arc<AppState>>,
+    id: String,
+    pinned: bool,
+) -> Result<()> {
+    state.db.set_task_pinned(&id, pinned)
+}
+
+#[tauri::command]
+pub fn get_notifications(
+    state: State<Arc<AppState>>,
+    limit: Option<i64>,
+    include_read: Option<bool>,
+) -> Result<Vec<crate::db::NotificationEntry>> {
+    state.db.get_notifications(limit.unwrap_or(50), include_read.unwrap_or(true))
+}
+
+#[tauri::command]
+pub fn get_unread_notification_count(
+    state: State<Arc<AppState>>,
+) -> Result<i64> {
+    state.db.get_unread_notification_count()
+}
+
+#[tauri::command]
+pub fn mark_notification_read(
+    state: State<Arc<AppState>>,
+    id: i64,
+) -> Result<()> {
+    state.db.mark_notification_read(id)
+}
+
+#[tauri::command]
+pub fn mark_all_notifications_read(
+    state: State<Arc<AppState>>,
+) -> Result<()> {
+    state.db.mark_all_notifications_read()
+}
+
+#[tauri::command]
+pub fn clear_notifications(
+    state: State<Arc<AppState>>,
+) -> Result<()> {
+    state.db.clear_notifications()
 }
 
 #[tauri::command]

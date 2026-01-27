@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Task, CreateTaskInput, OutputLine, FileChange, FileDiff, CommitInfo, PRPreview, PullRequest } from "../types/task";
+import type { Task, CreateTaskInput, OutputLine, FileChange, FileDiff, CommitInfo, PRPreview, PullRequest, NotificationEntry, BranchInfo } from "../types/task";
 
 export async function getTasks(): Promise<Task[]> {
   return invoke("get_tasks");
@@ -128,6 +128,7 @@ export interface AppSettings {
   notify_on_error: boolean;
   prompt_for_permissions: boolean;
   theme: string | null;
+  max_concurrent_tasks: number;
 }
 
 export async function getSettings(): Promise<AppSettings> {
@@ -177,6 +178,41 @@ export async function updateTaskDescription(id: string, description: string): Pr
 
 export async function setTaskAutoAcceptEdits(id: string, enabled: boolean): Promise<void> {
   return invoke("set_task_auto_accept_edits", { id, enabled });
+}
+
+export async function setTaskPinned(id: string, pinned: boolean): Promise<void> {
+  return invoke("set_task_pinned", { id, pinned });
+}
+
+// Notifications
+export async function getNotifications(limit?: number, includeRead?: boolean): Promise<NotificationEntry[]> {
+  return invoke("get_notifications", { limit, includeRead });
+}
+
+export async function getUnreadNotificationCount(): Promise<number> {
+  return invoke("get_unread_notification_count");
+}
+
+export async function markNotificationRead(id: number): Promise<void> {
+  return invoke("mark_notification_read", { id });
+}
+
+export async function markAllNotificationsRead(): Promise<void> {
+  return invoke("mark_all_notifications_read");
+}
+
+export async function clearNotifications(): Promise<void> {
+  return invoke("clear_notifications");
+}
+
+// File change management
+export async function revertFileChanges(taskId: string, filePath: string): Promise<void> {
+  return invoke("revert_file_changes", { taskId, filePath });
+}
+
+// Branch listing
+export async function listBranches(repositoryPath: string): Promise<BranchInfo[]> {
+  return invoke("list_branches", { repositoryPath });
 }
 
 // Permission handling
