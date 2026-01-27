@@ -36,7 +36,12 @@ impl Database {
     }
 
     fn get_db_path() -> Result<PathBuf> {
-        let proj_dirs = ProjectDirs::from("com", "agent-coordinator", "AgentCoordinator")
+        let qualifier = if cfg!(debug_assertions) {
+            "AgentCoordinator-Dev"
+        } else {
+            "AgentCoordinator"
+        };
+        let proj_dirs = ProjectDirs::from("com", "agent-coordinator", qualifier)
             .ok_or_else(|| AppError::Other("Could not determine app data directory".into()))?;
 
         Ok(proj_dirs.data_dir().join("tasks.db"))

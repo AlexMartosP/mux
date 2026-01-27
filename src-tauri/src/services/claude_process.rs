@@ -132,6 +132,7 @@ impl ClaudeProcessService {
 
         // Set environment variable for task ID so hook can identify the task
         cmd.env("AGENT_COORDINATOR_TASK_ID", task_id);
+        cmd.env("MUX_IPC_PORT", super::ipc_server::get_ipc_port().to_string());
 
         cmd.arg("--output-format")
             .arg("stream-json")

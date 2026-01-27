@@ -12,7 +12,7 @@ use std::thread;
 use tauri::{AppHandle, Emitter};
 use directories::BaseDirs;
 
-const IPC_PORT: u16 = 19532; // Random port for IPC
+const IPC_PORT: u16 = if cfg!(debug_assertions) { 19533 } else { 19532 };
 
 /// Pending permission requests waiting for user response
 type PendingPermissions = Arc<Mutex<HashMap<String, std::sync::mpsc::Sender<PermissionDecision>>>>;

@@ -10,7 +10,7 @@ const net = require('net');
 const crypto = require('crypto');
 const fs = require('fs');
 
-const IPC_PORT = 19532;
+const IPC_PORT = parseInt(process.env.MUX_IPC_PORT || '19532', 10);
 const IPC_HOST = '127.0.0.1';
 const DEBUG = process.env.DEBUG_PERMISSION_HOOK === '1';
 const LOG_FILE = '/tmp/permission-hook.log';
