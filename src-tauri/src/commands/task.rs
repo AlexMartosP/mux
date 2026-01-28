@@ -36,6 +36,10 @@ pub async fn create_task(
     state: State<'_, Arc<AppState>>,
     input: CreateTaskInput,
 ) -> Result<Task> {
+    log::info!("[create_task] repo={}, existing_branch={:?}, prompt={}...",
+        input.repository_path,
+        input.existing_branch,
+        &input.prompt[..input.prompt.len().min(80)]);
     // 1. Create task immediately with temp name for instant UI feedback
     let task = if let Some(ref existing_branch) = input.existing_branch {
         // Use existing branch - create task with that branch name
@@ -105,26 +109,47 @@ pub async fn create_task(
                     }));
                 } else {
                     // Worktree created, start Claude to work on the task
-                    let _ = claude.start(
+                    match claude.start(
                         app_handle_clone.clone(),
                         Arc::clone(&db),
                         &task_id,
                         &worktree_path,
                         &prompt,
                         false,
-                    );
-                    let _ = db.update_task_status(&task_id, TaskStatus::Running);
+                    ) {
+                        Ok(_) => {
+                            let _ = db.update_task_status(&task_id, TaskStatus::Running);
+                            let _ = app_handle_clone.emit("task-status", serde_json::json!({
+                                "task_id": task_id,
+                                "status": "running"
+                            }));
+                        }
+                        Err(e) => {
+                            log::error!("[create_task] Failed to start Claude for task {}: {}", task_id, e);
+                            let _ = db.update_task_status(&task_id, TaskStatus::Error);
+                            let _ = app_handle_clone.emit("task-status", serde_json::json!({
+                                "task_id": task_id,
+                                "status": "error"
+                            }));
+                        }
+                    }
                 }
             }
             Ok(Err(e)) => {
-                // Worktree creation failed
-                eprintln!("Failed to create worktree: {}", e);
+                log::error!("[create_task] Failed to create worktree for task {}: {}", task_id, e);
                 let _ = db.update_task_status(&task_id, TaskStatus::Error);
+                let _ = app_handle_clone.emit("task-status", serde_json::json!({
+                    "task_id": task_id,
+                    "status": "error"
+                }));
             }
             Err(e) => {
-                // Task panicked
-                eprintln!("Worktree task panicked: {}", e);
+                log::error!("[create_task] Worktree task panicked for task {}: {}", task_id, e);
                 let _ = db.update_task_status(&task_id, TaskStatus::Error);
+                let _ = app_handle_clone.emit("task-status", serde_json::json!({
+                    "task_id": task_id,
+                    "status": "error"
+                }));
             }
         }
     });
@@ -152,17 +177,61 @@ pub async fn create_task(
             if let Ok(Some(current_task)) = db_for_meta.get_task(&task_id_for_meta) {
                 // Rename the git branch if the generated name is different
                 let new_branch = if metadata.branch_name != current_task.branch {
-                    // Try to rename the branch in the worktree
-                    match WorktreeService::rename_branch(
-                        &current_task.worktree_path,
-                        &current_task.branch,
-                        &metadata.branch_name,
-                    ) {
-                        Ok(()) => metadata.branch_name.clone(),
-                        Err(e) => {
-                            eprintln!("Failed to rename branch: {}", e);
-                            current_task.branch.clone() // Keep original on error
+                    // Wait for worktree to exist before renaming (it's created in parallel)
+                    let worktree_exists = {
+                        let mut attempts = 0;
+                        const MAX_ATTEMPTS: u32 = 30; // 30 seconds max wait
+                        loop {
+                            if std::path::Path::new(&current_task.worktree_path).exists() {
+                                break true;
+                            }
+                            attempts += 1;
+                            if attempts >= MAX_ATTEMPTS {
+                                log::warn!(
+                                    "[{}] Worktree not created after {}s, skipping branch rename",
+                                    task_id_for_meta,
+                                    MAX_ATTEMPTS
+                                );
+                                break false;
+                            }
+                            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
                         }
+                    };
+
+                    if worktree_exists {
+                        // Try to rename the branch in the worktree
+                        log::info!(
+                            "[{}] Renaming branch from '{}' to '{}'",
+                            task_id_for_meta,
+                            current_task.branch,
+                            metadata.branch_name
+                        );
+                        match WorktreeService::rename_branch(
+                            &current_task.worktree_path,
+                            &current_task.branch,
+                            &metadata.branch_name,
+                        ) {
+                            Ok(()) => {
+                                log::info!(
+                                    "[{}] Branch renamed successfully to '{}'",
+                                    task_id_for_meta,
+                                    metadata.branch_name
+                                );
+                                metadata.branch_name.clone()
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "[{}] Failed to rename branch from '{}' to '{}': {}",
+                                    task_id_for_meta,
+                                    current_task.branch,
+                                    metadata.branch_name,
+                                    e
+                                );
+                                current_task.branch.clone() // Keep original on error
+                            }
+                        }
+                    } else {
+                        current_task.branch.clone() // Keep original if worktree doesn't exist
                     }
                 } else {
                     current_task.branch.clone()
@@ -275,9 +344,15 @@ pub async fn delete_tasks(state: State<'_, Arc<AppState>>, ids: Vec<String>) -> 
 }
 
 #[tauri::command]
-pub fn stop_task(state: State<Arc<AppState>>, id: String) -> Result<()> {
+pub fn stop_task(app_handle: AppHandle, state: State<Arc<AppState>>, id: String) -> Result<()> {
+    log::info!("[stop_task] Stopping task {}", id);
     state.claude.stop(&id)?;
     state.db.update_task_status(&id, TaskStatus::Idle)?;
+    let _ = app_handle.emit("task-status", serde_json::json!({
+        "task_id": id,
+        "status": "idle"
+    }));
+    log::info!("[stop_task] Task {} stopped", id);
     Ok(())
 }
 
@@ -288,6 +363,8 @@ pub fn restart_task(
     id: String,
     prompt: Option<String>,
 ) -> Result<()> {
+    log::info!("[restart_task] Restarting task {}, is_follow_up={}", id, prompt.is_some());
+
     let task = state.db.get_task(&id)?
         .ok_or_else(|| crate::error::AppError::TaskNotFound(id.clone()))?;
 
@@ -298,18 +375,36 @@ pub fn restart_task(
     let is_follow_up = prompt.is_some();
     let prompt_to_use = prompt.unwrap_or(task.prompt);
 
+    log::info!("[restart_task] Starting Claude in worktree={}, continue={}", task.worktree_path, is_follow_up);
+
     // Start Claude process (continue conversation if follow-up)
-    state.claude.start(
-        app_handle,
+    match state.claude.start(
+        app_handle.clone(),
         Arc::clone(&state.db),
         &id,
         &task.worktree_path,
         &prompt_to_use,
-        is_follow_up, // Continue conversation for follow-ups
-    )?;
-    state.db.update_task_status(&id, TaskStatus::Running)?;
-
-    Ok(())
+        is_follow_up,
+    ) {
+        Ok(_) => {
+            state.db.update_task_status(&id, TaskStatus::Running)?;
+            let _ = app_handle.emit("task-status", serde_json::json!({
+                "task_id": id,
+                "status": "running"
+            }));
+            log::info!("[restart_task] Task {} restarted successfully", id);
+            Ok(())
+        }
+        Err(e) => {
+            log::error!("[restart_task] Failed to start Claude for task {}: {}", id, e);
+            state.db.update_task_status(&id, TaskStatus::Error)?;
+            let _ = app_handle.emit("task-status", serde_json::json!({
+                "task_id": id,
+                "status": "error"
+            }));
+            Err(e)
+        }
+    }
 }
 
 #[tauri::command]
@@ -358,6 +453,13 @@ pub fn update_task_description(
     description: String,
 ) -> Result<()> {
     state.db.update_task_description(&id, &description)
+}
+
+#[tauri::command]
+pub fn get_cost_summary(
+    state: State<Arc<AppState>>,
+) -> Result<crate::db::CostSummary> {
+    state.db.get_cost_summary()
 }
 
 #[tauri::command]
@@ -425,40 +527,85 @@ pub fn takeover_task(
 ) -> Result<TakeoverResult> {
     use crate::services::GitService;
 
+    log::info!("[takeover] Starting takeover for task {}", id);
+
     let task = state.db.get_task(&id)?
         .ok_or_else(|| crate::error::AppError::TaskNotFound(id.clone()))?;
 
+    log::info!("[takeover] Task status={}, branch={}, worktree={}, repo={}",
+        task.status.as_str(), task.branch, task.worktree_path, task.repository_path);
+
     // Stop the Claude process if running
     if task.status == TaskStatus::Running {
+        log::info!("[takeover] Stopping running Claude process for task {}", id);
         state.claude.stop(&id)?;
+        log::info!("[takeover] Claude process stopped");
     }
 
     // 1. Commit any uncommitted changes in the worktree
+    log::info!("[takeover] Step 1: Checking for uncommitted changes in worktree");
     let wip_commit = if GitService::has_uncommitted_changes(&task.worktree_path)? {
-        GitService::commit_all(&task.worktree_path, "WIP: takeover checkpoint")?
+        log::info!("[takeover] Worktree has uncommitted changes, creating WIP commit");
+        let commit = GitService::commit_all(&task.worktree_path, "WIP: takeover checkpoint")?;
+        log::info!("[takeover] WIP commit created: {}", commit);
+        commit
     } else {
-        // Get current HEAD as the "wip commit" reference point
+        log::info!("[takeover] No uncommitted changes in worktree, getting HEAD");
         let output = std::process::Command::new("git")
             .args(["rev-parse", "HEAD"])
             .current_dir(&task.worktree_path)
             .output()
             .map_err(|e| crate::error::AppError::Git(format!("Failed to get HEAD: {}", e)))?;
-        String::from_utf8_lossy(&output.stdout).trim().to_string()
+        let head = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        log::info!("[takeover] Worktree HEAD: {}", head);
+        head
     };
 
     // 2. Get the current branch in the repo root
+    log::info!("[takeover] Step 2: Getting current branch in repo root");
     let original_branch = GitService::get_current_branch(&task.repository_path)?;
+    log::info!("[takeover] Original branch: {}", original_branch);
 
     // 3. Stash any uncommitted changes in the repo root
+    log::info!("[takeover] Step 3: Stashing uncommitted changes in repo root");
     let had_stash = GitService::stash_push(&task.repository_path, &format!("mux-takeover-{}", id))?;
+    log::info!("[takeover] Had stash: {}", had_stash);
 
-    // 4. Checkout the worktree's branch in the repo root
+    // 4. Detach HEAD in the worktree so the branch is freed for checkout in root
+    log::info!("[takeover] Step 4: Detaching HEAD in worktree to free branch '{}'", task.branch);
+
+    // First verify the worktree path exists
+    if !std::path::Path::new(&task.worktree_path).exists() {
+        log::error!("[takeover] Worktree path does not exist: {}", task.worktree_path);
+        return Err(crate::error::AppError::Git(format!(
+            "Worktree path does not exist: {}. The worktree may have been deleted externally.",
+            task.worktree_path
+        )));
+    }
+
+    let detach_output = std::process::Command::new("git")
+        .args(["checkout", "--detach"])
+        .current_dir(&task.worktree_path)
+        .output()
+        .map_err(|e| crate::error::AppError::Git(format!("Failed to detach worktree HEAD: {}", e)))?;
+    if !detach_output.status.success() {
+        let stderr = String::from_utf8_lossy(&detach_output.stderr);
+        log::error!("[takeover] Failed to detach worktree HEAD: {}", stderr);
+        return Err(crate::error::AppError::Git(format!("Failed to detach worktree HEAD: {}", stderr)));
+    }
+    log::info!("[takeover] Worktree HEAD detached successfully");
+
+    // 5. Checkout the worktree's branch in the repo root
+    log::info!("[takeover] Step 5: Checking out branch '{}' in repo root", task.branch);
     GitService::checkout_branch(&task.repository_path, &task.branch)?;
+    log::info!("[takeover] Branch checked out in repo root");
 
-    // 5. Store takeover state
+    // 6. Store takeover state
+    log::info!("[takeover] Step 6: Storing takeover state in DB");
     state.db.set_takeover_state(&id, &original_branch, &wip_commit, had_stash)?;
 
-    // 6. Update status to manual_control
+    // 7. Update status to manual_control
+    log::info!("[takeover] Step 7: Updating task status to manual_control");
     state.db.update_task_status(&id, TaskStatus::ManualControl)?;
 
     // Emit status change event
@@ -469,6 +616,8 @@ pub fn takeover_task(
             "status": "manual_control"
         }),
     );
+
+    log::info!("[takeover] Takeover complete for task {}", id);
 
     Ok(TakeoverResult {
         original_branch,
@@ -499,11 +648,17 @@ pub fn handback_task(
 ) -> Result<()> {
     use crate::services::GitService;
 
+    log::info!("[handback] Starting handback for task {}", id);
+
     let task = state.db.get_task(&id)?
         .ok_or_else(|| crate::error::AppError::TaskNotFound(id.clone()))?;
 
+    log::info!("[handback] Task status={}, branch={}, worktree={}, repo={}",
+        task.status.as_str(), task.branch, task.worktree_path, task.repository_path);
+
     // Check if task is in manual control mode
     if task.status != TaskStatus::ManualControl {
+        log::error!("[handback] Task not in manual_control mode: {}", task.status.as_str());
         return Err(crate::error::AppError::Other(format!(
             "Task is not in manual control mode (current status: {})",
             task.status.as_str()
@@ -512,18 +667,27 @@ pub fn handback_task(
 
     // Get takeover state
     let takeover_state = state.db.get_takeover_state(&id)?
-        .ok_or_else(|| crate::error::AppError::Other("No takeover state found".to_string()))?;
+        .ok_or_else(|| {
+            log::error!("[handback] No takeover state found for task {}", id);
+            crate::error::AppError::Other("No takeover state found".to_string())
+        })?;
+
+    log::info!("[handback] Takeover state: original_branch={}, wip_commit={}, had_stash={}",
+        takeover_state.original_branch, takeover_state.wip_commit, takeover_state.had_stash);
 
     // 1. If user made changes in root (which is now on the task branch), commit them
+    log::info!("[handback] Step 1: Checking for uncommitted changes in repo root");
     if GitService::has_uncommitted_changes(&task.repository_path)? {
         let msg = commit_message.clone().unwrap_or_else(|| "Manual changes during takeover".to_string());
+        log::info!("[handback] Committing changes in repo root: {}", msg);
         GitService::commit_all(&task.repository_path, &msg)?;
+    } else {
+        log::info!("[handback] No uncommitted changes in repo root");
     }
 
     // 2. If we have a WIP commit and user provided a commit message, squash them
-    //    This is done by soft-resetting to before the WIP commit and re-committing
+    log::info!("[handback] Step 2: Checking if squash is needed");
     if commit_message.is_some() {
-        // Check if WIP commit exists and we can squash
         let current_head = {
             let output = std::process::Command::new("git")
                 .args(["rev-parse", "HEAD"])
@@ -532,44 +696,89 @@ pub fn handback_task(
                 .map_err(|e| crate::error::AppError::Git(format!("Failed to get HEAD: {}", e)))?;
             String::from_utf8_lossy(&output.stdout).trim().to_string()
         };
+        log::info!("[handback] Current HEAD: {}, WIP commit: {}", current_head, takeover_state.wip_commit);
 
-        // If current HEAD is different from WIP commit, we have new commits to potentially squash
         if current_head != takeover_state.wip_commit {
-            // Get the parent of the WIP commit to reset to
-            if let Ok(parent) = GitService::get_parent_commit(&task.repository_path, &takeover_state.wip_commit) {
-                // Soft reset to parent of WIP commit (keeps all changes staged)
+            // Verify WIP commit is an ancestor of current HEAD before squashing
+            // This prevents data loss if user hard-reset or rebased
+            let is_ancestor = std::process::Command::new("git")
+                .args(["merge-base", "--is-ancestor", &takeover_state.wip_commit, &current_head])
+                .current_dir(&task.repository_path)
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+
+            if !is_ancestor {
+                log::warn!("[handback] WIP commit {} is not an ancestor of HEAD {}, skipping squash to prevent data loss",
+                    takeover_state.wip_commit, current_head);
+            } else if let Ok(parent) = GitService::get_parent_commit(&task.repository_path, &takeover_state.wip_commit) {
+                log::info!("[handback] Squashing: soft reset to parent {} and re-commit", parent);
                 GitService::soft_reset(&task.repository_path, &parent)?;
-                // Commit with user's message (squashing WIP + user changes)
                 let msg = commit_message.unwrap_or_else(|| "Manual changes during takeover".to_string());
                 GitService::commit_all(&task.repository_path, &msg)?;
+            } else {
+                log::warn!("[handback] Could not get parent of WIP commit, skipping squash");
             }
+        } else {
+            log::info!("[handback] HEAD == WIP commit, no squash needed");
         }
     }
 
-    // 3. Pull the changes back to the worktree (since we committed in root)
-    //    The worktree shares the same git objects, so we just need to update it
-    let _ = std::process::Command::new("git")
+    // 3. Re-attach worktree to the branch (it was detached during takeover)
+    log::info!("[handback] Step 3: Re-attaching worktree to branch '{}'", task.branch);
+
+    // First verify the worktree path exists
+    if !std::path::Path::new(&task.worktree_path).exists() {
+        log::error!("[handback] Worktree path does not exist: {}", task.worktree_path);
+        return Err(crate::error::AppError::Git(format!(
+            "Worktree path does not exist: {}. The worktree may have been deleted externally.",
+            task.worktree_path
+        )));
+    }
+
+    let checkout_output = std::process::Command::new("git")
         .args(["checkout", &task.branch])
         .current_dir(&task.worktree_path)
-        .output();
+        .output()
+        .map_err(|e| crate::error::AppError::Git(format!(
+            "Failed to execute checkout in worktree: {}", e
+        )))?;
 
-    // 4. Checkout original branch in root
+    if !checkout_output.status.success() {
+        let stderr = String::from_utf8_lossy(&checkout_output.stderr);
+        log::error!("[handback] Failed to re-attach worktree to branch: {}", stderr);
+        return Err(crate::error::AppError::Git(format!(
+            "Failed to re-attach worktree to branch '{}': {}",
+            task.branch, stderr
+        )));
+    }
+    log::info!("[handback] Worktree re-attached to branch successfully");
+
+    // 4. Checkout original branch in root (this frees the task branch for the worktree)
+    log::info!("[handback] Step 4: Checking out original branch '{}' in repo root", takeover_state.original_branch);
     GitService::checkout_branch(&task.repository_path, &takeover_state.original_branch)?;
+    log::info!("[handback] Original branch restored in repo root");
 
     // 5. Pop stash if we had one
     if takeover_state.had_stash {
+        log::info!("[handback] Step 5: Popping stash");
         let _ = GitService::stash_pop(&task.repository_path);
+    } else {
+        log::info!("[handback] Step 5: No stash to pop");
     }
 
     // 6. Clear takeover state
+    log::info!("[handback] Step 6: Clearing takeover state from DB");
     state.db.clear_takeover_state(&id)?;
 
     // 7. Determine the prompt to use
     let resume_prompt = prompt.unwrap_or_else(|| {
         "Continue working on the task. I made some manual changes - please review them and continue from where you left off.".to_string()
     });
+    log::info!("[handback] Step 7: Resume prompt: {}...", &resume_prompt[..resume_prompt.len().min(80)]);
 
     // 8. Start Claude process (continue conversation since we're resuming)
+    log::info!("[handback] Step 8: Starting Claude process for handback");
     state.claude.start(
         app_handle,
         Arc::clone(&state.db),
@@ -581,6 +790,8 @@ pub fn handback_task(
 
     // Update status to running
     state.db.update_task_status(&id, TaskStatus::Running)?;
+
+    log::info!("[handback] Handback complete for task {}", id);
 
     Ok(())
 }

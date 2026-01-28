@@ -109,6 +109,32 @@ export function useTasks() {
     };
   }, []);
 
+  // Listen for cost updates
+  useEffect(() => {
+    const unlisten = listen<{ task_id: string; cost_usd: number; input_tokens: number; output_tokens: number }>(
+      "task-cost",
+      (event) => {
+        const { task_id, cost_usd, input_tokens, output_tokens } = event.payload;
+        setTasks((prev) =>
+          prev.map((task) =>
+            task.id === task_id
+              ? {
+                  ...task,
+                  total_cost_usd: (task.total_cost_usd ?? 0) + cost_usd,
+                  total_input_tokens: (task.total_input_tokens ?? 0) + input_tokens,
+                  total_output_tokens: (task.total_output_tokens ?? 0) + output_tokens,
+                }
+              : task
+          )
+        );
+      }
+    );
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
   // Listen for metadata updates (from background generation)
   useEffect(() => {
     const unlisten = listen<TaskMetadataEvent>("task-metadata", (event) => {

@@ -66,6 +66,12 @@ pub struct Task {
     /// Whether this task is pinned to the top of the sidebar
     #[serde(default)]
     pub pinned: bool,
+    #[serde(default)]
+    pub total_cost_usd: f64,
+    #[serde(default)]
+    pub total_input_tokens: i64,
+    #[serde(default)]
+    pub total_output_tokens: i64,
     #[serde(skip)]
     pub pid: Option<u32>,
 }
@@ -125,6 +131,9 @@ impl Task {
             metadata_loading,
             auto_accept_edits: false,
             pinned: false,
+            total_cost_usd: 0.0,
+            total_input_tokens: 0,
+            total_output_tokens: 0,
             pid: None,
         }
     }

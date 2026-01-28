@@ -1,11 +1,13 @@
 import type { ActivityEvent } from "../types/task";
+import type { ActiveAgent } from "../hooks/useTaskActivity";
 
 interface ActivityFeedProps {
   currentActivity: ActivityEvent | null;
+  activeAgent: ActiveAgent | null;
   isRunning: boolean;
 }
 
-export function ActivityFeed({ currentActivity, isRunning }: ActivityFeedProps) {
+export function ActivityFeed({ currentActivity, activeAgent, isRunning }: ActivityFeedProps) {
   if (!isRunning) return null;
 
   return (
@@ -15,7 +17,27 @@ export function ActivityFeed({ currentActivity, isRunning }: ActivityFeedProps) 
     }}>
       <div className="px-4 py-2 flex items-center gap-3">
         <span className="animate-pulse" style={{ color: 'var(--accent-green)' }}>▸</span>
-        {currentActivity ? (
+        {activeAgent && currentActivity?.tool_name !== "Task" ? (
+          // Show nested: agent context + current sub-action
+          <div className="flex items-center gap-2 text-xs min-w-0">
+            <span style={{ color: 'var(--accent-yellow)' }}>[T]</span>
+            <span className="truncate" style={{ color: 'var(--text-dim)' }}>
+              {activeAgent.description}
+            </span>
+            {currentActivity && (
+              <>
+                <span style={{ color: 'var(--text-dim)' }}>→</span>
+                <ToolIndicator toolName={currentActivity.tool_name} />
+                <span className="truncate" style={{ color: 'var(--text-secondary)' }}>
+                  {formatActivity(currentActivity)}
+                </span>
+              </>
+            )}
+            {!currentActivity && (
+              <span style={{ color: 'var(--text-dim)' }}>working...</span>
+            )}
+          </div>
+        ) : currentActivity ? (
           <div className="flex items-center gap-2 text-xs">
             <ToolIndicator toolName={currentActivity.tool_name} />
             <span style={{ color: 'var(--text-secondary)' }}>

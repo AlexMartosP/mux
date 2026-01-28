@@ -6,7 +6,7 @@ mod services;
 
 use commands::{
     check_claude_hook_status, check_cli_status, check_github_auth, clear_notifications,
-    complete_onboarding, create_pull_request, create_task, delete_task, delete_tasks, export_tasks,
+    complete_onboarding, create_pull_request, create_task, delete_task, delete_tasks, export_tasks, get_cost_summary,
     generate_task_metadata, get_file_diff, get_file_diff_with_context, get_full_diff,
     get_notifications, get_pr_preview, get_settings, get_slash_commands, get_task, get_task_changes,
     get_task_commits, get_task_output, get_task_output_count, get_tasks,
@@ -136,6 +136,7 @@ pub fn run() {
             install_cli,
             // Task management
             set_task_pinned,
+            get_cost_summary,
             // Notifications
             get_notifications,
             get_unread_notification_count,

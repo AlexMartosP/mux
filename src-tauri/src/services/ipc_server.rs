@@ -108,8 +108,88 @@ fn get_pending_permissions() -> &'static PendingPermissions {
     PENDING_PERMISSIONS.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
 }
 
+/// Info about a permission request that timed out while waiting for user response
+#[derive(Debug, Clone, Serialize)]
+pub struct TimedOutRequest {
+    pub task_id: String,
+    pub tool_name: String,
+    pub tool_input: serde_json::Value,
+}
+
+/// Storage for timed-out requests (request_id -> info)
+/// When user responds to these, we need to restart Claude instead of sending through channel
+type TimedOutRequests = Arc<Mutex<HashMap<String, TimedOutRequest>>>;
+static TIMED_OUT_REQUESTS: std::sync::OnceLock<TimedOutRequests> = std::sync::OnceLock::new();
+
+fn get_timed_out_requests() -> &'static TimedOutRequests {
+    TIMED_OUT_REQUESTS.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+}
+
+/// Pre-approved permission (approved after timeout, waiting for Claude to re-request)
+#[derive(Debug, Clone)]
+pub struct PreApprovedPermission {
+    pub task_id: String,
+    pub tool_name: String,
+    pub approved_at: std::time::Instant,
+}
+
+/// Storage for pre-approved permissions
+/// These are auto-approved when Claude re-requests them after restart
+type PreApprovedPermissions = Arc<Mutex<Vec<PreApprovedPermission>>>;
+static PRE_APPROVED_PERMISSIONS: std::sync::OnceLock<PreApprovedPermissions> = std::sync::OnceLock::new();
+
+fn get_pre_approved_permissions() -> &'static PreApprovedPermissions {
+    PRE_APPROVED_PERMISSIONS.get_or_init(|| Arc::new(Mutex::new(Vec::new())))
+}
+
+/// Check if a permission was pre-approved (after a timeout)
+pub fn check_pre_approved(task_id: &str, tool_name: &str) -> Option<String> {
+    let pre_approved = get_pre_approved_permissions();
+    let mut list = pre_approved.lock().unwrap();
+
+    // Clean up old pre-approvals (older than 5 minutes)
+    let now = std::time::Instant::now();
+    list.retain(|p| now.duration_since(p.approved_at).as_secs() < 300);
+
+    // Find and remove matching pre-approval
+    if let Some(pos) = list.iter().position(|p| p.task_id == task_id && p.tool_name == tool_name) {
+        let approval = list.remove(pos);
+        return Some(format!("Pre-approved after timeout: {}", approval.tool_name));
+    }
+    None
+}
+
+/// Add a pre-approved permission
+pub fn add_pre_approved(task_id: &str, tool_name: &str) {
+    let pre_approved = get_pre_approved_permissions();
+    let mut list = pre_approved.lock().unwrap();
+    list.push(PreApprovedPermission {
+        task_id: task_id.to_string(),
+        tool_name: tool_name.to_string(),
+        approved_at: std::time::Instant::now(),
+    });
+}
+
+/// Get a timed-out request by ID (removes it from storage)
+pub fn take_timed_out_request(request_id: &str) -> Option<TimedOutRequest> {
+    let timed_out = get_timed_out_requests();
+    let mut map = timed_out.lock().unwrap();
+    map.remove(request_id)
+}
+
+/// Result of responding to a permission request
+#[derive(Debug, Clone, Serialize)]
+pub struct PermissionResponseResult {
+    /// Whether the response was successfully sent
+    pub sent: bool,
+    /// If this was a timed-out request that was approved, contains task info for restart
+    pub restart_task: Option<TimedOutRequest>,
+}
+
 /// Respond to a pending permission request (called from Tauri command)
-pub fn respond_to_permission(request_id: &str, decision: PermissionDecision) -> bool {
+/// Returns info about whether to restart the task (for timed-out approvals)
+pub fn respond_to_permission(request_id: &str, decision: PermissionDecision) -> PermissionResponseResult {
+    // First, try to send through the active channel (request hasn't timed out yet)
     let pending = get_pending_permissions();
     let sender = {
         let mut map = pending.lock().unwrap();
@@ -117,10 +197,35 @@ pub fn respond_to_permission(request_id: &str, decision: PermissionDecision) -> 
     };
 
     if let Some(sender) = sender {
-        sender.send(decision).is_ok()
-    } else {
-        false
+        let sent = sender.send(decision).is_ok();
+        return PermissionResponseResult { sent, restart_task: None };
     }
+
+    // No active channel - check if this is a timed-out request
+    if let Some(timed_out_req) = take_timed_out_request(request_id) {
+        if decision.behavior == "allow" {
+            // User approved after timeout - add pre-approval for when Claude restarts
+            info!(
+                "[{}] User approved timed-out permission for {}. Will auto-approve on restart.",
+                timed_out_req.task_id, timed_out_req.tool_name
+            );
+            add_pre_approved(&timed_out_req.task_id, &timed_out_req.tool_name);
+            return PermissionResponseResult {
+                sent: true,
+                restart_task: Some(timed_out_req),
+            };
+        } else {
+            // User denied after timeout - just dismiss, task stays stopped
+            info!(
+                "[{}] User denied timed-out permission for {}. Task remains stopped.",
+                timed_out_req.task_id, timed_out_req.tool_name
+            );
+            return PermissionResponseResult { sent: true, restart_task: None };
+        }
+    }
+
+    // Request not found in either storage
+    PermissionResponseResult { sent: false, restart_task: None }
 }
 
 pub struct IPCServer {
@@ -233,6 +338,7 @@ fn handle_client(
         return handle_permission_request(
             stream,
             &db,
+            &claude,
             &app_handle,
             request_id,
             task_id,
@@ -255,15 +361,44 @@ fn handle_client(
     Ok(())
 }
 
+// Permission timeout must be less than Claude Code's hook timeout (60s)
+// to ensure we respond before Claude times out and potentially continues
+const PERMISSION_TIMEOUT_SECS: u64 = 55;
+
 fn handle_permission_request(
     mut stream: TcpStream,
     db: &Arc<Database>,
+    claude: &Arc<ClaudeProcessService>,
     app_handle: &AppHandle,
     request_id: String,
     task_id: String,
     tool_name: String,
     tool_input: serde_json::Value,
 ) -> Result<()> {
+    // Clone values needed after the event emission (which moves task_id, tool_input)
+    let task_id_for_timeout = task_id.clone();
+    let request_id_for_timeout = request_id.clone();
+    let tool_name_for_timeout = tool_name.clone();
+    let tool_input_for_timeout = tool_input.clone();
+
+    // Check for pre-approved permission (approved after a previous timeout)
+    if let Some(reason) = check_pre_approved(&task_id, &tool_name) {
+        info!("[{}] Auto-approving pre-approved permission: {} - {}", task_id, tool_name, reason);
+        let hook_response = serde_json::json!({
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "allow",
+                "permissionDecisionReason": reason
+            }
+        });
+
+        let response_json = serde_json::to_string(&hook_response).unwrap_or_default();
+        stream.write_all(response_json.as_bytes())?;
+        stream.write_all(b"\n")?;
+        stream.flush()?;
+        return Ok(());
+    }
+
     // Check if permission prompting is enabled in settings
     let prompt_for_permissions = db
         .get_setting("prompt_for_permissions")
@@ -368,16 +503,64 @@ fn handle_permission_request(
     let _ = app_handle.emit("permission-request", event);
 
     // Wait for user response (with timeout)
-    let decision = match receiver.recv_timeout(std::time::Duration::from_secs(300)) {
+    // Timeout must be less than Claude Code's 60s hook timeout
+    let decision = match receiver.recv_timeout(std::time::Duration::from_secs(PERMISSION_TIMEOUT_SECS)) {
         Ok(decision) => decision,
         Err(_) => {
-            // Timeout or sender dropped - remove from pending and deny
+            // Timeout - remove from pending channels
             let pending = get_pending_permissions();
-            let mut map = pending.lock().unwrap();
-            map.remove(&request_id);
+            {
+                let mut map = pending.lock().unwrap();
+                map.remove(&request_id_for_timeout);
+            }
+
+            // Store as timed-out request so we can handle late responses
+            {
+                let timed_out = get_timed_out_requests();
+                let mut map = timed_out.lock().unwrap();
+                map.insert(request_id_for_timeout.clone(), TimedOutRequest {
+                    task_id: task_id_for_timeout.clone(),
+                    tool_name: tool_name_for_timeout.clone(),
+                    tool_input: tool_input_for_timeout,
+                });
+            }
+
+            // CRITICAL: Stop the Claude process to prevent it from continuing
+            // without approval. Claude Code has a 60s timeout and may continue
+            // executing if we don't respond in time.
+            warn!(
+                "[{}] Permission request timed out after {}s, stopping task. User can still approve and task will resume.",
+                task_id_for_timeout, PERMISSION_TIMEOUT_SECS
+            );
+
+            if let Err(e) = claude.stop(&task_id_for_timeout) {
+                warn!("[{}] Failed to stop task after permission timeout: {}", task_id_for_timeout, e);
+            }
+
+            // Update task status to idle (paused, waiting for user)
+            if let Err(e) = db.update_task_status(&task_id_for_timeout, TaskStatus::Idle) {
+                warn!("[{}] Failed to update task status after permission timeout: {}", task_id_for_timeout, e);
+            }
+
+            // Emit events to notify frontend (permission request stays visible)
+            let _ = app_handle.emit("task-status", serde_json::json!({
+                "task_id": task_id_for_timeout,
+                "status": "idle"
+            }));
+
+            let _ = app_handle.emit("permission-timeout", serde_json::json!({
+                "task_id": task_id_for_timeout,
+                "request_id": request_id_for_timeout,
+                "tool_name": tool_name_for_timeout,
+                "timed_out": true,
+                "message": format!("Task paused after {}s. Approve to continue.", PERMISSION_TIMEOUT_SECS)
+            }));
+
+            // Return deny to close the IPC connection gracefully
+            // The permission request stays visible in UI for user to respond later
             PermissionDecision {
                 behavior: "deny".to_string(),
-                reason: Some("Permission request timed out".to_string()),
+                reason: Some("Timed out - task paused, awaiting user response".to_string()),
             }
         }
     };

@@ -110,17 +110,45 @@ impl WorktreeService {
             std::fs::create_dir_all(parent)?;
         }
 
-        // Create worktree from the existing branch
-        let output = Command::new("git")
-            .args(["worktree", "add", worktree_path, branch])
+        // Run git worktree through a shell script that:
+        // 1. Sources nvm if available
+        // 2. Runs `nvm use` if .nvmrc exists (to get correct node version for hooks)
+        // 3. Runs the git worktree command
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let home = std::env::var("HOME").unwrap_or_default();
+
+        let script = format!(
+            r#"
+            # Source nvm if available
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+
+            # If .nvmrc exists in the repo, use that node version
+            if [ -f "{repo_path}/.nvmrc" ]; then
+                nvm use 2>/dev/null || nvm install 2>/dev/null
+            fi
+
+            # Run the git worktree command
+            git worktree add "{worktree_path}" "{branch}"
+            "#,
+            repo_path = repo_path,
+            worktree_path = worktree_path,
+            branch = branch,
+        );
+
+        let output = Command::new(&shell)
+            .args(["-l", "-c", &script])
             .current_dir(repo_path_obj)
+            .env("HOME", &home)
             .output()?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let error = if stderr.is_empty() { stdout.to_string() } else { stderr.to_string() };
             return Err(AppError::Git(format!(
                 "Failed to create worktree from branch '{}': {}",
-                branch, stderr
+                branch, error
             )));
         }
 

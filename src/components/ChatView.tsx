@@ -140,7 +140,7 @@ export function ChatView({
   }, [branches, branchSearch]);
 
   const { output, outputRef, isLoadingMore, hasMore, remainingCount, loadMore } = useTaskOutput(task?.id ?? null);
-  const { currentActivity } = useTaskActivity(task?.id ?? null);
+  const { currentActivity, activeAgent } = useTaskActivity(task?.id ?? null);
   const { currentRequest: permissionRequest, dismissRequest } = usePermissions(task?.id);
 
   useEffect(() => {
@@ -780,6 +780,14 @@ export function ChatView({
               >
                 {copiedBranch ? "Copied!" : task.branch}
               </button>
+              {task.total_cost_usd != null && task.total_cost_usd > 0 && (
+                <>
+                  <span>•</span>
+                  <span title={`${(task.total_input_tokens ?? 0).toLocaleString()} in / ${(task.total_output_tokens ?? 0).toLocaleString()} out`}>
+                    ${task.total_cost_usd.toFixed(4)}
+                  </span>
+                </>
+              )}
             </p>
             {editingDescription ? (
               <textarea
@@ -983,19 +991,9 @@ export function ChatView({
                 TASK INTERRUPTED
               </p>
               <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
-                This task was running when the app closed unexpectedly. Click RESUME to continue where it left off.
+                This task was running when the app closed. Send a follow-up message below to continue where it left off.
               </p>
             </div>
-            <button
-              onClick={() => onRestart(task.id)}
-              className="px-3 py-1.5 text-xs font-medium transition-colors"
-              style={{
-                backgroundColor: 'var(--accent-orange, #f97316)',
-                color: 'var(--bg-primary)',
-              }}
-            >
-              RESUME
-            </button>
           </div>
         </div>
       )}
@@ -1037,6 +1035,7 @@ export function ChatView({
       {/* Activity Feed */}
       <ActivityFeed
         currentActivity={currentActivity}
+        activeAgent={activeAgent}
         isRunning={isRunning}
       />
 
@@ -1085,30 +1084,32 @@ export function ChatView({
               // Build segments: output sliced at follow-up boundaries
               const segments: { type: 'output' | 'followup'; outputSlice?: typeof output; message?: FollowUpMessage; isLast?: boolean }[] = [];
 
-              let lastIndex = 0;
-              for (const msg of followUpMessages) {
-                // Output before this follow-up
-                if (msg.outputIndex > lastIndex || (msg.outputIndex === lastIndex && lastIndex === 0)) {
+              if (followUpMessages.length === 0) {
+                // No follow-ups: render all output as one segment
+                if (output.length > 0 || isRunning) {
+                  segments.push({ type: 'output', outputSlice: output, isLast: true });
+                }
+              } else {
+                // Sort follow-ups by outputIndex to ensure correct ordering
+                const sorted = [...followUpMessages].sort((a, b) => a.outputIndex - b.outputIndex);
+
+                let lastIndex = 0;
+                for (const msg of sorted) {
+                  // Always add output segment before follow-up (even if empty for first segment)
                   const slice = output.slice(lastIndex, msg.outputIndex);
                   if (slice.length > 0 || lastIndex === 0) {
                     segments.push({ type: 'output', outputSlice: slice });
                   }
+                  // The follow-up message itself
+                  segments.push({ type: 'followup', message: msg });
+                  lastIndex = msg.outputIndex;
                 }
-                // The follow-up message itself
-                segments.push({ type: 'followup', message: msg });
-                lastIndex = msg.outputIndex;
-              }
 
-              // Remaining output after the last follow-up
-              const remainingOutput = output.slice(lastIndex);
-              if (remainingOutput.length > 0 || isRunning) {
-                segments.push({ type: 'output', outputSlice: remainingOutput, isLast: true });
-              }
-
-              // If no follow-ups, just render all output
-              if (followUpMessages.length === 0 && (output.length > 0 || isRunning)) {
-                segments.length = 0;
-                segments.push({ type: 'output', outputSlice: output, isLast: true });
+                // Remaining output after the last follow-up
+                const remainingOutput = output.slice(lastIndex);
+                if (remainingOutput.length > 0 || isRunning) {
+                  segments.push({ type: 'output', outputSlice: remainingOutput, isLast: true });
+                }
               }
 
               return segments.map((segment, idx) => {

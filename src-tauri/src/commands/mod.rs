@@ -19,7 +19,7 @@ pub use settings::{
 };
 pub use slash_commands::get_slash_commands;
 pub use task::{
-    clear_notifications, create_task, delete_task, delete_tasks, generate_task_metadata,
+    clear_notifications, create_task, delete_task, delete_tasks, generate_task_metadata, get_cost_summary,
     get_notifications, get_task, get_task_output, get_task_output_count, get_tasks,
     get_unread_notification_count, handback_task, mark_all_notifications_read,
     mark_notification_read, restart_task, set_task_auto_accept_edits, set_task_pinned, stop_task,

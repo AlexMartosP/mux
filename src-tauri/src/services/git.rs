@@ -364,6 +364,7 @@ impl GitService {
 
     /// Get the current branch name
     pub fn get_current_branch(repo_path: &str) -> Result<String> {
+        log::debug!("[git] get_current_branch({})", repo_path);
         let output = Command::new("git")
             .args(["rev-parse", "--abbrev-ref", "HEAD"])
             .current_dir(repo_path)
@@ -371,28 +372,37 @@ impl GitService {
             .map_err(|e| AppError::Git(format!("Failed to get current branch: {}", e)))?;
 
         if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            log::error!("[git] get_current_branch failed: {}", err);
             return Err(AppError::Git(format!(
                 "git rev-parse failed: {}",
-                String::from_utf8_lossy(&output.stderr)
+                err
             )));
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        let branch = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        log::debug!("[git] Current branch: {}", branch);
+        Ok(branch)
     }
 
     /// Check if there are uncommitted changes
     pub fn has_uncommitted_changes(repo_path: &str) -> Result<bool> {
+        log::debug!("[git] has_uncommitted_changes({})", repo_path);
         let output = Command::new("git")
             .args(["status", "--porcelain"])
             .current_dir(repo_path)
             .output()
             .map_err(|e| AppError::Git(format!("Failed to check git status: {}", e)))?;
 
-        Ok(!String::from_utf8_lossy(&output.stdout).trim().is_empty())
+        let status = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let has_changes = !status.is_empty();
+        log::debug!("[git] has_uncommitted_changes={} ({})", has_changes, if has_changes { &status } else { "clean" });
+        Ok(has_changes)
     }
 
     /// Commit all changes (staged and unstaged)
     pub fn commit_all(repo_path: &str, message: &str) -> Result<String> {
+        log::info!("[git] commit_all({}, \"{}\")", repo_path, message);
         // Stage all changes
         let output = Command::new("git")
             .args(["add", "-A"])
@@ -401,10 +411,9 @@ impl GitService {
             .map_err(|e| AppError::Git(format!("Failed to stage changes: {}", e)))?;
 
         if !output.status.success() {
-            return Err(AppError::Git(format!(
-                "git add failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
+            let err = String::from_utf8_lossy(&output.stderr);
+            log::error!("[git] git add failed: {}", err);
+            return Err(AppError::Git(format!("git add failed: {}", err)));
         }
 
         // Commit
@@ -416,10 +425,11 @@ impl GitService {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            // "nothing to commit" is not an error
             if stderr.contains("nothing to commit") {
+                log::info!("[git] Nothing to commit");
                 return Ok("No changes to commit".to_string());
             }
+            log::error!("[git] git commit failed: {}", stderr);
             return Err(AppError::Git(format!("git commit failed: {}", stderr)));
         }
 
@@ -430,13 +440,17 @@ impl GitService {
             .output()
             .map_err(|e| AppError::Git(format!("Failed to get commit hash: {}", e)))?;
 
-        Ok(String::from_utf8_lossy(&hash_output.stdout).trim().to_string())
+        let hash = String::from_utf8_lossy(&hash_output.stdout).trim().to_string();
+        log::info!("[git] Committed: {}", hash);
+        Ok(hash)
     }
 
     /// Stash changes with a message
     pub fn stash_push(repo_path: &str, message: &str) -> Result<bool> {
+        log::debug!("[git] stash_push({}, \"{}\")", repo_path, message);
         // Check if there are changes to stash
         if !Self::has_uncommitted_changes(repo_path)? {
+            log::debug!("[git] No changes to stash");
             return Ok(false);
         }
 
@@ -447,17 +461,18 @@ impl GitService {
             .map_err(|e| AppError::Git(format!("Failed to stash: {}", e)))?;
 
         if !output.status.success() {
-            return Err(AppError::Git(format!(
-                "git stash failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
+            let err = String::from_utf8_lossy(&output.stderr);
+            log::error!("[git] git stash push failed: {}", err);
+            return Err(AppError::Git(format!("git stash failed: {}", err)));
         }
 
+        log::info!("[git] Stash pushed: {}", String::from_utf8_lossy(&output.stdout).trim());
         Ok(true)
     }
 
     /// Pop the latest stash
     pub fn stash_pop(repo_path: &str) -> Result<bool> {
+        log::info!("[git] stash_pop({})", repo_path);
         let output = Command::new("git")
             .args(["stash", "pop"])
             .current_dir(repo_path)
@@ -466,18 +481,21 @@ impl GitService {
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            // "No stash entries found" is not an error
             if stderr.contains("No stash entries found") {
+                log::info!("[git] No stash entries found");
                 return Ok(false);
             }
+            log::error!("[git] stash_pop failed: {}", stderr);
             return Err(AppError::Git(format!("git stash pop failed: {}", stderr)));
         }
 
+        log::info!("[git] Stash popped successfully");
         Ok(true)
     }
 
     /// Checkout a branch
     pub fn checkout_branch(repo_path: &str, branch: &str) -> Result<()> {
+        log::info!("[git] checkout_branch({}, \"{}\")", repo_path, branch);
         let output = Command::new("git")
             .args(["checkout", branch])
             .current_dir(repo_path)
@@ -485,17 +503,18 @@ impl GitService {
             .map_err(|e| AppError::Git(format!("Failed to checkout branch: {}", e)))?;
 
         if !output.status.success() {
-            return Err(AppError::Git(format!(
-                "git checkout failed: {}",
-                String::from_utf8_lossy(&output.stderr)
-            )));
+            let err = String::from_utf8_lossy(&output.stderr);
+            log::error!("[git] checkout_branch failed: {}", err);
+            return Err(AppError::Git(format!("git checkout failed: {}", err)));
         }
 
+        log::info!("[git] Checked out branch '{}'", branch);
         Ok(())
     }
 
     /// Soft reset to a commit (keeps changes staged)
     pub fn soft_reset(repo_path: &str, commit: &str) -> Result<()> {
+        log::info!("[git] soft_reset({}, {})", repo_path, commit);
         let output = Command::new("git")
             .args(["reset", "--soft", commit])
             .current_dir(repo_path)

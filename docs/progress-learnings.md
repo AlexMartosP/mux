@@ -1154,3 +1154,137 @@ Mux should read and respect the user's Claude Code permission settings before pr
 - `src-tauri/src/services/claude_settings.rs` (new - settings reader)
 
 ---
+
+## Bug: Resume button restarts entire task (#23)
+
+**Status**: 🔲 Open
+
+### Problem
+
+Clicking the RESUME button on an interrupted task restarts the entire task from scratch instead of continuing the conversation.
+
+### Root Cause
+
+The RESUME button calls `onRestart(task.id)` without a prompt. In `restart_task`, when `prompt` is `None`, `is_follow_up = false`, so Claude starts fresh (no `-c` flag) and output is cleared.
+
+### Solution
+
+Remove the RESUME button. The interrupted banner should just be informational — the user resumes by typing a follow-up message in the normal input area, which correctly passes `is_follow_up = true`.
+
+### Files
+- `src/components/ChatView.tsx`
+
+---
+
+## Bug: Takeover fails — branch checked out in worktree (#24)
+
+**Status**: 🔧 Fix committed, needs testing
+
+### Problem
+
+Clicking TAKEOVER fails because git prevents checking out a branch in the repo root when it's already checked out in a worktree.
+
+### Root Cause
+
+`takeover_task` calls `GitService::checkout_branch(&repo_path, &branch)` but the branch is already checked out in the worktree. Git doesn't allow a branch in two working trees.
+
+### Solution
+
+Detach HEAD in the worktree before checking out in root. The worktree itself is preserved — only HEAD is detached so the branch name is freed:
+
+```
+Takeover:
+1. Stop Claude
+2. Commit WIP in worktree
+3. git checkout --detach (in worktree — frees branch, keeps files)
+4. git checkout <branch> (in repo root — now works)
+5. Store takeover state
+
+Handback:
+1. Commit user changes in root
+2. git checkout <branch> (in worktree — re-attach)
+3. git checkout <original_branch> (in root)
+4. Resume Claude in worktree
+```
+
+**Key principle**: The worktree is never removed during takeover. It's only detached temporarily so the branch can be used in root. On handback, it re-attaches and Claude continues in the same worktree.
+
+### Files
+- `src-tauri/src/commands/task.rs` — takeover_task, handback_task
+- `src-tauri/src/services/git.rs` — GitService methods
+
+---
+
+## Bug: Follow-up messages don't work after task completion (#25)
+
+**Status**: 🔲 Open
+
+### Problem
+
+Sending a follow-up message after a task has completed does nothing — no visible response or error.
+
+### Root Cause Analysis
+
+The follow-up calls `restart_task(id, prompt)` which uses `claude -c -p "<prompt>"`. The `-c` flag continues an existing conversation. Possible failure modes:
+
+1. **No conversation to continue**: If the `.claude/` conversation data in the worktree was lost or never created, `-c` silently fails
+2. **Process exits immediately**: The monitor thread detects exit but may not surface the error clearly
+3. **Status not updating**: If `start()` errors after the command returns, the frontend sees no status change
+
+### Solution
+
+1. Add logging throughout the flow (already done)
+2. Detect quick process exit (< 2 seconds) and emit error status
+3. Fall back to fresh start if `-c` fails
+4. Surface Claude process startup errors to frontend
+
+### Files
+- `src-tauri/src/commands/task.rs`
+- `src-tauri/src/services/claude_process.rs`
+
+---
+
+## Bug: No visual indicator for sub-agent activity (#26)
+
+**Status**: 🔲 Open
+
+### Problem
+
+When Claude spawns sub-agents via the Task tool, the activity feed briefly shows "Agent: <desc>" then replaces it with the sub-agent's tool calls. No persistent indicator shows an agent is working.
+
+### Solution
+
+Track active sub-agents in `useTaskActivity`. When `tool_name === "Task"`, mark it as an active agent. Only clear when the corresponding `tool_result` arrives. Render nested: "Agent: <desc> → Reading file..."
+
+### Files
+- `src/hooks/useTaskActivity.ts`
+- `src/components/ActivityFeed.tsx`
+
+---
+
+## Backend Logging Improvements
+
+**Status**: ✅ Completed
+
+### Changes
+
+Added `log::info!` and `log::debug!` throughout key backend functions for better debugging:
+
+**Task commands** (`src-tauri/src/commands/task.rs`):
+- `create_task` — logs repo, branch, prompt
+- `stop_task` — logs start/end
+- `restart_task` — logs follow-up flag, worktree path
+- `takeover_task` — step-by-step logging with `[takeover]` prefix
+- `handback_task` — step-by-step logging with `[handback]` prefix
+
+**Git service** (`src-tauri/src/services/git.rs`):
+- `get_current_branch` — logs path and result
+- `has_uncommitted_changes` — logs status output
+- `commit_all` — logs message and resulting hash
+- `stash_push` / `stash_pop` — logs operations
+- `checkout_branch` — logs branch name and errors
+- `soft_reset` — logs target commit
+
+Run with `RUST_LOG=debug` for verbose output, `RUST_LOG=info` for normal.
+
+---

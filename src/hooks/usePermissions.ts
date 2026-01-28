@@ -7,6 +7,13 @@ import {
 import type { PermissionRequest } from "../lib/tauri";
 import * as tauri from "../lib/tauri";
 
+interface PermissionTimeoutEvent {
+  task_id: string;
+  request_id: string;
+  tool_name: string;
+  message: string;
+}
+
 // Global permission state - shared across all hook instances
 let globalRequests: PermissionRequest[] = [];
 let globalSetRequests: ((requests: PermissionRequest[]) => void) | null = null;
@@ -38,6 +45,20 @@ async function sendPermissionNotification(request: PermissionRequest) {
   }
 }
 
+async function sendTimeoutNotification(event: PermissionTimeoutEvent) {
+  try {
+    const granted = await isPermissionGranted();
+    if (!granted) return;
+
+    sendNotification({
+      title: "Task Paused - Approval Needed",
+      body: `${event.tool_name} is waiting for your approval. Task will resume when approved.`,
+    });
+  } catch {
+    // Silently fail if notification can't be sent
+  }
+}
+
 export function usePermissions(taskId?: string | null) {
   const [pendingRequests, setPendingRequests] = useState<PermissionRequest[]>(globalRequests);
 
@@ -58,7 +79,7 @@ export function usePermissions(taskId?: string | null) {
     if (listenerSetup) return;
     listenerSetup = true;
 
-    const unlistenPromise = listen<PermissionRequest>("permission-request", (event) => {
+    const unlistenRequestPromise = listen<PermissionRequest>("permission-request", (event) => {
       globalRequests = [...globalRequests, event.payload];
       setPendingRequests(globalRequests);
       if (globalSetRequests && globalSetRequests !== setPendingRequests) {
@@ -69,9 +90,18 @@ export function usePermissions(taskId?: string | null) {
       sendPermissionNotification(event.payload);
     });
 
+    // Listen for permission timeouts
+    // Note: We do NOT remove the request from pending - it stays visible for user to respond
+    // When user responds, the task will restart with the permission pre-approved
+    const unlistenTimeoutPromise = listen<PermissionTimeoutEvent>("permission-timeout", (event) => {
+      // Send system notification about the timeout (task paused, waiting for approval)
+      sendTimeoutNotification(event.payload);
+    });
+
     return () => {
       listenerSetup = false;
-      unlistenPromise.then((unlisten) => unlisten());
+      unlistenRequestPromise.then((unlisten) => unlisten());
+      unlistenTimeoutPromise.then((unlisten) => unlisten());
     };
   }, []);
 

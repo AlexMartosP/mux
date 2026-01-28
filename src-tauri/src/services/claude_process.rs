@@ -36,7 +36,12 @@ enum ClaudeMessage {
     #[serde(rename = "assistant")]
     Assistant { message: AssistantMessage },
     #[serde(rename = "result")]
-    Result { result: String, cost_usd: Option<f64> },
+    Result {
+        result: String,
+        cost_usd: Option<f64>,
+        input_tokens: Option<i64>,
+        output_tokens: Option<i64>,
+    },
     #[serde(rename = "system")]
     System { message: String },
 }
@@ -100,6 +105,13 @@ impl ClaudeProcessService {
             }
         }
 
+        // Clear intentionally_stopped flag so the monitor thread for this new
+        // process correctly reports completion/error status
+        {
+            let mut stopped = self.intentionally_stopped.lock().unwrap();
+            stopped.remove(task_id);
+        }
+
         // Only clear output if starting fresh (not continuing)
         if !continue_conversation {
             let _ = db.clear_task_output(task_id);
@@ -114,35 +126,72 @@ impl ClaudeProcessService {
             .unwrap_or(false);
 
         // Build command with JSON output format for structured activity tracking
-        // Use shell environment to ensure nvm/node versions are correctly loaded
-        debug!("[{}] Getting shell environment...", task_id);
-        let shell_env_start = Instant::now();
-        let mut cmd = shell::command_with_shell_env("claude");
-        debug!("[{}] Shell env loaded in {:?}", task_id, shell_env_start.elapsed());
+        // We wrap Claude in a shell script to ensure:
+        // 1. nvm is sourced
+        // 2. If .nvmrc exists in the worktree, `nvm use` is run to use the correct Node version
+        debug!("[{}] Building Claude command with nvm support...", task_id);
 
-        // Add continue flag if this is a follow-up
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
+        let home = std::env::var("HOME").unwrap_or_default();
+
+        // Build Claude arguments
+        let mut claude_args = Vec::new();
         if continue_conversation {
-            cmd.arg("-c");
+            claude_args.push("-c".to_string());
         }
-
-        // Only skip permissions if user hasn't enabled permission prompts
         if !prompt_for_permissions {
-            cmd.arg("--dangerously-skip-permissions");
+            claude_args.push("--dangerously-skip-permissions".to_string());
         }
+        claude_args.push("--output-format".to_string());
+        claude_args.push("stream-json".to_string());
+        claude_args.push("--verbose".to_string());
+        claude_args.push("-p".to_string());
+        // Escape prompt for shell
+        let escaped_prompt = prompt.replace("'", "'\\''");
+        claude_args.push(format!("'{}'", escaped_prompt));
 
-        // Set environment variable for task ID so hook can identify the task
-        cmd.env("AGENT_COORDINATOR_TASK_ID", task_id);
-        cmd.env("MUX_IPC_PORT", super::ipc_server::get_ipc_port().to_string());
+        let claude_cmd = format!("claude {}", claude_args.join(" "));
 
-        cmd.arg("--output-format")
-            .arg("stream-json")
-            .arg("--verbose")
-            .arg("-p")
-            .arg(prompt)
+        // Build shell script that:
+        // 1. Sources nvm
+        // 2. Runs `nvm use` if .nvmrc exists in the worktree
+        // 3. Executes Claude
+        let script = format!(
+            r#"
+            # Source nvm if available
+            export NVM_DIR="$HOME/.nvm"
+            [ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+
+            # If .nvmrc exists in the working directory, use that node version
+            if [ -f ".nvmrc" ]; then
+                nvm use 2>/dev/null || nvm install 2>/dev/null
+            fi
+
+            # Run Claude
+            {claude_cmd}
+            "#,
+            claude_cmd = claude_cmd,
+        );
+
+        let mut cmd = std::process::Command::new(&shell);
+        cmd.args(["-c", &script])
             .current_dir(worktree_path)
+            .env("HOME", &home)
+            .env("AGENT_COORDINATOR_TASK_ID", task_id)
+            .env("MUX_IPC_PORT", super::ipc_server::get_ipc_port().to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+
+        // Also apply the cached shell environment for other tools (PATH, etc.)
+        if let Some(env) = shell::get_shell_env() {
+            for (key, value) in env {
+                // Don't override the ones we explicitly set
+                if key != "HOME" && key != "AGENT_COORDINATOR_TASK_ID" && key != "MUX_IPC_PORT" {
+                    cmd.env(key, value);
+                }
+            }
+        }
 
         // Log the full command for debugging
         info!("[{}] Running: claude {} --output-format stream-json --verbose -p \"{}\"",
@@ -268,10 +317,21 @@ impl ClaudeProcessService {
                                     }
                                 }
                             }
-                            ClaudeMessage::Result { cost_usd, .. } => {
-                                // Only show cost info, not the result text (already shown above)
-                                if let Some(cost) = cost_usd {
-                                    info!("[{}] Result received, cost: ${:.4}", task_id, cost);
+                            ClaudeMessage::Result { cost_usd, input_tokens, output_tokens, .. } => {
+                                let cost = cost_usd.unwrap_or(0.0);
+                                let input_tok = input_tokens.unwrap_or(0);
+                                let output_tok = output_tokens.unwrap_or(0);
+
+                                if cost > 0.0 || input_tok > 0 || output_tok > 0 {
+                                    info!("[{}] Result: ${:.4}, {}in/{}out tokens", task_id, cost, input_tok, output_tok);
+                                    let _ = db.add_task_cost(&task_id, cost, input_tok, output_tok);
+                                    // Emit cost event so frontend can update
+                                    let _ = app_handle.emit("task-cost", serde_json::json!({
+                                        "task_id": task_id,
+                                        "cost_usd": cost,
+                                        "input_tokens": input_tok,
+                                        "output_tokens": output_tok,
+                                    }));
                                     emitter.emit(ParsedOutput::result(format!("Completed (${:.4})", cost)));
                                 }
                             }
@@ -374,7 +434,7 @@ impl ClaudeProcessService {
             // Save notification to DB and emit event
             let title = if status == TaskStatus::Completed { "Task Completed" } else { "Task Failed" };
             let body = format!("Task has {}", if status == TaskStatus::Completed { "completed successfully" } else { "encountered an error" });
-            let notif_type = if status == TaskStatus::Completed { "success" } else { "error" };
+            let notif_type = if status == TaskStatus::Completed { "completed" } else { "error" };
             let _ = db.insert_notification(Some(&task_id_for_monitor), title, &body, notif_type);
             let _ = app_handle.emit(
                 "task-notification",
@@ -382,6 +442,7 @@ impl ClaudeProcessService {
                     "task_id": task_id_for_monitor,
                     "title": title,
                     "body": body,
+                    "notification_type": notif_type,
                 }),
             );
 

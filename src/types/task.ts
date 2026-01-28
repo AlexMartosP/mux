@@ -22,6 +22,9 @@ export interface Task {
   metadata_loading?: boolean;
   auto_accept_edits?: boolean;
   pinned?: boolean;
+  total_cost_usd?: number;
+  total_input_tokens?: number;
+  total_output_tokens?: number;
 }
 
 export interface NotificationEntry {
@@ -32,6 +35,13 @@ export interface NotificationEntry {
   notification_type: string;
   read: boolean;
   created_at: string;
+}
+
+export interface CostSummary {
+  total_cost_usd: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  task_count: number;
 }
 
 export interface BranchInfo {

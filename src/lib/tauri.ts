@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Task, CreateTaskInput, OutputLine, FileChange, FileDiff, CommitInfo, PRPreview, PullRequest, NotificationEntry, BranchInfo } from "../types/task";
+import type { Task, CreateTaskInput, OutputLine, FileChange, FileDiff, CommitInfo, PRPreview, PullRequest, NotificationEntry, BranchInfo, CostSummary } from "../types/task";
 
 export async function getTasks(): Promise<Task[]> {
   return invoke("get_tasks");
@@ -293,4 +293,9 @@ export interface ExportOptions {
 
 export async function exportTasks(options: ExportOptions): Promise<string> {
   return invoke("export_tasks", { options });
+}
+
+// Cost tracking
+export async function getCostSummary(): Promise<CostSummary> {
+  return invoke("get_cost_summary");
 }

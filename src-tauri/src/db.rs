@@ -121,6 +121,11 @@ impl Database {
         // Migration: Add pinned column
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0", []);
 
+        // Migration: Add cost tracking columns
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN total_cost_usd REAL NOT NULL DEFAULT 0.0", []);
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN total_input_tokens INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN total_output_tokens INTEGER NOT NULL DEFAULT 0", []);
+
         // Notification log table
         conn.execute(
             "CREATE TABLE IF NOT EXISTS notifications (
@@ -175,7 +180,7 @@ impl Database {
     pub fn get_all_tasks(&self) -> Result<Vec<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens
              FROM tasks ORDER BY created_at DESC",
         )?;
 
@@ -195,6 +200,9 @@ impl Database {
                     metadata_loading: row.get::<_, i32>(10)? != 0,
                     auto_accept_edits: row.get::<_, i32>(11).unwrap_or(0) != 0,
                     pinned: row.get::<_, i32>(12).unwrap_or(0) != 0,
+                    total_cost_usd: row.get::<_, f64>(13).unwrap_or(0.0),
+                    total_input_tokens: row.get::<_, i64>(14).unwrap_or(0),
+                    total_output_tokens: row.get::<_, i64>(15).unwrap_or(0),
                     pid: None,
                 })
             })?
@@ -206,7 +214,7 @@ impl Database {
     pub fn get_task(&self, id: &str) -> Result<Option<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens
              FROM tasks WHERE id = ?",
         )?;
 
@@ -226,6 +234,9 @@ impl Database {
                     metadata_loading: row.get::<_, i32>(10)? != 0,
                     auto_accept_edits: row.get::<_, i32>(11).unwrap_or(0) != 0,
                     pinned: row.get::<_, i32>(12).unwrap_or(0) != 0,
+                    total_cost_usd: row.get::<_, f64>(13).unwrap_or(0.0),
+                    total_input_tokens: row.get::<_, i64>(14).unwrap_or(0),
+                    total_output_tokens: row.get::<_, i64>(15).unwrap_or(0),
                     pid: None,
                 })
             })
@@ -237,8 +248,8 @@ impl Database {
     pub fn insert_task(&self, task: &Task) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tasks (id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 task.id,
                 task.name,
@@ -253,6 +264,9 @@ impl Database {
                 task.metadata_loading as i32,
                 task.auto_accept_edits as i32,
                 task.pinned as i32,
+                task.total_cost_usd,
+                task.total_input_tokens,
+                task.total_output_tokens,
             ],
         )?;
         Ok(())
@@ -273,6 +287,45 @@ impl Database {
             params![name, description, branch, worktree_path, id],
         )?;
         Ok(())
+    }
+
+    pub fn add_task_cost(&self, id: &str, cost_usd: f64, input_tokens: i64, output_tokens: i64) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET total_cost_usd = total_cost_usd + ?, total_input_tokens = total_input_tokens + ?, total_output_tokens = total_output_tokens + ? WHERE id = ?",
+            params![cost_usd, input_tokens, output_tokens, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_cost_summary(&self) -> Result<CostSummary> {
+        let conn = self.conn.lock().unwrap();
+        let total: f64 = conn.query_row(
+            "SELECT COALESCE(SUM(total_cost_usd), 0.0) FROM tasks",
+            [],
+            |row| row.get(0),
+        )?;
+        let total_input: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(total_input_tokens), 0) FROM tasks",
+            [],
+            |row| row.get(0),
+        )?;
+        let total_output: i64 = conn.query_row(
+            "SELECT COALESCE(SUM(total_output_tokens), 0) FROM tasks",
+            [],
+            |row| row.get(0),
+        )?;
+        let task_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM tasks WHERE total_cost_usd > 0",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(CostSummary {
+            total_cost_usd: total,
+            total_input_tokens: total_input,
+            total_output_tokens: total_output,
+            task_count,
+        })
     }
 
     pub fn set_task_pinned(&self, id: &str, pinned: bool) -> Result<()> {
@@ -297,7 +350,7 @@ impl Database {
     pub fn get_queued_tasks(&self) -> Result<Vec<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens
              FROM tasks WHERE status = 'queued' ORDER BY created_at ASC",
         )?;
 
@@ -317,6 +370,9 @@ impl Database {
                     metadata_loading: row.get::<_, i32>(10)? != 0,
                     auto_accept_edits: row.get::<_, i32>(11).unwrap_or(0) != 0,
                     pinned: row.get::<_, i32>(12).unwrap_or(0) != 0,
+                    total_cost_usd: row.get::<_, f64>(13).unwrap_or(0.0),
+                    total_input_tokens: row.get::<_, i64>(14).unwrap_or(0),
+                    total_output_tokens: row.get::<_, i64>(15).unwrap_or(0),
                     pid: None,
                 })
             })?
@@ -627,6 +683,14 @@ pub struct TakeoverState {
     pub wip_commit: String,
     pub had_stash: bool,
     pub started_at: Option<String>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct CostSummary {
+    pub total_cost_usd: f64,
+    pub total_input_tokens: i64,
+    pub total_output_tokens: i64,
+    pub task_count: i64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
