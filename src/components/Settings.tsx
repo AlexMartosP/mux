@@ -25,7 +25,7 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
   });
 
   // Theme context
-  const { theme, setThemeId, themes, fontSize, setFontSize } = useTheme();
+  const { fontSize, setFontSize } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
@@ -244,46 +244,6 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
                 color: 'var(--text-primary)',
               }}
             />
-          </div>
-
-          {/* Theme */}
-          <div>
-            <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
-              APPEARANCE
-            </label>
-            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
-              Choose a visual theme for the application.
-            </p>
-            <div className="space-y-2">
-              {themes.map((t) => (
-                <label
-                  key={t.id}
-                  className="flex items-start gap-3 p-3 cursor-pointer transition-colors"
-                  style={{
-                    backgroundColor: theme.id === t.id ? 'var(--bg-elevated)' : 'var(--bg-surface)',
-                    border: `1px solid ${theme.id === t.id ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
-                  }}
-                  onClick={() => setThemeId(t.id)}
-                >
-                  <input
-                    type="radio"
-                    name="theme"
-                    value={t.id}
-                    checked={theme.id === t.id}
-                    onChange={() => setThemeId(t.id)}
-                    style={{ accentColor: 'var(--accent-cyan)', marginTop: '2px' }}
-                  />
-                  <div>
-                    <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
-                      {t.name}
-                    </span>
-                    <p className="text-xs mt-0.5" style={{ color: 'var(--text-dim)' }}>
-                      {t.description}
-                    </p>
-                  </div>
-                </label>
-              ))}
-            </div>
           </div>
 
           {/* Notifications */}

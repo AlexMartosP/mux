@@ -226,7 +226,6 @@ function AppContent() {
           // Refresh task list
           await refreshTasks();
         }}
-        onUpdateTask={updateTask}
         searchInputRef={searchInputRef}
         collapsed={sidebarCollapsed}
         onToggleCollapse={handleToggleSidebar}
