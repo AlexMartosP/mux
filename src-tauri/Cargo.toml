@@ -1,6 +1,6 @@
 [package]
 name = "agent-coordinator"
-version = "0.2.3"
+version = "0.2.4"
 description = "A native Mac app for managing Claude Code agents"
 authors = ["you"]
 edition = "2021"
