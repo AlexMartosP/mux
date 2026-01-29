@@ -18,6 +18,8 @@ interface SidebarProps {
   onArchiveTasks: (taskIds: string[]) => Promise<void>;
   onUpdateTask?: (task: Task) => void;
   searchInputRef?: RefObject<HTMLInputElement | null>;
+  collapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
 export function Sidebar({
@@ -29,6 +31,8 @@ export function Sidebar({
   onArchiveTasks,
   onUpdateTask,
   searchInputRef,
+  collapsed = false,
+  onToggleCollapse,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
@@ -236,13 +240,122 @@ export function Sidebar({
     }
   };
 
+  // Collapsed sidebar view
+  if (collapsed) {
+    return (
+      <aside
+        className="w-[52px] h-screen flex flex-col transition-all duration-200"
+        style={{
+          backgroundColor: 'var(--bg-surface)',
+          borderRight: '1px solid var(--border-default)'
+        }}
+      >
+        {/* Expand button */}
+        <div className="p-2 flex justify-center" style={{ borderBottom: '1px solid var(--border-default)' }}>
+          <button
+            onClick={onToggleCollapse}
+            className="p-2 text-xs transition-colors"
+            style={{ color: 'var(--text-dim)' }}
+            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
+            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
+            title={`Expand sidebar (${formatShortcut(SHORTCUTS.toggleSidebar)})`}
+          >
+            »
+          </button>
+        </div>
+
+        {/* New task button */}
+        <div className="p-2 flex justify-center">
+          <button
+            onClick={onNewTask}
+            className="p-2 text-sm transition-colors"
+            style={{ color: 'var(--accent-cyan)' }}
+            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
+            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+            title={`New task (${formatShortcut(SHORTCUTS.newTask)})`}
+          >
+            +
+          </button>
+        </div>
+
+        {/* Task status indicators */}
+        <div className="flex-1 overflow-y-auto py-1">
+          {filteredTasks.map((task) => {
+            const isSelected = task.id === selectedTaskId;
+            const hasPendingPermission = pendingTaskIds.has(task.id);
+            const statusColor = (() => {
+              if (hasPendingPermission) return 'var(--accent-yellow)';
+              switch (task.status) {
+                case 'running': return 'var(--accent-green)';
+                case 'waiting_input': return 'var(--accent-yellow)';
+                case 'completed': return 'var(--text-secondary)';
+                case 'error': return 'var(--accent-red)';
+                case 'manual_control': return 'var(--accent-magenta)';
+                case 'queued': return 'var(--accent-cyan)';
+                default: return 'var(--text-dim)';
+              }
+            })();
+
+            return (
+              <button
+                key={task.id}
+                onClick={() => onSelectTask(task.id)}
+                className="w-full p-2 flex justify-center transition-colors"
+                style={{
+                  backgroundColor: isSelected ? 'var(--bg-elevated)' : 'transparent',
+                  borderLeft: isSelected ? '2px solid var(--accent-cyan)' : '2px solid transparent',
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--bg-primary)';
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
+                }}
+                title={task.name}
+              >
+                <span
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: statusColor }}
+                />
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Footer: settings */}
+        <div className="p-2 flex justify-center" style={{ borderTop: '1px solid var(--border-default)' }}>
+          <button
+            onClick={onOpenSettings}
+            className="p-2 text-xs transition-colors"
+            style={{ color: 'var(--text-dim)' }}
+            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
+            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
+            title={`Settings (${formatShortcut(SHORTCUTS.settings)})`}
+          >
+            ⚙
+          </button>
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <aside className="w-[280px] h-screen flex flex-col" style={{
+    <aside className="w-[280px] h-screen flex flex-col transition-all duration-200" style={{
       backgroundColor: 'var(--bg-surface)',
       borderRight: '1px solid var(--border-default)'
     }}>
-      <div className="p-4" style={{ borderBottom: '1px solid var(--border-default)', color: 'var(--text-primary)' }}>
+      <div className="p-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-default)', color: 'var(--text-primary)' }}>
         <Logo className="h-5 w-auto" />
+        <button
+          onClick={onToggleCollapse}
+          className="p-1 text-xs transition-colors"
+          style={{ color: 'var(--text-dim)' }}
+          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
+          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
+          title={`Collapse sidebar (${formatShortcut(SHORTCUTS.toggleSidebar)})`}
+        >
+          «
+        </button>
       </div>
 
       <div className="p-3 space-y-2">

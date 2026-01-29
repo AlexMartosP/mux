@@ -6,10 +6,12 @@ pub struct WorktreeService;
 
 impl WorktreeService {
     /// Create a new git worktree for the given branch
+    /// If base_branch is None, uses the default branch (main/master)
     pub fn create_worktree(
         repo_path: &str,
         branch: &str,
         worktree_path: &str,
+        base_branch: Option<&str>,
     ) -> Result<()> {
         let repo_path_obj = Path::new(repo_path);
 
@@ -24,8 +26,10 @@ impl WorktreeService {
             std::fs::create_dir_all(parent)?;
         }
 
-        // Get the default branch (main or master)
-        let default_branch = Self::get_default_branch(repo_path_obj)?;
+        // Get the base branch (use provided or fall back to default)
+        let default_branch = base_branch
+            .map(|b| b.to_string())
+            .unwrap_or_else(|| Self::get_default_branch(repo_path_obj).unwrap_or_else(|_| "main".to_string()));
 
         // Run git worktree through a shell script that:
         // 1. Sources nvm if available

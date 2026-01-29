@@ -4,17 +4,25 @@ import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
 import { Settings } from "./components/Settings";
 import { Onboarding } from "./components/Onboarding";
+import { ToastContainer } from "./components/Toast";
 import { useTasks } from "./hooks/useTasks";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
+import { useUpdateNotifications } from "./hooks/useUpdateNotifications";
 import { ReviewProvider } from "./contexts/ReviewContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { ToastProvider } from "./contexts/ToastContext";
 import * as tauri from "./lib/tauri";
+
+const SIDEBAR_COLLAPSED_KEY = "mux-sidebar-collapsed";
 
 type View = "chat" | "settings";
 
-function App() {
+function AppContent() {
   const [currentView, setCurrentView] = useState<View>("chat");
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
+  });
   const {
     tasks,
     selectedTask,
@@ -93,6 +101,17 @@ function App() {
     setCurrentView("chat");
   }, []);
 
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => {
+      const newValue = !prev;
+      localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(newValue));
+      return newValue;
+    });
+  }, []);
+
+  // Use update notifications hook
+  useUpdateNotifications();
+
   // Set up keyboard shortcuts
   useKeyboardShortcuts({
     onNewTask: handleNewChat,
@@ -114,6 +133,7 @@ function App() {
     onCopyBranch: handleCopyBranch,
     onCreatePR: handleCreatePR,
     isSettingsOpen: currentView === "settings",
+    onToggleSidebar: handleToggleSidebar,
   });
 
   // Check if onboarding has been completed
@@ -130,8 +150,8 @@ function App() {
     checkOnboarding();
   }, []);
 
-  const handleCreateTask = async (repositoryPath: string, prompt: string, existingBranch?: string) => {
-    await createTask({ repository_path: repositoryPath, prompt, existing_branch: existingBranch });
+  const handleCreateTask = async (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string) => {
+    await createTask({ repository_path: repositoryPath, prompt, existing_branch: existingBranch, base_branch: baseBranch });
   };
 
   // Show loading while checking onboarding status
@@ -184,51 +204,62 @@ function App() {
   }
 
   return (
-    <ThemeProvider>
-      <ReviewProvider>
-        <div
-          className="h-screen flex"
-          style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
-        >
-          <Sidebar
-          tasks={tasks}
-          selectedTaskId={selectedTaskId}
-          onSelectTask={(id) => {
-            setSelectedTaskId(id);
-            setCurrentView("chat");
-          }}
-          onNewTask={handleNewChat}
-          onOpenSettings={handleOpenSettings}
-          onArchiveTasks={async (taskIds) => {
-            await tauri.deleteTasks(taskIds);
-            // If the currently selected task was archived, clear selection
-            if (selectedTaskId && taskIds.includes(selectedTaskId)) {
-              setSelectedTaskId(null);
-            }
-            // Refresh task list
-            await refreshTasks();
-          }}
-          onUpdateTask={updateTask}
-          searchInputRef={searchInputRef}
-        />
+    <div
+      className="h-screen flex"
+      style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+    >
+      <Sidebar
+        tasks={tasks}
+        selectedTaskId={selectedTaskId}
+        onSelectTask={(id) => {
+          setSelectedTaskId(id);
+          setCurrentView("chat");
+        }}
+        onNewTask={handleNewChat}
+        onOpenSettings={handleOpenSettings}
+        onArchiveTasks={async (taskIds) => {
+          await tauri.deleteTasks(taskIds);
+          // If the currently selected task was archived, clear selection
+          if (selectedTaskId && taskIds.includes(selectedTaskId)) {
+            setSelectedTaskId(null);
+          }
+          // Refresh task list
+          await refreshTasks();
+        }}
+        onUpdateTask={updateTask}
+        searchInputRef={searchInputRef}
+        collapsed={sidebarCollapsed}
+        onToggleCollapse={handleToggleSidebar}
+      />
 
-        {currentView === "settings" ? (
-          <Settings
-            onClose={handleCloseSettings}
-            onRestartOnboarding={() => setShowOnboarding(true)}
-          />
-        ) : (
-          <ChatView
-            task={selectedTask}
-            onCreateTask={handleCreateTask}
-            onStop={stopTask}
-            onRestart={restartTask}
-            onDelete={deleteTask}
-            onUpdateTask={updateTask}
-          />
-          )}
-        </div>
-      </ReviewProvider>
+      {currentView === "settings" ? (
+        <Settings
+          onClose={handleCloseSettings}
+          onRestartOnboarding={() => setShowOnboarding(true)}
+        />
+      ) : (
+        <ChatView
+          task={selectedTask}
+          onCreateTask={handleCreateTask}
+          onStop={stopTask}
+          onRestart={restartTask}
+          onDelete={deleteTask}
+          onUpdateTask={updateTask}
+        />
+      )}
+      <ToastContainer />
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <ThemeProvider>
+      <ToastProvider>
+        <ReviewProvider>
+          <AppContent />
+        </ReviewProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

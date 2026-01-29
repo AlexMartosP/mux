@@ -20,6 +20,8 @@ pub struct AppSettings {
     pub theme: Option<String>,
     /// Maximum number of concurrently running tasks (0 = unlimited)
     pub max_concurrent_tasks: u32,
+    /// If true, send messages with Enter. If false (default), send with Cmd/Ctrl+Enter.
+    pub send_with_enter: bool,
 }
 
 impl Default for AppSettings {
@@ -32,6 +34,7 @@ impl Default for AppSettings {
             prompt_for_permissions: false, // Default to auto-approve for backward compatibility
             theme: Some("terminal".to_string()),
             max_concurrent_tasks: 0, // 0 = unlimited
+            send_with_enter: false, // Default to Cmd/Ctrl+Enter
         }
     }
 }
@@ -61,6 +64,10 @@ pub fn get_settings(state: State<Arc<AppState>>) -> Result<AppSettings> {
             .get("max_concurrent_tasks")
             .and_then(|v| v.parse().ok())
             .unwrap_or(0),
+        send_with_enter: settings_map
+            .get("send_with_enter")
+            .map(|v| v == "true")
+            .unwrap_or(false),
     })
 }
 
@@ -85,6 +92,9 @@ pub fn update_settings(state: State<Arc<AppState>>, settings: AppSettings) -> Re
     state
         .db
         .set_setting("max_concurrent_tasks", &settings.max_concurrent_tasks.to_string())?;
+    state
+        .db
+        .set_setting("send_with_enter", &settings.send_with_enter.to_string())?;
     Ok(())
 }
 
@@ -350,6 +360,134 @@ pub fn uninstall_claude_hook() -> Result<()> {
     fs::write(&settings_path, &content)?;
 
     Ok(())
+}
+
+/// Add a permission rule to Claude settings
+/// scope: "global" for ~/.claude/settings.json, "project" for .claude/settings.local.json
+#[tauri::command]
+pub fn add_permission_rule(
+    state: State<Arc<AppState>>,
+    task_id: String,
+    tool_name: String,
+    tool_input: Value,
+    scope: String,
+) -> Result<String> {
+    // Generate the permission rule
+    let rule = generate_permission_rule(&tool_name, &tool_input);
+
+    let settings_path = if scope == "project" {
+        // Get the worktree path from the task
+        let task = state.db.get_task(&task_id)?
+            .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+
+        // Find or create .claude/settings.local.json in worktree
+        let worktree_path = PathBuf::from(&task.worktree_path);
+        let claude_dir = worktree_path.join(".claude");
+        fs::create_dir_all(&claude_dir)?;
+        claude_dir.join("settings.local.json")
+    } else {
+        // Global settings
+        get_claude_settings_path()
+    };
+
+    // Ensure parent directory exists
+    if let Some(parent) = settings_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    // Read existing settings or create empty object
+    let mut settings: Value = if settings_path.exists() {
+        let content = fs::read_to_string(&settings_path)?;
+        serde_json::from_str(&content).unwrap_or(json!({}))
+    } else {
+        json!({})
+    };
+
+    // Ensure permissions.allow array exists
+    if settings.get("permissions").is_none() {
+        settings["permissions"] = json!({});
+    }
+    let permissions = settings.get_mut("permissions").unwrap();
+    if permissions.get("allow").is_none() {
+        permissions["allow"] = json!([]);
+    }
+
+    // Get the allow array
+    let allow = permissions.get_mut("allow").unwrap();
+
+    // Check if rule already exists
+    let already_exists = allow
+        .as_array()
+        .map(|arr| arr.iter().any(|r| r.as_str() == Some(&rule)))
+        .unwrap_or(false);
+
+    if !already_exists {
+        if let Some(arr) = allow.as_array_mut() {
+            arr.push(json!(rule));
+        }
+    }
+
+    // Write back to file with pretty formatting
+    let content = serde_json::to_string_pretty(&settings)?;
+    fs::write(&settings_path, &content)?;
+
+    Ok(rule)
+}
+
+/// Generate a permission rule string from tool name and input
+fn generate_permission_rule(tool_name: &str, tool_input: &Value) -> String {
+    match tool_name {
+        "Bash" => {
+            // For Bash, try to extract a pattern from the command
+            if let Some(cmd) = tool_input.get("command").and_then(|v| v.as_str()) {
+                // Get the first word (the actual command)
+                let first_word = cmd.split_whitespace().next().unwrap_or("");
+                // Common patterns for commands
+                if first_word == "npm" || first_word == "yarn" || first_word == "pnpm" {
+                    format!("Bash({}*)", first_word)
+                } else if first_word == "git" {
+                    "Bash(git *)".to_string()
+                } else if first_word == "cargo" {
+                    "Bash(cargo *)".to_string()
+                } else if first_word == "make" {
+                    "Bash(make*)".to_string()
+                } else {
+                    // For other commands, use wildcard pattern
+                    format!("Bash({}*)", first_word)
+                }
+            } else {
+                "Bash".to_string()
+            }
+        }
+        "Read" | "Write" | "Edit" => {
+            // For file operations, use the directory pattern
+            if let Some(path) = tool_input.get("file_path").and_then(|v| v.as_str()) {
+                // Use directory pattern with wildcard
+                if let Some(dir) = PathBuf::from(path).parent() {
+                    format!("{}({}/*)", tool_name, dir.display())
+                } else {
+                    tool_name.to_string()
+                }
+            } else {
+                tool_name.to_string()
+            }
+        }
+        "WebFetch" => {
+            // For WebFetch, use domain pattern
+            if let Some(url) = tool_input.get("url").and_then(|v| v.as_str()) {
+                let without_proto = url
+                    .strip_prefix("https://")
+                    .or_else(|| url.strip_prefix("http://"))
+                    .unwrap_or(url);
+                let host = without_proto.split('/').next().unwrap_or(without_proto);
+                let host = host.split(':').next().unwrap_or(host);
+                format!("WebFetch(domain:{})", host)
+            } else {
+                "WebFetch".to_string()
+            }
+        }
+        _ => tool_name.to_string(),
+    }
 }
 
 /// Check if onboarding has been completed

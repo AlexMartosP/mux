@@ -6,6 +6,7 @@ interface KeyboardShortcutsOptions {
   onOpenSettings: () => void;
   onCloseModal: () => void;
   onFocusSearch: () => void;
+  onToggleSidebar?: () => void;
 
   // Task navigation
   onPreviousTask: () => void;
@@ -29,6 +30,7 @@ export function useKeyboardShortcuts({
   onOpenSettings,
   onCloseModal,
   onFocusSearch,
+  onToggleSidebar,
   onPreviousTask,
   onNextTask,
   onSelectTaskByIndex,
@@ -78,6 +80,13 @@ export function useKeyboardShortcuts({
       if (isMod && isShift && e.key.toLowerCase() === "f") {
         e.preventDefault();
         onFocusSearch();
+        return;
+      }
+
+      // Cmd+B - Toggle sidebar
+      if (isMod && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        onToggleSidebar?.();
         return;
       }
 
@@ -146,6 +155,7 @@ export function useKeyboardShortcuts({
       onOpenSettings,
       onCloseModal,
       onFocusSearch,
+      onToggleSidebar,
       onPreviousTask,
       onNextTask,
       onSelectTaskByIndex,
@@ -179,6 +189,7 @@ export const SHORTCUTS = {
   newTask: "Cmd+N",
   settings: "Cmd+,",
   focusSearch: "Cmd+Shift+F",
+  toggleSidebar: "Cmd+B",
   closeModal: "Esc",
   previousTask: "Cmd+↑",
   nextTask: "Cmd+↓",

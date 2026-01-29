@@ -156,3 +156,55 @@ pub struct BranchInfo {
     pub short_hash: String,
     pub last_commit_date: String,
 }
+
+/// Get the base branch that a task's branch was forked from
+/// This queries git to find the merge-base with common branches
+#[tauri::command]
+pub fn get_branch_base(
+    state: State<Arc<AppState>>,
+    task_id: String,
+) -> Result<Option<String>> {
+    let task = state
+        .db
+        .get_task(&task_id)?
+        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+
+    // If we have a stored base_branch, verify it's still valid
+    if let Some(ref base) = task.base_branch {
+        // Check if the base branch still exists
+        let check = std::process::Command::new("git")
+            .args(["rev-parse", "--verify", &format!("origin/{}", base)])
+            .current_dir(&task.worktree_path)
+            .output();
+
+        if check.is_ok() && check.unwrap().status.success() {
+            return Ok(Some(base.clone()));
+        }
+    }
+
+    // Fall back to finding merge-base with default branch
+    let default_branch = GitService::get_default_branch(&task.repository_path)?;
+
+    // Get merge-base between current branch and default branch
+    let output = std::process::Command::new("git")
+        .args(["merge-base", "HEAD", &format!("origin/{}", default_branch)])
+        .current_dir(&task.worktree_path)
+        .output()
+        .map_err(|e| AppError::Git(format!("Failed to get merge-base: {}", e)))?;
+
+    if output.status.success() {
+        Ok(Some(default_branch))
+    } else {
+        Ok(task.base_branch.clone())
+    }
+}
+
+/// Update the base_branch field for a task (called when branch is rebased)
+#[tauri::command]
+pub fn update_task_base_branch(
+    state: State<Arc<AppState>>,
+    task_id: String,
+    base_branch: String,
+) -> Result<()> {
+    state.db.update_task_base_branch(&task_id, &base_branch)
+}

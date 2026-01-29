@@ -25,6 +25,7 @@ export interface Task {
   total_cost_usd?: number;
   total_input_tokens?: number;
   total_output_tokens?: number;
+  base_branch?: string;
 }
 
 export interface NotificationEntry {
@@ -68,6 +69,7 @@ export interface CreateTaskInput {
   repository_path: string;
   prompt: string;
   existing_branch?: string;
+  base_branch?: string;
 }
 
 export interface OutputLine {

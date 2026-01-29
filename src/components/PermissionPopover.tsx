@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { PermissionRequest } from "../lib/tauri";
 import * as tauri from "../lib/tauri";
 
@@ -10,12 +10,28 @@ interface PermissionPopoverProps {
 export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps) {
   const [isResponding, setIsResponding] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [showAlwaysMenu, setShowAlwaysMenu] = useState(false);
+  const alwaysMenuRef = useRef<HTMLDivElement>(null);
 
   // Reset state when request changes (new request comes in)
   useEffect(() => {
     setIsResponding(false);
     setExpanded(false);
+    setShowAlwaysMenu(false);
   }, [request.request_id]);
+
+  // Close always menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (alwaysMenuRef.current && !alwaysMenuRef.current.contains(e.target as Node)) {
+        setShowAlwaysMenu(false);
+      }
+    };
+    if (showAlwaysMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showAlwaysMenu]);
 
   const handleAllow = useCallback(async () => {
     if (isResponding) return;
@@ -30,6 +46,28 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
     await tauri.respondPermission(request.request_id, "deny");
     onDismiss();
   }, [isResponding, request.request_id, onDismiss]);
+
+  const handleAlwaysAllow = useCallback(async (scope: "global" | "project") => {
+    if (isResponding) return;
+    setIsResponding(true);
+    setShowAlwaysMenu(false);
+    try {
+      // Add the permission rule to Claude settings
+      await tauri.addPermissionRule(
+        request.task_id,
+        request.tool_name,
+        request.tool_input,
+        scope
+      );
+      // Then allow this request
+      await tauri.respondPermission(request.request_id, "allow");
+    } catch (err) {
+      console.error("Failed to add permission rule:", err);
+      // Still allow the current request even if saving failed
+      await tauri.respondPermission(request.request_id, "allow");
+    }
+    onDismiss();
+  }, [isResponding, request, onDismiss]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -154,6 +192,52 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
           >
             {isResponding ? "..." : "ALLOW"}
           </button>
+
+          {/* Always Allow dropdown */}
+          <div className="relative" ref={alwaysMenuRef}>
+            <button
+              onClick={() => setShowAlwaysMenu(!showAlwaysMenu)}
+              disabled={isResponding}
+              className="px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
+              style={{
+                backgroundColor: "transparent",
+                border: "1px solid var(--accent-cyan)",
+                color: "var(--accent-cyan)",
+              }}
+              title="Always allow this type of action"
+            >
+              {isResponding ? "..." : "ALWAYS ▼"}
+            </button>
+            {showAlwaysMenu && (
+              <div
+                className="absolute bottom-full right-0 mb-1 min-w-[140px] z-50"
+                style={{
+                  backgroundColor: "var(--bg-elevated)",
+                  border: "1px solid var(--border-active)",
+                }}
+              >
+                <button
+                  onClick={() => handleAlwaysAllow("project")}
+                  className="w-full px-3 py-2 text-xs text-left transition-colors"
+                  style={{ color: "var(--text-secondary)" }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "var(--bg-surface)"}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+                >
+                  This project
+                </button>
+                <button
+                  onClick={() => handleAlwaysAllow("global")}
+                  className="w-full px-3 py-2 text-xs text-left transition-colors"
+                  style={{ color: "var(--text-secondary)" }}
+                  onMouseEnter={(e) => e.currentTarget.style.backgroundColor = "var(--bg-surface)"}
+                  onMouseLeave={(e) => e.currentTarget.style.backgroundColor = "transparent"}
+                >
+                  All projects
+                </button>
+              </div>
+            )}
+          </div>
+
           <button
             onClick={handleDeny}
             disabled={isResponding}

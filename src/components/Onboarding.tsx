@@ -91,6 +91,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         prompt_for_permissions: settings.prompt_for_permissions,
         theme: null, // Default theme will be loaded from context
         max_concurrent_tasks: 0,
+        send_with_enter: false,
       });
 
       // Mark onboarding as complete

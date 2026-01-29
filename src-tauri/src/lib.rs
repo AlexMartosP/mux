@@ -5,17 +5,17 @@ mod models;
 mod services;
 
 use commands::{
-    check_claude_hook_status, check_cli_status, check_github_auth, clear_notifications,
-    complete_onboarding, create_pull_request, create_task, delete_task, delete_tasks, export_tasks, get_cost_summary,
-    generate_task_metadata, get_file_diff, get_file_diff_with_context, get_full_diff,
-    get_notifications, get_pr_preview, get_settings, get_slash_commands, get_task, get_task_changes,
-    get_task_commits, get_task_output, get_task_output_count, get_tasks,
-    get_unread_notification_count, handback_task, install_claude_hook, install_cli,
-    is_onboarding_completed, list_branches, list_repositories, mark_all_notifications_read,
-    mark_notification_read, open_in_editor, open_pr_in_browser, reset_onboarding,
-    respond_permission, restart_task, revert_file_changes, set_setting, set_task_auto_accept_edits, set_task_pinned,
-    stop_task, takeover_task, uninstall_claude_hook, update_settings, update_task_description,
-    update_task_name, AppState,
+    add_permission_rule, check_claude_hook_status, check_cli_status, check_github_auth,
+    clear_notifications, complete_onboarding, create_pull_request, create_task, delete_task,
+    delete_tasks, export_tasks, generate_task_metadata, get_branch_base, get_cost_summary,
+    get_file_diff, get_file_diff_with_context, get_full_diff, get_notifications, get_pr_preview,
+    get_settings, get_slash_commands, get_task, get_task_changes, get_task_commits, get_task_output,
+    get_task_output_count, get_tasks, get_unread_notification_count, handback_task,
+    install_claude_hook, install_cli, is_onboarding_completed, list_branches, list_repositories,
+    mark_all_notifications_read, mark_notification_read, open_in_editor, open_pr_in_browser,
+    reset_onboarding, respond_permission, restart_task, revert_file_changes, set_setting,
+    set_task_auto_accept_edits, set_task_pinned, stop_task, takeover_task, uninstall_claude_hook,
+    update_settings, update_task_base_branch, update_task_description, update_task_name, AppState,
 };
 use db::Database;
 use models::TaskStatus;
@@ -146,6 +146,10 @@ pub fn run() {
             // Git
             list_branches,
             revert_file_changes,
+            get_branch_base,
+            update_task_base_branch,
+            // Permissions
+            add_permission_rule,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

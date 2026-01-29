@@ -24,7 +24,7 @@ interface FollowUpMessage {
 
 interface ChatViewProps {
   task: Task | null;
-  onCreateTask: (repositoryPath: string, prompt: string, existingBranch?: string) => Promise<void>;
+  onCreateTask: (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string) => Promise<void>;
   onStop: (id: string) => void;
   onRestart: (id: string, prompt?: string) => void;
   onDelete: (id: string) => void;
@@ -65,6 +65,28 @@ export function ChatView({
   const [branches, setBranches] = useState<{ name: string; is_current: boolean; last_commit_date: string }[]>([]);
   const [showBranchSelector, setShowBranchSelector] = useState(false);
   const branchSelectorRef = useRef<HTMLDivElement>(null);
+  // Base branch selector (which branch to fork from when creating a new branch)
+  const [selectedBaseBranch, setSelectedBaseBranch] = useState<string>("");
+  const [baseBranchSearch, setBaseBranchSearch] = useState("");
+  const [showBaseBranchSelector, setShowBaseBranchSelector] = useState(false);
+  const baseBranchSelectorRef = useRef<HTMLDivElement>(null);
+  // Real-time base branch for task view
+  const [currentBaseBranch, setCurrentBaseBranch] = useState<string | null>(null);
+  // Send key setting
+  const [sendWithEnter, setSendWithEnter] = useState(false);
+
+  // Load send key setting
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const settings = await tauri.getSettings();
+        setSendWithEnter(settings.send_with_enter);
+      } catch {
+        // Default to false
+      }
+    };
+    loadSettings();
+  }, []);
 
   // Use cached slash commands
   const { commands: slashCommands, refresh: refreshSlashCommands } = useSlashCommands(task?.repository_path);
@@ -107,6 +129,7 @@ export function ChatView({
     if (!repositoryPath) {
       setBranches([]);
       setSelectedBranch("");
+      setSelectedBaseBranch("");
       return;
     }
     const loadBranches = async () => {
@@ -133,15 +156,58 @@ export function ChatView({
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showBranchSelector]);
 
+  // Close base branch selector on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (baseBranchSelectorRef.current && !baseBranchSelectorRef.current.contains(e.target as Node)) {
+        setShowBaseBranchSelector(false);
+      }
+    };
+    if (showBaseBranchSelector) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showBaseBranchSelector]);
+
   const filteredBranches = useMemo(() => {
     if (!branchSearch) return branches;
     const q = branchSearch.toLowerCase();
     return branches.filter(b => b.name.toLowerCase().includes(q));
   }, [branches, branchSearch]);
 
+  const filteredBaseBranches = useMemo(() => {
+    if (!baseBranchSearch) return branches;
+    const q = baseBranchSearch.toLowerCase();
+    return branches.filter(b => b.name.toLowerCase().includes(q));
+  }, [branches, baseBranchSearch]);
+
   const { output, outputRef, isLoadingMore, hasMore, remainingCount, loadMore } = useTaskOutput(task?.id ?? null);
   const { currentActivity, activeAgent } = useTaskActivity(task?.id ?? null);
   const { currentRequest: permissionRequest, dismissRequest } = usePermissions(task?.id);
+
+  // Fetch current base branch from git (real-time sync for rebases)
+  useEffect(() => {
+    if (!task?.id) {
+      setCurrentBaseBranch(null);
+      return;
+    }
+
+    // Initial fetch
+    const fetchBaseBranch = async () => {
+      try {
+        const base = await tauri.getBranchBase(task.id);
+        setCurrentBaseBranch(base);
+      } catch {
+        // Fall back to stored base_branch if git query fails
+        setCurrentBaseBranch(task.base_branch ?? null);
+      }
+    };
+    fetchBaseBranch();
+
+    // Poll every 10 seconds to catch rebases
+    const interval = setInterval(fetchBaseBranch, 10000);
+    return () => clearInterval(interval);
+  }, [task?.id, task?.base_branch]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -232,8 +298,11 @@ export function ChatView({
     setError(null);
 
     try {
-      await onCreateTask(repositoryPath.trim(), prompt.trim(), selectedBranch || undefined);
+      // Only pass baseBranch if we're creating a new branch (not using an existing one)
+      const baseBranchToUse = selectedBranch ? undefined : (selectedBaseBranch || undefined);
+      await onCreateTask(repositoryPath.trim(), prompt.trim(), selectedBranch || undefined, baseBranchToUse);
       setPrompt("");
+      setSelectedBaseBranch("");
     } catch (err) {
       console.error("Failed to create task:", err);
       setError(err instanceof Error ? err.message : String(err));
@@ -280,9 +349,20 @@ export function ChatView({
         return;
       }
     }
-    // Cmd+Enter to submit
-    if (e.key === "Enter" && e.metaKey) {
-      handleSubmit(e);
+    // Submit handling based on sendWithEnter setting
+    if (e.key === "Enter") {
+      if (sendWithEnter) {
+        // Enter to send, Shift+Enter for new line
+        if (!e.shiftKey) {
+          e.preventDefault();
+          handleSubmit(e);
+        }
+      } else {
+        // Cmd/Ctrl+Enter to send
+        if (e.metaKey || e.ctrlKey) {
+          handleSubmit(e);
+        }
+      }
     }
   };
 
@@ -335,10 +415,21 @@ export function ChatView({
         setShowSlashCommands(false);
       }
     }
-    // Cmd+Enter to send (Enter just adds newline)
-    if (e.key === "Enter" && e.metaKey) {
-      e.preventDefault();
-      handleFollowUpSubmit();
+    // Submit handling based on sendWithEnter setting
+    if (e.key === "Enter") {
+      if (sendWithEnter) {
+        // Enter to send, Shift+Enter for new line
+        if (!e.shiftKey) {
+          e.preventDefault();
+          handleFollowUpSubmit();
+        }
+      } else {
+        // Cmd/Ctrl+Enter to send
+        if (e.metaKey || e.ctrlKey) {
+          e.preventDefault();
+          handleFollowUpSubmit();
+        }
+      }
     }
   };
 
@@ -678,6 +769,108 @@ export function ChatView({
               </div>
             )}
 
+            {/* Base branch selector - only show when creating a new branch */}
+            {repositoryPath && branches.length > 0 && !selectedBranch && (
+              <div className="relative" ref={baseBranchSelectorRef}>
+                <button
+                  type="button"
+                  onClick={() => setShowBaseBranchSelector(!showBaseBranchSelector)}
+                  className="px-3 py-2 text-xs transition-colors flex items-center gap-2"
+                  style={{
+                    backgroundColor: 'transparent',
+                    border: `1px solid ${selectedBaseBranch ? 'var(--accent-yellow)' : 'var(--border-default)'}`,
+                    color: selectedBaseBranch ? 'var(--text-primary)' : 'var(--text-dim)',
+                  }}
+                >
+                  <span style={{ color: 'var(--accent-yellow)' }}>[↑]</span>
+                  {selectedBaseBranch ? (
+                    <>
+                      <span>Based on:</span>
+                      <span className="truncate max-w-[150px]" style={{ color: 'var(--accent-yellow)' }}>{selectedBaseBranch}</span>
+                    </>
+                  ) : (
+                    <span>Fork from default branch</span>
+                  )}
+                  <span style={{ color: 'var(--text-dim)' }}>{showBaseBranchSelector ? '▲' : '▼'}</span>
+                </button>
+
+                {showBaseBranchSelector && (
+                  <div
+                    className="absolute bottom-full left-0 mb-1 w-80 max-h-60 overflow-hidden flex flex-col z-50"
+                    style={{
+                      backgroundColor: 'var(--bg-elevated)',
+                      border: '1px solid var(--border-active)',
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={baseBranchSearch}
+                      onChange={(e) => setBaseBranchSearch(e.target.value)}
+                      placeholder="Search branches to fork from..."
+                      className="px-3 py-2 text-xs"
+                      style={{
+                        backgroundColor: 'var(--bg-surface)',
+                        border: 'none',
+                        borderBottom: '1px solid var(--border-default)',
+                        color: 'var(--text-primary)',
+                      }}
+                      autoFocus
+                    />
+                    <div className="overflow-y-auto flex-1">
+                      {/* Default branch option */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedBaseBranch("");
+                          setShowBaseBranchSelector(false);
+                          setBaseBranchSearch("");
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs transition-colors"
+                        style={{
+                          backgroundColor: !selectedBaseBranch ? 'var(--bg-surface)' : 'transparent',
+                          color: !selectedBaseBranch ? 'var(--accent-yellow)' : 'var(--text-secondary)',
+                          borderBottom: '1px solid var(--border-default)',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-surface)'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = !selectedBaseBranch ? 'var(--bg-surface)' : 'transparent'}
+                      >
+                        <span style={{ color: 'var(--accent-yellow)' }}>○</span> Default branch (main/master)
+                      </button>
+
+                      {filteredBaseBranches.map((branch) => (
+                        <button
+                          type="button"
+                          key={branch.name}
+                          onClick={() => {
+                            setSelectedBaseBranch(branch.name);
+                            setShowBaseBranchSelector(false);
+                            setBaseBranchSearch("");
+                          }}
+                          className="w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2"
+                          style={{
+                            backgroundColor: selectedBaseBranch === branch.name ? 'var(--bg-surface)' : 'transparent',
+                            color: selectedBaseBranch === branch.name ? 'var(--accent-yellow)' : 'var(--text-secondary)',
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-surface)'}
+                          onMouseLeave={(e) => e.currentTarget.style.backgroundColor = selectedBaseBranch === branch.name ? 'var(--bg-surface)' : 'transparent'}
+                        >
+                          <span className="truncate flex-1">{branch.name}</span>
+                          {branch.is_current && (
+                            <span style={{ color: 'var(--accent-green)' }}>*</span>
+                          )}
+                        </button>
+                      ))}
+                      {filteredBaseBranches.length === 0 && baseBranchSearch && (
+                        <div className="px-3 py-2 text-xs" style={{ color: 'var(--text-dim)' }}>
+                          No matching branches
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="flex gap-2">
               <textarea
                 ref={textareaRef}
@@ -695,7 +888,7 @@ export function ChatView({
                 }}
                 placeholder={
                   repositoryPath
-                    ? "Type / for commands, or describe the task... (⌘+Enter to send)"
+                    ? `Type / for commands, or describe the task... (${sendWithEnter ? "Enter" : "⌘+Enter"} to send)`
                     : "Select a repository first..."
                 }
                 disabled={!repositoryPath}
@@ -780,6 +973,17 @@ export function ChatView({
               >
                 {copiedBranch ? "Copied!" : task.branch}
               </button>
+              {currentBaseBranch && (
+                <>
+                  <span style={{ color: 'var(--accent-yellow)' }}>↑</span>
+                  <span
+                    style={{ color: 'var(--text-dim)' }}
+                    title={`Based on ${currentBaseBranch}`}
+                  >
+                    {currentBaseBranch}
+                  </span>
+                </>
+              )}
               {task.total_cost_usd != null && task.total_cost_usd > 0 && (
                 <>
                   <span>•</span>
@@ -1280,7 +1484,7 @@ export function ChatView({
                 placeholder={
                   isRunning
                     ? "Task is running... click ■ to stop"
-                    : "Type / for commands, or send a follow-up... (⌘+Enter to send)"
+                    : `Type / for commands, or send a follow-up... (${sendWithEnter ? "Enter" : "⌘+Enter"} to send)`
                 }
                 disabled={isRunning}
                 rows={1}

@@ -72,6 +72,8 @@ pub struct Task {
     pub total_input_tokens: i64,
     #[serde(default)]
     pub total_output_tokens: i64,
+    /// The branch this task was based on (for display, may be updated by rebases)
+    pub base_branch: Option<String>,
     #[serde(skip)]
     pub pid: Option<u32>,
 }
@@ -85,6 +87,7 @@ impl Task {
         description: String,
         branch: String,
         metadata_loading: bool,
+        base_branch: Option<String>,
     ) -> Self {
         let id = Uuid::new_v4().to_string();
 
@@ -134,13 +137,14 @@ impl Task {
             total_cost_usd: 0.0,
             total_input_tokens: 0,
             total_output_tokens: 0,
+            base_branch,
             pid: None,
         }
     }
 
     /// Create a new task with a quick temporary name (for instant UI feedback)
     /// Metadata will be loaded in the background
-    pub fn new_with_temp_name(repository_path: String, prompt: String) -> Self {
+    pub fn new_with_temp_name(repository_path: String, prompt: String, base_branch: Option<String>) -> Self {
         // Generate a human-readable temporary branch name
         let temp_id = human_ids::generate(None);
         let branch = format!("task/{}", temp_id);
@@ -152,17 +156,18 @@ impl Task {
             String::new(),
             branch,
             true, // metadata is loading
+            base_branch,
         )
     }
 
     /// Create a new task with auto-generated metadata (fallback)
-    pub fn new(repository_path: String, prompt: String) -> Self {
+    pub fn new(repository_path: String, prompt: String, base_branch: Option<String>) -> Self {
         // Auto-generate task name and description from prompt
         let name = Self::generate_name_from_prompt(&prompt);
         let description = Self::generate_description_from_prompt(&prompt);
         let branch = format!("agent/{}", slug::slugify(&name));
 
-        Self::new_with_metadata(repository_path, prompt, name, description, branch, false)
+        Self::new_with_metadata(repository_path, prompt, name, description, branch, false, base_branch)
     }
 
     /// Generate a concise task name from the prompt
@@ -243,4 +248,6 @@ pub struct CreateTaskInput {
     pub prompt: String,
     /// Optional: use an existing branch instead of creating a new one
     pub existing_branch: Option<String>,
+    /// Optional: base branch to create the new branch from (defaults to main/master)
+    pub base_branch: Option<String>,
 }

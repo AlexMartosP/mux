@@ -19,6 +19,7 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
     prompt_for_permissions: false,
     theme: "terminal",
     max_concurrent_tasks: 0,
+    send_with_enter: false,
   });
 
   // Theme context
@@ -304,6 +305,42 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
                 />
                 <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
                   Notify when task encounters an error
+                </span>
+              </label>
+            </div>
+          </div>
+
+          {/* Send Key */}
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+              SEND KEY
+            </label>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
+              Choose the keyboard shortcut to send messages.
+            </p>
+            <div className="space-y-2">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="radio"
+                  name="sendKey"
+                  checked={!settings.send_with_enter}
+                  onChange={() => setSettings((prev) => ({ ...prev, send_with_enter: false }))}
+                  style={{ accentColor: 'var(--accent-cyan)' }}
+                />
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  <span style={{ color: 'var(--text-primary)' }}>⌘+Enter</span> to send (Enter for new line)
+                </span>
+              </label>
+              <label className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="radio"
+                  name="sendKey"
+                  checked={settings.send_with_enter}
+                  onChange={() => setSettings((prev) => ({ ...prev, send_with_enter: true }))}
+                  style={{ accentColor: 'var(--accent-cyan)' }}
+                />
+                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
+                  <span style={{ color: 'var(--text-primary)' }}>Enter</span> to send (Shift+Enter for new line)
                 </span>
               </label>
             </div>

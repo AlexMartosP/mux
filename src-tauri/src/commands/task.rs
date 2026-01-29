@@ -36,9 +36,10 @@ pub async fn create_task(
     state: State<'_, Arc<AppState>>,
     input: CreateTaskInput,
 ) -> Result<Task> {
-    log::info!("[create_task] repo={}, existing_branch={:?}, prompt={}...",
+    log::info!("[create_task] repo={}, existing_branch={:?}, base_branch={:?}, prompt={}...",
         input.repository_path,
         input.existing_branch,
+        input.base_branch,
         &input.prompt[..input.prompt.len().min(80)]);
     // 1. Create task immediately with temp name for instant UI feedback
     let task = if let Some(ref existing_branch) = input.existing_branch {
@@ -50,9 +51,10 @@ pub async fn create_task(
             String::new(),
             existing_branch.clone(),
             true, // metadata_loading
+            input.base_branch.clone(),
         )
     } else {
-        Task::new_with_temp_name(input.repository_path.clone(), input.prompt.clone())
+        Task::new_with_temp_name(input.repository_path.clone(), input.prompt.clone(), input.base_branch.clone())
     };
 
     // 2. Save to database immediately (with metadata_loading: true)
@@ -65,6 +67,7 @@ pub async fn create_task(
     let worktree_path = task.worktree_path.clone();
     let prompt = task.prompt.clone();
     let existing_branch = input.existing_branch.clone();
+    let base_branch = input.base_branch.clone();
     let db = Arc::clone(&state.db);
     let claude = Arc::clone(&state.claude);
     let app_handle_clone = app_handle.clone();
@@ -88,11 +91,12 @@ pub async fn create_task(
             let branch = branch.clone();
             let worktree_path = worktree_path.clone();
             let existing_branch = existing_branch.clone();
+            let base_branch = base_branch.clone();
             move || {
                 if existing_branch.is_some() {
                     WorktreeService::create_worktree_from_branch(&repo_path, &branch, &worktree_path)
                 } else {
-                    WorktreeService::create_worktree(&repo_path, &branch, &worktree_path)
+                    WorktreeService::create_worktree(&repo_path, &branch, &worktree_path, base_branch.as_deref())
                 }
             }
         })

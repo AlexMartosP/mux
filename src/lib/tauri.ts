@@ -129,6 +129,7 @@ export interface AppSettings {
   prompt_for_permissions: boolean;
   theme: string | null;
   max_concurrent_tasks: number;
+  send_with_enter: boolean;
 }
 
 export async function getSettings(): Promise<AppSettings> {
@@ -215,6 +216,16 @@ export async function listBranches(repositoryPath: string): Promise<BranchInfo[]
   return invoke("list_branches", { repositoryPath });
 }
 
+// Get the base branch for a task (queries git for merge-base)
+export async function getBranchBase(taskId: string): Promise<string | null> {
+  return invoke("get_branch_base", { taskId });
+}
+
+// Update the base branch for a task (called after rebase)
+export async function updateTaskBaseBranch(taskId: string, baseBranch: string): Promise<void> {
+  return invoke("update_task_base_branch", { taskId, baseBranch });
+}
+
 // Permission handling
 export interface PermissionRequest {
   request_id: string;
@@ -229,6 +240,16 @@ export async function respondPermission(
   reason?: string
 ): Promise<boolean> {
   return invoke("respond_permission", { requestId, behavior, reason });
+}
+
+// Add permission rule to Claude settings (for "always allow")
+export async function addPermissionRule(
+  taskId: string,
+  toolName: string,
+  toolInput: Record<string, unknown>,
+  scope: "global" | "project"
+): Promise<string> {
+  return invoke("add_permission_rule", { taskId, toolName, toolInput, scope });
 }
 
 export async function openInEditor(path: string, editor: string): Promise<void> {
