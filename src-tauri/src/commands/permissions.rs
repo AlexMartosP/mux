@@ -21,6 +21,14 @@ pub fn respond_permission(
     };
     let result = respond_to_permission(&request_id, decision);
 
+    // Emit event to notify frontend that permission was responded to
+    // This ensures the request is removed from the pending list even if callback fails
+    if result.sent {
+        let _ = app_handle.emit("permission-responded", serde_json::json!({
+            "request_id": request_id
+        }));
+    }
+
     // If this was a timed-out request that was approved, restart Claude
     if let Some(timed_out_req) = result.restart_task {
         if behavior == "allow" {

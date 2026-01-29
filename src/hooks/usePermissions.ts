@@ -98,10 +98,21 @@ export function usePermissions(taskId?: string | null) {
       sendTimeoutNotification(event.payload);
     });
 
+    // Listen for permission responses from backend to reliably clean up
+    const unlistenResponsePromise = listen<{ request_id: string }>("permission-responded", (event) => {
+      const requestId = event.payload.request_id;
+      globalRequests = globalRequests.filter((r) => r.request_id !== requestId);
+      setPendingRequests(globalRequests);
+      if (globalSetRequests && globalSetRequests !== setPendingRequests) {
+        globalSetRequests(globalRequests);
+      }
+    });
+
     return () => {
       listenerSetup = false;
       unlistenRequestPromise.then((unlisten) => unlisten());
       unlistenTimeoutPromise.then((unlisten) => unlisten());
+      unlistenResponsePromise.then((unlisten) => unlisten());
     };
   }, []);
 
