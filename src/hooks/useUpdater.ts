@@ -1,5 +1,5 @@
-import { useState, useCallback } from "react";
-import { check } from "@tauri-apps/plugin-updater";
+import { useState, useCallback, useRef } from "react";
+import { check, Update } from "@tauri-apps/plugin-updater";
 import { relaunch } from "@tauri-apps/plugin-process";
 
 interface UpdateInfo {
@@ -14,6 +14,7 @@ export function useUpdater() {
   const [updateAvailable, setUpdateAvailable] = useState<UpdateInfo | null>(null);
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const updateRef = useRef<Update | null>(null);
 
   const checkForUpdates = useCallback(async () => {
     setChecking(true);
@@ -23,6 +24,7 @@ export function useUpdater() {
       const update = await check();
 
       if (update) {
+        updateRef.current = update;
         setUpdateAvailable({
           version: update.version,
           body: update.body,
@@ -30,6 +32,7 @@ export function useUpdater() {
         });
         return update;
       } else {
+        updateRef.current = null;
         setUpdateAvailable(null);
         return null;
       }
@@ -49,7 +52,14 @@ export function useUpdater() {
     setError(null);
 
     try {
-      const update = await check();
+      // Use stored update or check again
+      let update = updateRef.current;
+      if (!update) {
+        update = await check();
+        if (update) {
+          updateRef.current = update;
+        }
+      }
 
       if (!update) {
         setError("No update available");
@@ -63,6 +73,7 @@ export function useUpdater() {
         switch (event.event) {
           case "Started":
             contentLength = event.data.contentLength || 0;
+            console.log("Update download started, size:", contentLength);
             break;
           case "Progress":
             downloaded += event.data.chunkLength;
@@ -71,16 +82,18 @@ export function useUpdater() {
             }
             break;
           case "Finished":
+            console.log("Update download finished");
             setDownloadProgress(100);
             break;
         }
       });
 
+      console.log("Update installed, relaunching...");
       // Relaunch the app to apply the update
       await relaunch();
       return true;
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to download update";
+      const message = err instanceof Error ? err.message : String(err);
       setError(message);
       console.error("Update download failed:", err);
       return false;
