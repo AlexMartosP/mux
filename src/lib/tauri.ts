@@ -130,6 +130,7 @@ export interface AppSettings {
   theme: string | null;
   max_concurrent_tasks: number;
   send_with_enter: boolean;
+  font_size: number;
 }
 
 export async function getSettings(): Promise<AppSettings> {

@@ -74,13 +74,33 @@ export function useTaskOutput(taskId: string | null) {
       return;
     }
 
-    // Check cache first
+    // Check cache first for immediate display
     const cached = getCachedOutput(taskId);
-    if (cached) {
+    if (cached && cached.output.length > 0) {
       setOutput(cached.output);
       setTotalCount(cached.totalCount);
       setLoadedCount(cached.loadedCount);
       setIsLoading(false);
+
+      // Still validate cache against server in background
+      tauri.getTaskOutputCount(taskId).then((serverCount) => {
+        if (serverCount !== cached.totalCount) {
+          // Cache is stale, re-fetch
+          Promise.all([
+            tauri.getTaskOutput(taskId, PAGE_SIZE, 0),
+            Promise.resolve(serverCount),
+          ]).then(([existingOutput, count]) => {
+            setOutput(existingOutput);
+            setTotalCount(count);
+            setLoadedCount(existingOutput.length);
+            setCachedOutput(taskId, {
+              output: existingOutput,
+              totalCount: count,
+              loadedCount: existingOutput.length,
+            });
+          });
+        }
+      });
       return;
     }
 

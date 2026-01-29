@@ -6,29 +6,35 @@ interface ThemeContextValue {
   theme: Theme;
   setThemeId: (id: string) => void;
   themes: Theme[];
+  fontSize: number;
+  setFontSize: (size: number) => void;
 }
 
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [theme, setTheme] = useState<Theme>(getThemeById("terminal"));
+  const [fontSize, setFontSizeState] = useState<number>(1.0);
   const [isLoaded, setIsLoaded] = useState(false);
 
-  // Load theme from settings on mount
+  // Load theme and font size from settings on mount
   useEffect(() => {
-    const loadTheme = async () => {
+    const loadSettings = async () => {
       try {
         const settings = await tauri.getSettings();
         if (settings.theme) {
           setTheme(getThemeById(settings.theme));
         }
+        if (settings.font_size) {
+          setFontSizeState(settings.font_size);
+        }
       } catch (err) {
-        console.error("Failed to load theme setting:", err);
+        console.error("Failed to load settings:", err);
       } finally {
         setIsLoaded(true);
       }
     };
-    loadTheme();
+    loadSettings();
   }, []);
 
   // Apply theme variables to document
@@ -42,6 +48,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     // Apply font-family to body
     document.body.style.fontFamily = theme.variables["--font-family"];
+
+    // Apply font size multiplier
+    root.style.setProperty("--font-size-multiplier", String(fontSize));
+    root.style.fontSize = `${fontSize * 100}%`;
 
     // Update theme-specific styles
     let styleElement = document.getElementById("theme-styles");
@@ -114,7 +124,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         }
       `;
     }
-  }, [theme]);
+  }, [theme, fontSize]);
 
   const setThemeId = async (id: string) => {
     const newTheme = getThemeById(id);
@@ -128,13 +138,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const setFontSize = async (size: number) => {
+    setFontSizeState(size);
+
+    // Save to settings
+    try {
+      await tauri.setSetting("font_size", String(size));
+    } catch (err) {
+      console.error("Failed to save font size setting:", err);
+    }
+  };
+
   // Don't render until theme is loaded to prevent flash
   if (!isLoaded) {
     return null;
   }
 
   return (
-    <ThemeContext.Provider value={{ theme, setThemeId, themes }}>
+    <ThemeContext.Provider value={{ theme, setThemeId, themes, fontSize, setFontSize }}>
       {children}
     </ThemeContext.Provider>
   );

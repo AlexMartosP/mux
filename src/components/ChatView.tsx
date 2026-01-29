@@ -235,7 +235,7 @@ export function ChatView({
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing || !resizeRef.current) return;
       const delta = resizeRef.current.startX - e.clientX;
-      const newWidth = Math.min(Math.max(resizeRef.current.startWidth + delta, 200), 800);
+      const newWidth = Math.max(resizeRef.current.startWidth + delta, 200); // Min 200px, no max
       setChangesPanelWidth(newWidth);
     };
 
@@ -542,12 +542,7 @@ export function ChatView({
                       }
                     }}
                   >
-                    <div className="flex items-center gap-2">
-                      <span style={{ color: repo.is_git_repo ? 'var(--accent-green)' : 'var(--text-dim)' }}>
-                        {repo.is_git_repo ? '[G]' : '[D]'}
-                      </span>
-                      <span className="truncate">{repo.name}</span>
-                    </div>
+                    <span className="truncate">{repo.name}</span>
                   </button>
                 ))}
               </div>
@@ -1556,7 +1551,7 @@ export function ChatView({
         >
           {/* Resize handle */}
           <div
-            className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-10 transition-colors"
+            className="absolute left-0 top-0 bottom-0 w-2 cursor-col-resize z-10 transition-colors group flex items-center justify-center"
             style={{
               backgroundColor: isResizing ? 'var(--accent-cyan)' : 'transparent',
             }}
@@ -1567,6 +1562,22 @@ export function ChatView({
             onMouseLeave={(e) => {
               if (!isResizing) e.currentTarget.style.backgroundColor = 'transparent';
             }}
+          >
+            {/* Grip dots */}
+            <div
+              className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
+              style={{ pointerEvents: 'none' }}
+            >
+              <div className="w-1 h-1 rounded-full" style={{ backgroundColor: 'var(--text-dim)' }} />
+              <div className="w-1 h-1 rounded-full" style={{ backgroundColor: 'var(--text-dim)' }} />
+              <div className="w-1 h-1 rounded-full" style={{ backgroundColor: 'var(--text-dim)' }} />
+            </div>
+          </div>
+          {/* Extended hit area for easier grabbing */}
+          <div
+            className="absolute left-0 top-0 bottom-0 w-3 cursor-col-resize z-9"
+            style={{ transform: 'translateX(-50%)' }}
+            onMouseDown={startResize}
           />
           <ChangesPanel
             taskId={task.id}

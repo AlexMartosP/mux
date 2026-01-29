@@ -22,6 +22,8 @@ pub struct AppSettings {
     pub max_concurrent_tasks: u32,
     /// If true, send messages with Enter. If false (default), send with Cmd/Ctrl+Enter.
     pub send_with_enter: bool,
+    /// Font size multiplier (0.8 = small, 1.0 = default, 1.2 = large, 1.4 = extra large)
+    pub font_size: f32,
 }
 
 impl Default for AppSettings {
@@ -35,6 +37,7 @@ impl Default for AppSettings {
             theme: Some("terminal".to_string()),
             max_concurrent_tasks: 0, // 0 = unlimited
             send_with_enter: false, // Default to Cmd/Ctrl+Enter
+            font_size: 1.0, // Default font size multiplier
         }
     }
 }
@@ -68,6 +71,10 @@ pub fn get_settings(state: State<Arc<AppState>>) -> Result<AppSettings> {
             .get("send_with_enter")
             .map(|v| v == "true")
             .unwrap_or(false),
+        font_size: settings_map
+            .get("font_size")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1.0),
     })
 }
 
@@ -95,6 +102,9 @@ pub fn update_settings(state: State<Arc<AppState>>, settings: AppSettings) -> Re
     state
         .db
         .set_setting("send_with_enter", &settings.send_with_enter.to_string())?;
+    state
+        .db
+        .set_setting("font_size", &settings.font_size.to_string())?;
     Ok(())
 }
 

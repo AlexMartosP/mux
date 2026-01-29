@@ -20,10 +20,11 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
     theme: "terminal",
     max_concurrent_tasks: 0,
     send_with_enter: false,
+    font_size: 1.0,
   });
 
   // Theme context
-  const { theme, setThemeId, themes } = useTheme();
+  const { theme, setThemeId, themes, fontSize, setFontSize } = useTheme();
   const [isSaving, setIsSaving] = useState(false);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
@@ -307,6 +308,53 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
                   Notify when task encounters an error
                 </span>
               </label>
+            </div>
+          </div>
+
+          {/* Accessibility */}
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+              ACCESSIBILITY
+            </label>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
+              Adjust the interface for better readability.
+            </p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs mb-2" style={{ color: 'var(--text-secondary)' }}>
+                  Font Size
+                </label>
+                <div className="flex items-center gap-3">
+                  {[
+                    { value: 0.85, label: "Small" },
+                    { value: 1.0, label: "Default" },
+                    { value: 1.15, label: "Large" },
+                    { value: 1.3, label: "Extra Large" },
+                  ].map((option) => (
+                    <label key={option.value} className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="radio"
+                        name="fontSize"
+                        checked={fontSize === option.value}
+                        onChange={() => {
+                          setFontSize(option.value);
+                          setSettings((prev) => ({ ...prev, font_size: option.value }));
+                        }}
+                        style={{ accentColor: 'var(--accent-cyan)' }}
+                      />
+                      <span
+                        className="text-xs"
+                        style={{
+                          color: fontSize === option.value ? 'var(--text-primary)' : 'var(--text-secondary)',
+                          fontSize: `${option.value * 12}px`
+                        }}
+                      >
+                        {option.label}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
             </div>
           </div>
 
