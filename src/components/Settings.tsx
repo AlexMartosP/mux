@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { getVersion } from "@tauri-apps/api/app";
 import * as tauri from "../lib/tauri";
 import type { AppSettings, ExportOptions } from "../lib/tauri";
 import { useUpdater } from "../hooks/useUpdater";
@@ -37,8 +36,6 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
   const [exportMessage, setExportMessage] = useState<string | null>(null);
 
   // Bug report state
-  const [bugDescription, setBugDescription] = useState("");
-  const [includeSystemInfo, setIncludeSystemInfo] = useState(true);
   const [isSubmittingBug, setIsSubmittingBug] = useState(false);
 
   // Updater
@@ -96,29 +93,9 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
   };
 
   const handleSubmitBug = async () => {
-    if (!bugDescription.trim()) return;
-
     setIsSubmittingBug(true);
     try {
-      let body = `## Bug Description\n\n${bugDescription.trim()}\n`;
-
-      if (includeSystemInfo) {
-        const appVersion = await getVersion();
-        const os = navigator.platform || "Unknown";
-        const userAgent = navigator.userAgent || "";
-
-        body += `\n## System Information\n\n`;
-        body += `- **App Version:** ${appVersion}\n`;
-        body += `- **Platform:** ${os}\n`;
-        body += `- **User Agent:** ${userAgent}\n`;
-      }
-
-      const title = encodeURIComponent(bugDescription.trim().slice(0, 60) + (bugDescription.length > 60 ? "..." : ""));
-      const encodedBody = encodeURIComponent(body);
-      const url = `https://github.com/AlexMartosP/mux-releases/issues/new?title=${title}&body=${encodedBody}&labels=bug`;
-
-      await openUrl(url);
-      setBugDescription("");
+      await openUrl("https://github.com/users/AlexMartosP/projects/9");
     } catch (err) {
       console.error("Failed to open bug report:", err);
     } finally {
@@ -705,53 +682,26 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
             <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
               Found an issue? Let us know and we'll fix it.
             </p>
-            <div className="space-y-3">
-              <textarea
-                value={bugDescription}
-                onChange={(e) => setBugDescription(e.target.value)}
-                placeholder="Describe the bug... What happened? What did you expect?"
-                rows={3}
-                className="w-full px-3 py-2 text-xs resize-none"
-                style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  border: '1px solid var(--border-default)',
-                  color: 'var(--text-primary)',
-                }}
-              />
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={includeSystemInfo}
-                  onChange={(e) => setIncludeSystemInfo(e.target.checked)}
-                  style={{ accentColor: 'var(--accent-cyan)' }}
-                />
-                <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-                  Include system info (OS, app version)
-                </span>
-              </label>
-              <button
-                onClick={handleSubmitBug}
-                disabled={!bugDescription.trim() || isSubmittingBug}
-                className="px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-                style={{
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--accent-red)',
-                  color: 'var(--accent-red)',
-                }}
-                onMouseEnter={(e) => {
-                  if (!e.currentTarget.disabled) {
-                    e.currentTarget.style.backgroundColor = 'var(--accent-red)';
-                    e.currentTarget.style.color = 'var(--bg-primary)';
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.backgroundColor = 'transparent';
-                  e.currentTarget.style.color = 'var(--accent-red)';
-                }}
-              >
-                {isSubmittingBug ? "OPENING..." : "REPORT BUG ON GITHUB"}
-              </button>
-            </div>
+            <button
+              onClick={handleSubmitBug}
+              disabled={isSubmittingBug}
+              className="px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
+              style={{
+                backgroundColor: 'transparent',
+                border: '1px solid var(--border-active)',
+                color: 'var(--text-secondary)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--accent-cyan)';
+                e.currentTarget.style.color = 'var(--accent-cyan)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-active)';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+            >
+              {isSubmittingBug ? "OPENING..." : "REPORT BUG"}
+            </button>
           </div>
 
           {/* Re-run Onboarding */}
