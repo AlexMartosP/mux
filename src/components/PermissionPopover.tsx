@@ -117,22 +117,12 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
 
   return (
     <div
-      className="p-4"
+      className="w-full p-4"
       style={{
         backgroundColor: "var(--bg-elevated)",
-        borderTop: `2px solid ${getToolColor()}`,
-        borderRadius: "var(--border-radius)",
       }}
     >
       <div className="flex items-start gap-3">
-        {/* Icon */}
-        <span
-          className="text-sm font-bold flex-shrink-0"
-          style={{ color: getToolColor() }}
-        >
-          [?]
-        </span>
-
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-1">
