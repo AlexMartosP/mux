@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { NotificationEntry } from "../types/task";
 import * as tauri from "../lib/tauri";
+import { Button } from "./Button";
 
 interface NotificationCenterProps {
   onNavigateToTask?: (taskId: string) => void;
@@ -99,39 +100,30 @@ export function NotificationCenter({ onNavigateToTask }: NotificationCenterProps
 
   return (
     <div className="relative" ref={panelRef}>
-      <button
+      <Button
+        variant="ghost"
         onClick={() => {
           setIsOpen(!isOpen);
           if (!isOpen) loadNotifications();
         }}
-        className="w-full px-4 py-2 text-xs font-medium transition-colors flex items-center justify-center gap-2"
-        style={{
-          backgroundColor: "transparent",
-          border: "1px solid var(--border-default)",
-          color: "var(--text-dim)",
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = "var(--border-active)";
-          e.currentTarget.style.color = "var(--text-secondary)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = "var(--border-default)";
-          e.currentTarget.style.color = "var(--text-dim)";
-        }}
+        className="w-full justify-center"
       >
-        [!] NOTIFICATIONS
-        {unreadCount > 0 && (
-          <span
-            className="text-xs font-bold px-1.5 py-0.5"
-            style={{
-              backgroundColor: "var(--accent-red)",
-              color: "var(--bg-primary)",
-            }}
-          >
-            {unreadCount}
-          </span>
-        )}
-      </button>
+        <span className="flex items-center gap-2">
+          [!] Notifications
+          {unreadCount > 0 && (
+            <span
+              className="text-xs font-bold px-1.5 py-0.5"
+              style={{
+                backgroundColor: "var(--accent-red)",
+                color: "var(--bg-primary)",
+                borderRadius: "var(--border-radius)",
+              }}
+            >
+              {unreadCount}
+            </span>
+          )}
+        </span>
+      </Button>
 
       {isOpen && (
         <div
@@ -139,6 +131,7 @@ export function NotificationCenter({ onNavigateToTask }: NotificationCenterProps
           style={{
             backgroundColor: "var(--bg-elevated)",
             border: "1px solid var(--border-active)",
+            borderRadius: "var(--border-radius)",
           }}
         >
           {/* Header */}

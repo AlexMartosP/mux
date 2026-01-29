@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { PermissionRequest } from "../lib/tauri";
 import * as tauri from "../lib/tauri";
+import { Button } from "./Button";
 
 interface PermissionDialogProps {
   request: PermissionRequest;
@@ -58,7 +59,7 @@ export function PermissionDialog({ request, onDismiss }: PermissionDialogProps) 
   const getToolColor = () => {
     switch (request.tool_name) {
       case "Bash":
-        return "var(--accent-magenta)";
+        return "var(--accent-cyan)";
       case "Write":
       case "Edit":
         return "var(--accent-green)";
@@ -79,6 +80,7 @@ export function PermissionDialog({ request, onDismiss }: PermissionDialogProps) 
         style={{
           backgroundColor: "var(--bg-surface)",
           border: `1px solid ${getToolColor()}`,
+          borderRadius: "var(--border-radius)",
         }}
       >
         {/* Header */}
@@ -110,6 +112,7 @@ export function PermissionDialog({ request, onDismiss }: PermissionDialogProps) 
             style={{
               backgroundColor: "var(--bg-elevated)",
               border: "1px solid var(--border-default)",
+              borderRadius: "var(--border-radius)",
             }}
           >
             <div
@@ -141,6 +144,7 @@ export function PermissionDialog({ request, onDismiss }: PermissionDialogProps) 
               style={{
                 backgroundColor: "var(--bg-elevated)",
                 border: "1px solid var(--border-default)",
+                borderRadius: "var(--border-radius)",
                 color: "var(--text-dim)",
               }}
             >
@@ -151,29 +155,24 @@ export function PermissionDialog({ request, onDismiss }: PermissionDialogProps) 
 
         {/* Actions */}
         <div className="flex gap-3">
-          <button
+          <Button
+            variant="primary"
+            color="green"
             onClick={handleAllow}
             disabled={isResponding}
-            className="flex-1 px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-            style={{
-              backgroundColor: "var(--accent-green)",
-              color: "var(--bg-primary)",
-            }}
+            className="flex-1"
           >
-            {isResponding ? "..." : "ALLOW"}
-          </button>
-          <button
+            {isResponding ? "..." : "Allow"}
+          </Button>
+          <Button
+            variant="secondary"
+            color="red"
             onClick={handleDeny}
             disabled={isResponding}
-            className="flex-1 px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-            style={{
-              backgroundColor: "transparent",
-              border: "1px solid var(--accent-red)",
-              color: "var(--accent-red)",
-            }}
+            className="flex-1"
           >
-            {isResponding ? "..." : "DENY"}
-          </button>
+            {isResponding ? "..." : "Deny"}
+          </Button>
         </div>
 
         {/* Keyboard hints */}

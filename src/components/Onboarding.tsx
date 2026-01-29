@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as tauri from "../lib/tauri";
+import { Button } from "./Button";
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -192,6 +193,14 @@ export function Onboarding({ onComplete }: OnboardingProps) {
   );
 }
 
+// Common input style
+const inputStyle = {
+  backgroundColor: 'var(--bg-surface)',
+  border: '1px solid var(--border-default)',
+  borderRadius: 'var(--border-radius)',
+  color: 'var(--text-primary)',
+};
+
 // Welcome Step
 function WelcomeStep({ onNext }: { onNext: () => void }) {
   return (
@@ -222,16 +231,9 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
       >
         <p>Let's get you set up in a few quick steps.</p>
       </div>
-      <button
-        onClick={onNext}
-        className="px-6 py-3 text-sm font-medium transition-colors"
-        style={{
-          backgroundColor: 'var(--accent-cyan)',
-          color: 'var(--bg-primary)',
-        }}
-      >
-        GET STARTED
-      </button>
+      <Button variant="primary" onClick={onNext}>
+        Get started
+      </Button>
     </div>
   );
 }
@@ -274,31 +276,11 @@ function RepositoryStep({
             onChange={(e) => onChange(e.target.value)}
             placeholder="e.g., ~/projects"
             className="flex-1 px-4 py-3 text-sm"
-            style={{
-              backgroundColor: 'var(--bg-surface)',
-              border: '1px solid var(--border-default)',
-              color: 'var(--text-primary)',
-            }}
+            style={inputStyle}
           />
-          <button
-            onClick={onBrowse}
-            className="px-4 py-3 text-sm font-medium transition-colors"
-            style={{
-              backgroundColor: 'transparent',
-              border: '1px solid var(--border-active)',
-              color: 'var(--text-secondary)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-              e.currentTarget.style.color = 'var(--accent-cyan)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border-active)';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
-          >
-            BROWSE
-          </button>
+          <Button variant="secondary" onClick={onBrowse}>
+            Browse
+          </Button>
         </div>
         <p
           className="text-xs mt-2"
@@ -308,7 +290,7 @@ function RepositoryStep({
         </p>
       </div>
 
-      <NavigationButtons onBack={onBack} onNext={onNext} nextLabel="NEXT" />
+      <NavigationButtons onBack={onBack} onNext={onNext} nextLabel="Next" />
     </div>
   );
 }
@@ -381,6 +363,7 @@ function PermissionsStep({
           style={{
             backgroundColor: 'var(--bg-surface)',
             border: '1px solid var(--border-default)',
+            borderRadius: 'var(--border-radius)',
           }}
         >
           <div className="flex items-center justify-between mb-3">
@@ -396,6 +379,7 @@ function PermissionsStep({
                 style={{
                   backgroundColor: 'rgba(0, 255, 0, 0.1)',
                   color: 'var(--accent-green)',
+                  borderRadius: 'var(--border-radius)',
                 }}
               >
                 INSTALLED
@@ -406,6 +390,7 @@ function PermissionsStep({
                 style={{
                   backgroundColor: 'rgba(255, 255, 0, 0.1)',
                   color: 'var(--accent-yellow)',
+                  borderRadius: 'var(--border-radius)',
                 }}
               >
                 NOT INSTALLED
@@ -427,6 +412,7 @@ function PermissionsStep({
                 style={{
                   backgroundColor: 'var(--bg-elevated)',
                   border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--border-radius)',
                   color: 'var(--text-dim)',
                 }}
               >
@@ -436,17 +422,14 @@ function PermissionsStep({
                 </code>
               </div>
 
-              <button
+              <Button
+                variant="primary"
                 onClick={onInstallHook}
                 disabled={isInstalling}
-                className="w-full px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-                style={{
-                  backgroundColor: 'var(--accent-cyan)',
-                  color: 'var(--bg-primary)',
-                }}
+                className="w-full"
               >
-                {isInstalling ? "INSTALLING..." : "INSTALL HOOK"}
-              </button>
+                {isInstalling ? "Installing..." : "Install hook"}
+              </Button>
             </>
           )}
 
@@ -470,7 +453,7 @@ function PermissionsStep({
         </div>
       )}
 
-      <NavigationButtons onBack={onBack} onNext={onNext} nextLabel="NEXT" />
+      <NavigationButtons onBack={onBack} onNext={onNext} nextLabel="Next" />
     </div>
   );
 }
@@ -510,11 +493,7 @@ function BranchStep({
           onChange={(e) => onChange(e.target.value)}
           placeholder="e.g., john-doe, feature, fix"
           className="w-full px-4 py-3 text-sm"
-          style={{
-            backgroundColor: 'var(--bg-surface)',
-            border: '1px solid var(--border-default)',
-            color: 'var(--text-primary)',
-          }}
+          style={inputStyle}
         />
         <p
           className="text-xs mt-2"
@@ -526,7 +505,7 @@ function BranchStep({
         </p>
       </div>
 
-      <NavigationButtons onBack={onBack} onNext={onNext} nextLabel="NEXT" />
+      <NavigationButtons onBack={onBack} onNext={onNext} nextLabel="Next" />
     </div>
   );
 }
@@ -612,7 +591,7 @@ function NotificationsStep({
         </label>
       </div>
 
-      <NavigationButtons onBack={onBack} onNext={onNext} nextLabel="NEXT" />
+      <NavigationButtons onBack={onBack} onNext={onNext} nextLabel="Next" />
     </div>
   );
 }
@@ -650,36 +629,12 @@ function CompleteStep({
       </p>
 
       <div className="flex justify-center gap-3">
-        <button
-          onClick={onBack}
-          className="px-4 py-2 text-sm font-medium transition-colors"
-          style={{
-            backgroundColor: 'transparent',
-            border: '1px solid var(--border-active)',
-            color: 'var(--text-secondary)',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-            e.currentTarget.style.color = 'var(--accent-cyan)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'var(--border-active)';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
-        >
-          BACK
-        </button>
-        <button
-          onClick={onFinish}
-          disabled={isSaving}
-          className="px-6 py-2 text-sm font-medium transition-colors disabled:opacity-50"
-          style={{
-            backgroundColor: 'var(--accent-cyan)',
-            color: 'var(--bg-primary)',
-          }}
-        >
-          {isSaving ? "SAVING..." : "START USING MUX"}
-        </button>
+        <Button variant="secondary" onClick={onBack}>
+          Back
+        </Button>
+        <Button variant="primary" onClick={onFinish} disabled={isSaving}>
+          {isSaving ? "Saving..." : "Start using Mux"}
+        </Button>
       </div>
     </div>
   );
@@ -697,35 +652,12 @@ function NavigationButtons({
 }) {
   return (
     <div className="flex justify-between">
-      <button
-        onClick={onBack}
-        className="px-4 py-2 text-sm font-medium transition-colors"
-        style={{
-          backgroundColor: 'transparent',
-          border: '1px solid var(--border-active)',
-          color: 'var(--text-secondary)',
-        }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-          e.currentTarget.style.color = 'var(--accent-cyan)';
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = 'var(--border-active)';
-          e.currentTarget.style.color = 'var(--text-secondary)';
-        }}
-      >
-        BACK
-      </button>
-      <button
-        onClick={onNext}
-        className="px-6 py-2 text-sm font-medium transition-colors"
-        style={{
-          backgroundColor: 'var(--accent-cyan)',
-          color: 'var(--bg-primary)',
-        }}
-      >
+      <Button variant="secondary" onClick={onBack}>
+        Back
+      </Button>
+      <Button variant="primary" onClick={onNext}>
         {nextLabel}
-      </button>
+      </Button>
     </div>
   );
 }

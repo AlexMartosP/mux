@@ -1,59 +1,46 @@
 import { useState, useEffect, useCallback } from "react";
 import { createPortal } from "react-dom";
-import { FileTree } from "./FileTree";
+import { Maximize2, Minimize2, RefreshCw, RotateCcw, X, FilePlus, FileEdit, FileX, ChevronsUpDown } from "lucide-react";
 import { DiffViewer } from "./DiffViewer";
-import { CommitHistory } from "./CommitHistory";
-import { ReviewSummary } from "./ReviewSummary";
-import { useReview } from "../contexts/ReviewContext";
-import { getTaskChanges, getFileDiff, getFileDiffWithContext, getTaskCommits, revertFileChanges } from "../lib/tauri";
-import type { FileChange, FileDiff, CommitInfo } from "../types/task";
+import { Button } from "./Button";
+import { getTaskChanges, getFileDiff, getFileDiffWithContext, revertFileChanges, refreshTaskGitStats } from "../lib/tauri";
+import type { FileChange, FileDiff } from "../types/task";
 
 interface ChangesPanelProps {
   taskId: string;
   onSendReview?: (prompt: string) => void;
-  onFullScreen?: () => void;
   isFullScreen?: boolean;
   onExitFullScreen?: () => void;
 }
 
-type Tab = "files" | "commits" | "review";
-
 export function ChangesPanel({
   taskId,
-  onSendReview,
-  onFullScreen,
+  onSendReview: _onSendReview, // TODO: Re-enable review functionality
   isFullScreen = false,
   onExitFullScreen,
 }: ChangesPanelProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("files");
-  const review = useReview();
   const [files, setFiles] = useState<FileChange[]>([]);
-  const [commits, setCommits] = useState<CommitInfo[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileDiff, setFileDiff] = useState<FileDiff | null>(null);
   const [contextLines, setContextLines] = useState(3);
   const [loading, setLoading] = useState(false);
   const [loadingContext, setLoadingContext] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isDiffFullScreen, setIsDiffFullScreen] = useState(false);
-  const [fileTreeCollapsed, setFileTreeCollapsed] = useState(false);
+  const [showFullScreen, setShowFullScreen] = useState(false);
 
   const loadChanges = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const [changedFiles, commitHistory] = await Promise.all([
-        getTaskChanges(taskId),
-        getTaskCommits(taskId, 20)
-      ]);
+      const changedFiles = await getTaskChanges(taskId);
       setFiles(changedFiles);
-      setCommits(commitHistory);
+
+      // Refresh git stats in the background (updates sidebar display)
+      refreshTaskGitStats(taskId).catch(console.error);
 
       if (changedFiles.length > 0 && !selectedFile) {
-        // Auto-select first file if none selected
         handleSelectFile(changedFiles[0].path);
       } else if (selectedFile) {
-        // Refresh the diff for the currently selected file
         const fileStillExists = changedFiles.some(f => f.path === selectedFile);
         if (fileStillExists) {
           try {
@@ -63,7 +50,6 @@ export function ChangesPanel({
             console.error("Failed to refresh diff:", err);
           }
         } else {
-          // File no longer in changes, select first file or clear
           if (changedFiles.length > 0) {
             handleSelectFile(changedFiles[0].path);
           } else {
@@ -85,12 +71,12 @@ export function ChangesPanel({
     return () => clearInterval(interval);
   }, [loadChanges]);
 
-  // Handle Escape key to close full-screen modes
+  // Handle Escape key to close full-screen
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (isDiffFullScreen) {
-          setIsDiffFullScreen(false);
+        if (showFullScreen) {
+          setShowFullScreen(false);
         } else if (isFullScreen && onExitFullScreen) {
           onExitFullScreen();
         }
@@ -98,11 +84,11 @@ export function ChangesPanel({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isDiffFullScreen, isFullScreen, onExitFullScreen]);
+  }, [showFullScreen, isFullScreen, onExitFullScreen]);
 
   const handleSelectFile = async (path: string) => {
     setSelectedFile(path);
-    setContextLines(3); // Reset context when selecting a new file
+    setContextLines(3);
     try {
       const diff = await getFileDiff(taskId, path);
       setFileDiff(diff);
@@ -127,6 +113,18 @@ export function ChangesPanel({
       setLoadingContext(false);
     }
   }, [taskId, selectedFile, contextLines, loadingContext]);
+
+  const handleRevert = async () => {
+    if (!selectedFile) return;
+    const confirmed = window.confirm(`Revert all changes to ${selectedFile}?`);
+    if (!confirmed) return;
+    try {
+      await revertFileChanges(taskId, selectedFile);
+      await loadChanges();
+    } catch (err) {
+      console.error("Failed to revert:", err);
+    }
+  };
 
   if (loading && files.length === 0) {
     return (
@@ -161,308 +159,333 @@ export function ChangesPanel({
     { additions: 0, deletions: 0 }
   );
 
-  // Full-screen diff modal (for single file)
-  const fullScreenModal = isDiffFullScreen && fileDiff && createPortal(
+  // Get filename from path
+  const getFileName = (path: string) => path.split('/').pop() || path;
+
+  // Get status icon component
+  const getStatusIcon = (status: string) => {
+    switch (status) {
+      case 'added':
+        return <FilePlus size={14} strokeWidth={1.5} />;
+      case 'deleted':
+        return <FileX size={14} strokeWidth={1.5} />;
+      default:
+        return <FileEdit size={14} strokeWidth={1.5} />;
+    }
+  };
+
+  // Horizontal file list for compact view
+  const HorizontalFileList = () => (
+    <div className="flex gap-1 px-2 py-2 overflow-x-auto">
+      {files.map((file) => {
+        const isSelected = selectedFile === file.path;
+        const isDeleted = file.status === 'deleted';
+
+        return (
+          <button
+            key={file.path}
+            onClick={() => !isDeleted && handleSelectFile(file.path)}
+            className="flex-shrink-0 flex items-center gap-1.5 px-2 py-1 text-xs rounded transition-colors"
+            style={{
+              backgroundColor: isSelected ? 'var(--bg-accent-subtle)' : 'transparent',
+              color: isDeleted
+                ? 'var(--accent-red)'
+                : isSelected
+                  ? 'var(--accent-cyan)'
+                  : 'var(--text-dim)',
+              cursor: isDeleted ? 'not-allowed' : 'pointer',
+              opacity: isDeleted ? 0.6 : 1,
+            }}
+            onMouseEnter={(e) => {
+              if (!isSelected && !isDeleted) {
+                e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isSelected) {
+                e.currentTarget.style.backgroundColor = 'transparent';
+                e.currentTarget.style.color = isDeleted
+                  ? 'var(--accent-red)'
+                  : 'var(--text-dim)';
+              }
+            }}
+            title={isDeleted ? `${file.path} (deleted)` : file.path}
+            disabled={isDeleted}
+          >
+            {getStatusIcon(file.status)}
+            <span>{getFileName(file.path)}</span>
+            {(file.additions > 0 || file.deletions > 0) && (
+              <span className="flex items-center gap-0.5 text-xs">
+                {file.additions > 0 && (
+                  <span style={{ color: 'var(--accent-green)' }}>+{file.additions}</span>
+                )}
+                {file.deletions > 0 && (
+                  <span style={{ color: 'var(--accent-red)' }}>-{file.deletions}</span>
+                )}
+              </span>
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  // Vertical file list for full-screen view
+  const VerticalFileList = () => (
+    <div className="flex flex-col">
+      {files.map((file) => {
+        const isSelected = selectedFile === file.path;
+        const isDeleted = file.status === 'deleted';
+
+        return (
+          <button
+            key={file.path}
+            onClick={() => !isDeleted && handleSelectFile(file.path)}
+            className="w-full text-left px-3 py-1.5 text-xs flex items-center gap-2 transition-colors"
+            style={{
+              backgroundColor: isSelected ? 'var(--bg-accent-subtle)' : 'transparent',
+              color: isDeleted
+                ? 'var(--accent-red)'
+                : isSelected
+                  ? 'var(--text-primary)'
+                  : 'var(--text-secondary)',
+              cursor: isDeleted ? 'not-allowed' : 'pointer',
+              opacity: isDeleted ? 0.6 : 1,
+            }}
+            onMouseEnter={(e) => {
+              if (!isSelected && !isDeleted) {
+                e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+              }
+            }}
+            onMouseLeave={(e) => {
+              if (!isSelected) {
+                e.currentTarget.style.backgroundColor = 'transparent';
+              }
+            }}
+            title={isDeleted ? `${file.path} (deleted)` : file.path}
+            disabled={isDeleted}
+          >
+            {getStatusIcon(file.status)}
+            <span className="truncate flex-1">{getFileName(file.path)}</span>
+            <span className="flex items-center gap-1 flex-shrink-0">
+              {file.additions > 0 && (
+                <span style={{ color: 'var(--accent-green)' }}>+{file.additions}</span>
+              )}
+              {file.deletions > 0 && (
+                <span style={{ color: 'var(--accent-red)' }}>-{file.deletions}</span>
+              )}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  // Full-screen modal
+  const fullScreenModal = showFullScreen && createPortal(
     <div
-      className="fixed inset-0 z-50 flex flex-col"
+      className="fixed inset-0 z-50 flex"
       style={{ backgroundColor: 'var(--bg-primary)' }}
     >
-      {/* Full-screen header */}
+      {/* Left: File list */}
       <div
-        className="flex items-center justify-between px-4 py-3"
-        style={{ borderBottom: '1px solid var(--border-default)' }}
+        className="flex flex-col flex-shrink-0"
+        style={{
+          width: '280px',
+          borderRight: '1px solid var(--border-default)',
+        }}
       >
-        <div className="flex items-center gap-4">
-          <h3 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
-            {fileDiff.path}
-          </h3>
-          <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
-            Press ESC to exit
-          </span>
-        </div>
-        <div className="flex items-center gap-4">
-          {/* File navigation in full-screen */}
+        {/* Header */}
+        <div
+          className="flex items-center justify-between px-3 py-2"
+          style={{ borderBottom: '1px solid var(--border-default)' }}
+        >
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => {
-                const currentIndex = files.findIndex(f => f.path === selectedFile);
-                if (currentIndex > 0) {
-                  handleSelectFile(files[currentIndex - 1].path);
-                }
-              }}
-              disabled={files.findIndex(f => f.path === selectedFile) === 0}
-              className="text-xs px-2 py-1 rounded transition-colors"
-              style={{
-                color: files.findIndex(f => f.path === selectedFile) === 0
-                  ? 'var(--text-dim)'
-                  : 'var(--text-secondary)',
-                border: '1px solid var(--border-default)',
-                cursor: files.findIndex(f => f.path === selectedFile) === 0 ? 'not-allowed' : 'pointer',
-              }}
-            >
-              ← Prev
-            </button>
-            <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
-              {files.findIndex(f => f.path === selectedFile) + 1} / {files.length}
+            <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+              {files.length} files
             </span>
-            <button
-              onClick={() => {
-                const currentIndex = files.findIndex(f => f.path === selectedFile);
-                if (currentIndex < files.length - 1) {
-                  handleSelectFile(files[currentIndex + 1].path);
-                }
-              }}
-              disabled={files.findIndex(f => f.path === selectedFile) === files.length - 1}
-              className="text-xs px-2 py-1 rounded transition-colors"
-              style={{
-                color: files.findIndex(f => f.path === selectedFile) === files.length - 1
-                  ? 'var(--text-dim)'
-                  : 'var(--text-secondary)',
-                border: '1px solid var(--border-default)',
-                cursor: files.findIndex(f => f.path === selectedFile) === files.length - 1 ? 'not-allowed' : 'pointer',
-              }}
-            >
-              Next →
-            </button>
+            {totalChanges.additions > 0 && (
+              <span className="text-xs" style={{ color: 'var(--accent-green)' }}>+{totalChanges.additions}</span>
+            )}
+            {totalChanges.deletions > 0 && (
+              <span className="text-xs" style={{ color: 'var(--accent-red)' }}>-{totalChanges.deletions}</span>
+            )}
           </div>
-          <button
-            onClick={() => setIsDiffFullScreen(false)}
-            className="text-xs transition-colors"
-            style={{ color: 'var(--accent-cyan)' }}
-            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
-            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setShowFullScreen(false)}
+            title="Exit full screen (ESC)"
           >
-            [CLOSE]
-          </button>
+            <Minimize2 size={14} strokeWidth={1.5} />
+          </Button>
+        </div>
+
+        {/* File list */}
+        <div className="flex-1 overflow-auto">
+          <VerticalFileList />
         </div>
       </div>
 
-      {/* Full-screen content */}
-      <div className="flex-1 overflow-auto">
-        <DiffViewer
-          diff={fileDiff.diff}
-          fileName={fileDiff.path}
-          onLoadMoreContext={handleLoadMoreContext}
-          loadingContext={loadingContext}
-        />
+      {/* Right: Diff viewer */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Diff header */}
+        <div
+          className="flex items-center justify-between px-4 py-2"
+          style={{ borderBottom: '1px solid var(--border-default)' }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-xs font-medium truncate" style={{ color: 'var(--text-primary)' }}>
+              {selectedFile || 'No file selected'}
+            </span>
+            {fileDiff && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleLoadMoreContext}
+                disabled={loadingContext}
+                title="Expand all context"
+              >
+                <ChevronsUpDown size={14} strokeWidth={1.5} />
+              </Button>
+            )}
+          </div>
+          <div className="flex items-center gap-1">
+            {fileDiff && (
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleRevert}
+                title="Revert changes"
+              >
+                <RotateCcw size={14} strokeWidth={1.5} />
+              </Button>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={loadChanges}
+              title="Refresh"
+            >
+              <RefreshCw size={14} strokeWidth={1.5} />
+            </Button>
+          </div>
+        </div>
+
+        {/* Diff content */}
+        <div className="flex-1 overflow-auto">
+          {fileDiff ? (
+            <DiffViewer
+              diff={fileDiff.diff}
+              fileName={fileDiff.path}
+              onExpandContext={handleLoadMoreContext}
+              loadingContext={loadingContext}
+              isFullScreen
+            />
+          ) : (
+            <div
+              className="flex items-center justify-center h-full text-xs"
+              style={{ color: 'var(--text-dim)' }}
+            >
+              Select a file to view changes
+            </div>
+          )}
+        </div>
       </div>
     </div>,
     document.body
   );
 
+  // Sidebar view (default)
   return (
     <div className="flex flex-col h-full" style={{ backgroundColor: 'var(--bg-primary)' }}>
       {fullScreenModal}
 
       {/* Header */}
       <div
-        className="flex items-center justify-between px-4 py-2"
+        className="flex items-center justify-between px-3 py-2 flex-shrink-0"
         style={{ borderBottom: '1px solid var(--border-default)' }}
       >
-        <div className="flex items-center gap-4">
-          {isFullScreen && onExitFullScreen && (
-            <button
-              onClick={onExitFullScreen}
-              className="text-xs transition-colors mr-2"
-              style={{ color: 'var(--accent-cyan)' }}
-              title="Exit full screen (ESC)"
-              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-primary)'}
-              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
-            >
-              ←
-            </button>
-          )}
-          <h3 className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>CHANGES</h3>
-          <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
-            {files.length} file{files.length !== 1 ? "s" : ""}
-            {totalChanges.additions > 0 && (
-              <span className="ml-2" style={{ color: 'var(--accent-green)' }}>+{totalChanges.additions}</span>
-            )}
-            {totalChanges.deletions > 0 && (
-              <span className="ml-1" style={{ color: 'var(--accent-red)' }}>-{totalChanges.deletions}</span>
-            )}
-          </span>
-        </div>
         <div className="flex items-center gap-2">
-          {fileDiff && activeTab === "files" && (
-            <button
-              onClick={async () => {
-                if (!selectedFile) return;
-                const confirmed = window.confirm(`Revert all changes to ${selectedFile}?`);
-                if (!confirmed) return;
-                try {
-                  await revertFileChanges(taskId, selectedFile);
-                  await loadChanges();
-                } catch (err) {
-                  console.error("Failed to revert:", err);
-                }
-              }}
-              className="text-xs transition-colors"
-              style={{ color: 'var(--text-dim)' }}
-              title="Revert this file's changes"
-              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-red)'}
-              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
+          {isFullScreen && onExitFullScreen && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onExitFullScreen}
+              title="Close"
             >
-              [REVERT]
-            </button>
+              <X size={14} strokeWidth={1.5} />
+            </Button>
           )}
-          {fileDiff && activeTab === "files" && !isFullScreen && (
-            <button
-              onClick={() => setIsDiffFullScreen(true)}
-              className="text-xs transition-colors"
-              style={{ color: 'var(--text-dim)' }}
-              title="Expand diff (ESC to close)"
-              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
-              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
+          <span className="text-xs font-medium" style={{ color: 'var(--text-primary)' }}>
+            {files.length} files
+          </span>
+          {totalChanges.additions > 0 && (
+            <span className="text-xs" style={{ color: 'var(--accent-green)' }}>+{totalChanges.additions}</span>
+          )}
+          {totalChanges.deletions > 0 && (
+            <span className="text-xs" style={{ color: 'var(--accent-red)' }}>-{totalChanges.deletions}</span>
+          )}
+        </div>
+        <div className="flex items-center gap-1">
+          {fileDiff && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleLoadMoreContext}
+              disabled={loadingContext}
+              title="Expand all context"
             >
-              [EXPAND]
-            </button>
+              <ChevronsUpDown size={14} strokeWidth={1.5} />
+            </Button>
           )}
-          {!isFullScreen && onFullScreen && (
-            <button
-              onClick={onFullScreen}
-              className="text-xs transition-colors"
-              style={{ color: 'var(--text-dim)' }}
-              title="Full screen panel"
-              onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
-              onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
-            >
-              [FULL]
-            </button>
-          )}
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={loadChanges}
-            className="text-xs transition-colors"
-            style={{ color: 'var(--text-dim)' }}
             title="Refresh"
-            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
-            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
           >
-            [REFRESH]
-          </button>
+            <RefreshCw size={14} strokeWidth={1.5} />
+          </Button>
+          {!isFullScreen && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowFullScreen(true)}
+              title="Full screen"
+            >
+              <Maximize2 size={14} strokeWidth={1.5} />
+            </Button>
+          )}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex" style={{ borderBottom: '1px solid var(--border-default)' }}>
-        <button
-          onClick={() => setActiveTab("files")}
-          className="px-4 py-2 text-xs font-medium transition-colors"
-          style={{
-            color: activeTab === "files" ? 'var(--text-primary)' : 'var(--text-dim)',
-            borderBottom: activeTab === "files" ? '1px solid var(--accent-cyan)' : '1px solid transparent',
-          }}
-        >
-          FILES ({files.length})
-        </button>
-        <button
-          onClick={() => setActiveTab("commits")}
-          className="px-4 py-2 text-xs font-medium transition-colors"
-          style={{
-            color: activeTab === "commits" ? 'var(--text-primary)' : 'var(--text-dim)',
-            borderBottom: activeTab === "commits" ? '1px solid var(--accent-cyan)' : '1px solid transparent',
-          }}
-        >
-          COMMITS ({commits.length})
-        </button>
-        <button
-          onClick={() => setActiveTab("review")}
-          className="px-4 py-2 text-xs font-medium transition-colors"
-          style={{
-            color: activeTab === "review" ? 'var(--text-primary)' : 'var(--text-dim)',
-            borderBottom: activeTab === "review" ? '1px solid var(--accent-cyan)' : '1px solid transparent',
-          }}
-        >
-          REVIEW
-          {(review.hasComments() || review.hasSelections()) && (
-            <span
-              className="ml-1 px-1.5 rounded text-xs"
-              style={{
-                backgroundColor: 'var(--accent-cyan)',
-                color: 'var(--bg-primary)',
-              }}
-            >
-              {review.state.comments.length + review.state.selectedFiles.size}
-            </span>
-          )}
-        </button>
+      {/* Files area - horizontal scrollable */}
+      <div
+        className="flex-shrink-0"
+        style={{
+          borderBottom: '1px solid var(--border-default)',
+        }}
+      >
+        <HorizontalFileList />
       </div>
 
-      {/* Content */}
-      <div className="flex-1 flex overflow-hidden">
-        {activeTab === "files" && (
-          <>
-            {/* File list - collapsible */}
-            <div
-              className="flex-shrink-0 overflow-hidden flex flex-col transition-all duration-200"
-              style={{
-                width: fileTreeCollapsed ? 32 : (isFullScreen ? 280 : 200),
-                borderRight: '1px solid var(--border-default)',
-              }}
-            >
-              {/* Collapse toggle */}
-              <button
-                onClick={() => setFileTreeCollapsed(!fileTreeCollapsed)}
-                className="w-full px-2 py-1.5 text-xs flex items-center justify-center transition-colors"
-                style={{
-                  borderBottom: '1px solid var(--border-default)',
-                  color: 'var(--text-dim)',
-                  backgroundColor: 'var(--bg-surface)',
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
-                onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
-                title={fileTreeCollapsed ? "Show file tree" : "Hide file tree"}
-              >
-                {fileTreeCollapsed ? '»' : '«'}
-              </button>
-              {!fileTreeCollapsed && (
-                <div className="flex-1 overflow-auto">
-                  <FileTree
-                    files={files}
-                    selectedFile={selectedFile}
-                    onSelectFile={handleSelectFile}
-                    enableSelection
-                  />
-                </div>
-              )}
-            </div>
-
-            {/* Diff view */}
-            <div className="flex-1 overflow-auto">
-              {fileDiff ? (
-                <DiffViewer
-                  diff={fileDiff.diff}
-                  fileName={fileDiff.path}
-                  onLoadMoreContext={handleLoadMoreContext}
-                  loadingContext={loadingContext}
-                  enableComments
-                />
-              ) : (
-                <div
-                  className="flex items-center justify-center h-full text-xs"
-                  style={{ color: 'var(--text-dim)' }}
-                >
-                  Select a file to view changes
-                </div>
-              )}
-            </div>
-          </>
-        )}
-        {activeTab === "commits" && (
-          <div className="flex-1 overflow-auto">
-            <CommitHistory commits={commits} />
-          </div>
-        )}
-        {activeTab === "review" && (
-          <div className="flex-1 overflow-auto">
-            <ReviewSummary
-              onSendReview={(prompt) => {
-                if (onSendReview) {
-                  onSendReview(prompt);
-                  setActiveTab("files");
-                }
-              }}
-            />
+      {/* Diff viewer */}
+      <div className="flex-1 overflow-auto min-h-0">
+        {fileDiff ? (
+          <DiffViewer
+            diff={fileDiff.diff}
+            fileName={fileDiff.path}
+            onExpandContext={handleLoadMoreContext}
+            loadingContext={loadingContext}
+          />
+        ) : (
+          <div
+            className="flex items-center justify-center h-full text-xs"
+            style={{ color: 'var(--text-dim)' }}
+          >
+            {files.length === 0 ? 'No changes' : 'Select a file to view changes'}
           </div>
         )}
       </div>

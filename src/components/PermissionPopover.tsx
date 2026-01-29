@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { PermissionRequest } from "../lib/tauri";
 import * as tauri from "../lib/tauri";
+import { Button } from "./Button";
 
 interface PermissionPopoverProps {
   request: PermissionRequest;
@@ -103,7 +104,7 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
   const getToolColor = () => {
     switch (request.tool_name) {
       case "Bash":
-        return "var(--accent-magenta)";
+        return "var(--accent-cyan)";
       case "Write":
       case "Edit":
         return "var(--accent-green)";
@@ -120,6 +121,7 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
       style={{
         backgroundColor: "var(--bg-elevated)",
         borderTop: `2px solid ${getToolColor()}`,
+        borderRadius: "var(--border-radius)",
       }}
     >
       <div className="flex items-start gap-3">
@@ -169,6 +171,7 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
                   style={{
                     backgroundColor: "var(--bg-surface)",
                     border: "1px solid var(--border-default)",
+                    borderRadius: "var(--border-radius)",
                     color: "var(--text-dim)",
                   }}
                 >
@@ -181,39 +184,32 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
 
         {/* Actions */}
         <div className="flex gap-2 flex-shrink-0">
-          <button
+          <Button
+            variant="primary"
+            color="green"
             onClick={handleAllow}
             disabled={isResponding}
-            className="px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
-            style={{
-              backgroundColor: "var(--accent-green)",
-              color: "var(--bg-primary)",
-            }}
           >
-            {isResponding ? "..." : "ALLOW"}
-          </button>
+            {isResponding ? "..." : "Allow"}
+          </Button>
 
           {/* Always Allow dropdown */}
           <div className="relative" ref={alwaysMenuRef}>
-            <button
+            <Button
+              variant="secondary"
               onClick={() => setShowAlwaysMenu(!showAlwaysMenu)}
               disabled={isResponding}
-              className="px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
-              style={{
-                backgroundColor: "transparent",
-                border: "1px solid var(--accent-cyan)",
-                color: "var(--accent-cyan)",
-              }}
               title="Always allow this type of action"
             >
-              {isResponding ? "..." : "ALWAYS ▼"}
-            </button>
+              {isResponding ? "..." : "Always ▼"}
+            </Button>
             {showAlwaysMenu && (
               <div
                 className="absolute bottom-full right-0 mb-1 min-w-[140px] z-50"
                 style={{
                   backgroundColor: "var(--bg-elevated)",
                   border: "1px solid var(--border-active)",
+                  borderRadius: "var(--border-radius)",
                 }}
               >
                 <button
@@ -238,18 +234,14 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
             )}
           </div>
 
-          <button
+          <Button
+            variant="secondary"
+            color="red"
             onClick={handleDeny}
             disabled={isResponding}
-            className="px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-50"
-            style={{
-              backgroundColor: "transparent",
-              border: "1px solid var(--accent-red)",
-              color: "var(--accent-red)",
-            }}
           >
-            {isResponding ? "..." : "DENY"}
-          </button>
+            {isResponding ? "..." : "Deny"}
+          </Button>
         </div>
       </div>
 

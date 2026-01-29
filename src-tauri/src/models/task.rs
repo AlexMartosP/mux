@@ -74,6 +74,12 @@ pub struct Task {
     pub total_output_tokens: i64,
     /// The branch this task was based on (for display, may be updated by rebases)
     pub base_branch: Option<String>,
+    /// Total lines added in this task (computed from git diff)
+    #[serde(default)]
+    pub total_additions: i32,
+    /// Total lines deleted in this task (computed from git diff)
+    #[serde(default)]
+    pub total_deletions: i32,
     #[serde(skip)]
     pub pid: Option<u32>,
 }
@@ -138,6 +144,8 @@ impl Task {
             total_input_tokens: 0,
             total_output_tokens: 0,
             base_branch,
+            total_additions: 0,
+            total_deletions: 0,
             pid: None,
         }
     }

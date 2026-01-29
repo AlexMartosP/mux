@@ -5,6 +5,7 @@ import type { OutputLine } from "../types/task";
 interface OutputRendererProps {
   output: OutputLine[];
   isRunning: boolean;
+  repositoryPath?: string;
 }
 
 interface OutputSection {
@@ -18,7 +19,105 @@ interface OutputSection {
   agentDescription?: string;
 }
 
-export function OutputRenderer({ output, isRunning }: OutputRendererProps) {
+// Helper to make absolute paths relative to repository
+function makeRelativePath(absolutePath: string, repositoryPath?: string): string {
+  if (!absolutePath) return absolutePath;
+
+  // If we have a repository path, try to strip it (handles both repo root and worktree paths)
+  if (repositoryPath) {
+    // Direct match - path starts with repository path
+    if (absolutePath.startsWith(repositoryPath + '/')) {
+      return absolutePath.slice(repositoryPath.length + 1);
+    }
+    if (absolutePath.startsWith(repositoryPath)) {
+      const relative = absolutePath.slice(repositoryPath.length);
+      return relative.startsWith('/') ? relative.slice(1) : relative;
+    }
+
+    // Worktree path - e.g., /repo/.worktrees/branch-name/src/file.ts
+    const worktreePattern = new RegExp(
+      repositoryPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/\\.worktrees/[^/]+/(.+)$'
+    );
+    const worktreeMatch = absolutePath.match(worktreePattern);
+    if (worktreeMatch) {
+      return worktreeMatch[1];
+    }
+  }
+
+  // Fallback: try to find common path patterns and show just the relevant part
+  // Handle worktree paths generically
+  const worktreeGeneric = absolutePath.match(/\.worktrees\/[^/]+\/(.+)$/);
+  if (worktreeGeneric) {
+    return worktreeGeneric[1];
+  }
+
+  // Look for patterns like /Users/*/projects/*/... or /home/*/...
+  const patterns = [
+    /^\/Users\/[^/]+\/(?:projects?|code|dev|repos?|workspace)\/[^/]+\/(.+)$/,
+    /^\/home\/[^/]+\/(?:projects?|code|dev|repos?|workspace)\/[^/]+\/(.+)$/,
+    /^\/[^/]+\/[^/]+\/[^/]+\/[^/]+\/(.+)$/, // Generic: strip first 4 path segments
+  ];
+
+  for (const pattern of patterns) {
+    const match = absolutePath.match(pattern);
+    if (match) {
+      return match[1];
+    }
+  }
+
+  // If path is very long, just show last few segments
+  const segments = absolutePath.split('/').filter(Boolean);
+  if (segments.length > 4) {
+    return '.../' + segments.slice(-3).join('/');
+  }
+
+  return absolutePath;
+}
+
+// Convert plain URLs to markdown links
+function linkifyUrls(content: string): string {
+  if (!content) return content;
+
+  // Regex to match URLs that are not already in markdown link format
+  // Matches http://, https://, and www. URLs
+  const urlPattern = /(?<!\]\()(?<![(<])(https?:\/\/[^\s\])<]+|www\.[^\s\])<]+)/g;
+
+  return content.replace(urlPattern, (match) => {
+    // Don't linkify if it's already part of a markdown link
+    const url = match.startsWith('www.') ? `https://${match}` : match;
+    return `[${match}](${url})`;
+  });
+}
+
+// Helper to strip repository/worktree paths from content string
+function stripPathsFromContent(content: string, repositoryPath?: string): string {
+  if (!content) return content;
+
+  let result = content;
+
+  if (repositoryPath) {
+    // Strip worktree paths first (more specific)
+    const worktreePattern = new RegExp(
+      repositoryPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/\\.worktrees/[^/]+/',
+      'g'
+    );
+    result = result.replace(worktreePattern, '');
+
+    // Strip direct repository path
+    const repoPattern = new RegExp(
+      repositoryPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/',
+      'g'
+    );
+    result = result.replace(repoPattern, '');
+  }
+
+  // Generic worktree pattern fallback
+  result = result.replace(/[^\s]+\/\.worktrees\/[^/]+\//g, '');
+
+  return result;
+}
+
+export function OutputRenderer({ output, isRunning, repositoryPath }: OutputRendererProps) {
   const sections = useMemo(() => {
     // First pass: build flat sections
     const flat: OutputSection[] = [];
@@ -102,7 +201,7 @@ export function OutputRenderer({ output, isRunning }: OutputRendererProps) {
   return (
     <div className="space-y-3">
       {sections.map((section, index) => (
-        <Section key={index} section={section} />
+        <Section key={index} section={section} repositoryPath={repositoryPath} />
       ))}
       {isRunning && sections.length === 0 && (
         <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-dim)' }}>
@@ -120,7 +219,7 @@ export function OutputRenderer({ output, isRunning }: OutputRendererProps) {
   );
 }
 
-function Section({ section }: { section: OutputSection }) {
+function Section({ section, repositoryPath }: { section: OutputSection; repositoryPath?: string }) {
   const [isExpanded, setIsExpanded] = useState(false);
 
   if (section.type === "agent-group") {
@@ -129,6 +228,7 @@ function Section({ section }: { section: OutputSection }) {
         section={section}
         isExpanded={isExpanded}
         onToggle={() => setIsExpanded(!isExpanded)}
+        repositoryPath={repositoryPath}
       />
     );
   }
@@ -222,7 +322,7 @@ function Section({ section }: { section: OutputSection }) {
             ),
           }}
         >
-          {section.content}
+          {linkifyUrls(section.content)}
         </Markdown>
       </div>
     );
@@ -236,6 +336,7 @@ function Section({ section }: { section: OutputSection }) {
         toolInput={section.toolInput}
         isExpanded={isExpanded}
         onToggle={() => setIsExpanded(!isExpanded)}
+        repositoryPath={repositoryPath}
       />
     );
   }
@@ -317,10 +418,12 @@ function AgentGroupSection({
   section,
   isExpanded,
   onToggle,
+  repositoryPath,
 }: {
   section: OutputSection;
   isExpanded: boolean;
   onToggle: () => void;
+  repositoryPath?: string;
 }) {
   const childCount = section.children?.length ?? 0;
   const toolCounts = useMemo(() => {
@@ -378,7 +481,7 @@ function AgentGroupSection({
           style={{ borderLeft: "1px solid var(--border-default)" }}
         >
           {section.children.map((child, idx) => (
-            <Section key={idx} section={child} />
+            <Section key={idx} section={child} repositoryPath={repositoryPath} />
           ))}
         </div>
       )}
@@ -392,15 +495,20 @@ function ToolSection({
   toolInput,
   isExpanded,
   onToggle,
+  repositoryPath,
 }: {
   content: string;
   toolName?: string;
   toolInput?: Record<string, unknown>;
   isExpanded: boolean;
   onToggle: () => void;
+  repositoryPath?: string;
 }) {
   const indicator = getToolIndicator(toolName);
   const color = getToolColor(toolName);
+
+  // Make paths in content relative
+  const displayContent = stripPathsFromContent(content, repositoryPath);
 
   return (
     <div
@@ -416,14 +524,14 @@ function ToolSection({
         style={{ color: color }}
       >
         <span>[{indicator}]</span>
-        <span className="flex-1">{content}</span>
+        <span className="flex-1">{displayContent}</span>
         {toolInput && (
           <span className={`transition-transform ${isExpanded ? "rotate-180" : ""}`}>▼</span>
         )}
       </button>
       {isExpanded && toolInput && (
         <div className="px-3 pb-3">
-          <ToolInputDetails toolName={toolName} toolInput={toolInput} />
+          <ToolInputDetails toolName={toolName} toolInput={toolInput} repositoryPath={repositoryPath} />
         </div>
       )}
     </div>
@@ -444,11 +552,13 @@ function truncate(value: unknown, maxLen: number): string {
 function ToolInputDetails({
   toolName,
   toolInput,
+  repositoryPath,
 }: {
   toolName?: string;
   toolInput: Record<string, unknown>;
+  repositoryPath?: string;
 }) {
-  const filePath = str(toolInput.file_path);
+  const filePath = makeRelativePath(str(toolInput.file_path), repositoryPath);
   const offset = toolInput.offset != null ? str(toolInput.offset) : null;
   const limit = toolInput.limit != null ? str(toolInput.limit) : null;
   const content = toolInput.content != null ? str(toolInput.content) : null;
@@ -457,7 +567,7 @@ function ToolInputDetails({
   const command = str(toolInput.command);
   const description = toolInput.description != null ? str(toolInput.description) : null;
   const pattern = str(toolInput.pattern);
-  const path = toolInput.path != null ? str(toolInput.path) : null;
+  const path = toolInput.path != null ? makeRelativePath(str(toolInput.path), repositoryPath) : null;
   const glob = toolInput.glob != null ? str(toolInput.glob) : null;
   const prompt = toolInput.prompt != null ? str(toolInput.prompt) : null;
 
@@ -632,13 +742,13 @@ function getToolColor(toolName?: string): string {
     case "Edit":
       return "var(--accent-green)";
     case "Bash":
-      return "var(--accent-magenta)";
+      return "var(--accent-cyan)";
     case "Search":
       return "var(--accent-cyan)";
     case "Task":
       return "var(--accent-yellow)";
     case "WebFetch":
-      return "var(--accent-magenta)";
+      return "var(--accent-cyan)";
     default:
       return "var(--text-secondary)";
   }

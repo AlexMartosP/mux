@@ -13,9 +13,10 @@ use commands::{
     get_task_output_count, get_tasks, get_unread_notification_count, handback_task,
     install_claude_hook, install_cli, is_onboarding_completed, list_branches, list_repositories,
     mark_all_notifications_read, mark_notification_read, open_in_editor, open_pr_in_browser,
-    reset_onboarding, respond_permission, restart_task, revert_file_changes, set_setting,
-    set_task_auto_accept_edits, set_task_pinned, stop_task, takeover_task, uninstall_claude_hook,
-    update_settings, update_task_base_branch, update_task_description, update_task_name, AppState,
+    refresh_task_git_stats, reset_onboarding, respond_permission, restart_task, revert_file_changes,
+    set_setting, set_task_auto_accept_edits, set_task_pinned, stop_task, takeover_task,
+    uninstall_claude_hook, update_settings, update_task_base_branch, update_task_description,
+    update_task_name, AppState,
 };
 use db::Database;
 use models::TaskStatus;
@@ -148,6 +149,7 @@ pub fn run() {
             revert_file_changes,
             get_branch_base,
             update_task_base_branch,
+            refresh_task_git_stats,
             // Permissions
             add_permission_rule,
         ])

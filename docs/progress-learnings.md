@@ -1288,3 +1288,231 @@ Added `log::info!` and `log::debug!` throughout key backend functions for better
 Run with `RUST_LOG=debug` for verbose output, `RUST_LOG=info` for normal.
 
 ---
+
+## Design System Audit (January 2026)
+
+**Status**: ✅ Completed
+
+### Problem
+
+Several frontend components were not following the MUX design system:
+- Using inline button styles instead of the shared `Button` component
+- Missing `border-radius: var(--border-radius)` on inputs, modals, and dropdowns
+- Inconsistent button text casing
+
+### Solution
+
+Updated 6 components to follow the design system:
+
+1. **Settings.tsx**
+   - Replaced inline button styles with `<Button variant="..." />` component
+   - Added `borderRadius: 'var(--border-radius)'` to all inputs
+   - Created common `inputStyle` object for consistency
+   - Changed uppercase button text (SAVE, CANCEL) to sentence case (Save, Cancel)
+
+2. **NotificationCenter.tsx**
+   - Replaced inline notification button with Button component
+   - Added border-radius to dropdown panel
+
+3. **PermissionPopover.tsx**
+   - Replaced Allow/Deny/Always buttons with Button component
+   - Added border-radius to container and dropdown menu
+
+4. **PermissionDialog.tsx**
+   - Same pattern as PermissionPopover
+   - Added border-radius to modal container
+
+5. **HandbackModal.tsx**
+   - Replaced Cancel/Submit buttons with Button component
+   - Added border-radius to modal and all inputs/textareas
+
+6. **Onboarding.tsx**
+   - Replaced all step buttons with Button component
+   - Added border-radius to inputs and info panels
+   - Created shared `inputStyle` constant
+   - Updated NavigationButtons component to use Button
+
+### Button Component Usage Pattern
+
+```tsx
+import { Button } from "./Button";
+
+// Primary action (cyan by default, or with color)
+<Button variant="primary" color="green" onClick={handleSave}>Save</Button>
+
+// Secondary action
+<Button variant="secondary" onClick={onClose}>Cancel</Button>
+
+// Ghost/subtle action
+<Button variant="ghost" onClick={handleMinor}>Option</Button>
+
+// Icon-only button
+<Button variant="ghost" size="icon" title="Tooltip"><Icon /></Button>
+```
+
+### Key Learning
+
+The design system uses CSS custom properties for consistency:
+- `--bg-primary`, `--bg-surface`, `--bg-elevated` for backgrounds
+- `--border-default`, `--border-active` for borders
+- `--border-radius` for consistent rounding
+- `--accent-cyan`, `--accent-green`, `--accent-red` for colors
+
+When adding new components, always use the Button component and apply `borderRadius: 'var(--border-radius)'` to inputs, modals, dropdowns, and other interactive elements.
+
+### Files Changed
+- `src/components/Settings.tsx`
+- `src/components/NotificationCenter.tsx`
+- `src/components/PermissionPopover.tsx`
+- `src/components/PermissionDialog.tsx`
+- `src/components/HandbackModal.tsx`
+- `src/components/Onboarding.tsx`
+
+---
+
+## Issue #48: PR Icon in Sidebar
+
+**Status**: ✅ Completed
+
+### Problem
+
+When a task has an associated pull request, users couldn't easily see this or access the PR from the sidebar.
+
+### Solution
+
+Added a clickable PR icon (GitPullRequest from Lucide) that appears in the task list item when `task.pr_url` is set.
+
+### Implementation
+
+1. **Import icon and tauri functions** in `TaskList.tsx`:
+   ```tsx
+   import { GitPullRequest } from "lucide-react";
+   import * as tauri from "../lib/tauri";
+   ```
+
+2. **Add icon after task info**:
+   ```tsx
+   {task.pr_url && (
+     <button
+       onClick={(e) => {
+         e.stopPropagation();
+         tauri.openPRInBrowser(task.pr_url!);
+       }}
+       className="flex-shrink-0 p-1 rounded transition-colors"
+       style={{ color: "var(--accent-cyan)" }}
+       title="Open PR in browser"
+     >
+       <GitPullRequest size={14} />
+     </button>
+   )}
+   ```
+
+### Key Learning
+
+Use `e.stopPropagation()` when adding clickable elements inside clickable containers to prevent the parent click handler from firing.
+
+### Files Changed
+- `src/components/TaskList.tsx`
+
+---
+
+## Issue #47: Git Stats in Sidebar
+
+**Status**: ✅ Completed
+
+### Problem
+
+Users couldn't see the scope of changes in each task at a glance in the sidebar.
+
+### Solution
+
+Added git additions/deletions count (+123 -45) displayed next to the branch name in the task list.
+
+### Implementation
+
+1. **Backend changes**:
+   - Added `total_additions` and `total_deletions` fields to Task struct (Rust)
+   - Added database migration for new columns
+   - Added `update_task_git_stats()` function in db.rs
+   - Created `refresh_task_git_stats` command that computes totals from file changes
+
+2. **Frontend changes**:
+   - Added `total_additions` and `total_deletions` to Task type (TypeScript)
+   - Added `refreshTaskGitStats()` function in tauri.ts
+   - Updated TaskList to display stats next to branch name
+   - Called `refreshTaskGitStats` when ChangesPanel loads changes
+
+### Display Format
+
+```tsx
+<span style={{ color: "var(--accent-green)" }}>+{task.total_additions || 0}</span>
+<span style={{ color: "var(--accent-red)" }}>-{task.total_deletions || 0}</span>
+```
+
+### Key Learning
+
+When adding new fields to a persistent model:
+1. Add to Rust struct with `#[serde(default)]`
+2. Add database migration with `ALTER TABLE`
+3. Update all SELECT queries to include new columns
+4. Update row parsing to read new columns
+5. Update INSERT to include new columns
+6. Add to TypeScript type as optional
+
+### Files Changed
+- `src-tauri/src/models/task.rs`
+- `src-tauri/src/db.rs`
+- `src-tauri/src/commands/git.rs`
+- `src-tauri/src/commands/mod.rs`
+- `src-tauri/src/lib.rs`
+- `src/types/task.ts`
+- `src/lib/tauri.ts`
+- `src/components/TaskList.tsx`
+- `src/components/ChangesPanel.tsx`
+
+---
+
+## Issue #39: Clickable URLs in Chat
+
+**Status**: ✅ Completed
+
+### Problem
+
+Plain URLs in Claude's responses (e.g., `https://example.com`) were displayed as plain text rather than clickable links.
+
+### Solution
+
+Added a `linkifyUrls()` function that converts plain URLs to markdown links before passing content to the react-markdown renderer.
+
+### Implementation
+
+```tsx
+// Convert plain URLs to markdown links
+function linkifyUrls(content: string): string {
+  if (!content) return content;
+
+  // Regex to match URLs not already in markdown link format
+  const urlPattern = /(?<!\]\()(?<![(<])(https?:\/\/[^\s\])<]+|www\.[^\s\])<]+)/g;
+
+  return content.replace(urlPattern, (match) => {
+    const url = match.startsWith('www.') ? `https://${match}` : match;
+    return `[${match}](${url})`;
+  });
+}
+
+// Usage in Markdown component
+<Markdown>
+  {linkifyUrls(section.content)}
+</Markdown>
+```
+
+### Key Learning
+
+The react-markdown component already handles markdown links `[text](url)` with custom styling. By pre-processing the content to convert plain URLs to markdown format, we can leverage the existing link handling.
+
+The regex uses negative lookbehinds `(?<!\]\()` and `(?<![(<])` to avoid matching URLs that are already part of markdown links.
+
+### Files Changed
+- `src/components/OutputRenderer.tsx`
+
+---

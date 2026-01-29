@@ -108,6 +108,10 @@ export async function openPRInBrowser(url: string): Promise<void> {
   return invoke("open_pr_in_browser", { url });
 }
 
+export async function refreshTaskGitStats(taskId: string): Promise<[number, number]> {
+  return invoke("refresh_task_git_stats", { taskId });
+}
+
 // Slash commands
 export interface SlashCommand {
   command: string;

@@ -129,6 +129,10 @@ impl Database {
         // Migration: Add base_branch column
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN base_branch TEXT", []);
 
+        // Migration: Add git stats columns
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN total_additions INTEGER NOT NULL DEFAULT 0", []);
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN total_deletions INTEGER NOT NULL DEFAULT 0", []);
+
         // Notification log table
         conn.execute(
             "CREATE TABLE IF NOT EXISTS notifications (
@@ -183,7 +187,7 @@ impl Database {
     pub fn get_all_tasks(&self) -> Result<Vec<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions
              FROM tasks ORDER BY created_at DESC",
         )?;
 
@@ -207,6 +211,8 @@ impl Database {
                     total_input_tokens: row.get::<_, i64>(14).unwrap_or(0),
                     total_output_tokens: row.get::<_, i64>(15).unwrap_or(0),
                     base_branch: row.get::<_, Option<String>>(16).unwrap_or(None),
+                    total_additions: row.get::<_, i32>(17).unwrap_or(0),
+                    total_deletions: row.get::<_, i32>(18).unwrap_or(0),
                     pid: None,
                 })
             })?
@@ -218,7 +224,7 @@ impl Database {
     pub fn get_task(&self, id: &str) -> Result<Option<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions
              FROM tasks WHERE id = ?",
         )?;
 
@@ -242,6 +248,8 @@ impl Database {
                     total_input_tokens: row.get::<_, i64>(14).unwrap_or(0),
                     total_output_tokens: row.get::<_, i64>(15).unwrap_or(0),
                     base_branch: row.get::<_, Option<String>>(16).unwrap_or(None),
+                    total_additions: row.get::<_, i32>(17).unwrap_or(0),
+                    total_deletions: row.get::<_, i32>(18).unwrap_or(0),
                     pid: None,
                 })
             })
@@ -253,8 +261,8 @@ impl Database {
     pub fn insert_task(&self, task: &Task) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tasks (id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
                 task.id,
                 task.name,
@@ -273,6 +281,8 @@ impl Database {
                 task.total_input_tokens,
                 task.total_output_tokens,
                 task.base_branch,
+                task.total_additions,
+                task.total_deletions,
             ],
         )?;
         Ok(())
@@ -309,6 +319,15 @@ impl Database {
         conn.execute(
             "UPDATE tasks SET base_branch = ? WHERE id = ?",
             params![base_branch, id],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_task_git_stats(&self, id: &str, total_additions: i32, total_deletions: i32) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET total_additions = ?, total_deletions = ? WHERE id = ?",
+            params![total_additions, total_deletions, id],
         )?;
         Ok(())
     }
@@ -365,7 +384,7 @@ impl Database {
     pub fn get_queued_tasks(&self) -> Result<Vec<Task>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions
              FROM tasks WHERE status = 'queued' ORDER BY created_at ASC",
         )?;
 
@@ -389,6 +408,8 @@ impl Database {
                     total_input_tokens: row.get::<_, i64>(14).unwrap_or(0),
                     total_output_tokens: row.get::<_, i64>(15).unwrap_or(0),
                     base_branch: row.get::<_, Option<String>>(16).unwrap_or(None),
+                    total_additions: row.get::<_, i32>(17).unwrap_or(0),
+                    total_deletions: row.get::<_, i32>(18).unwrap_or(0),
                     pid: None,
                 })
             })?

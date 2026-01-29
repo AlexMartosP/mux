@@ -26,6 +26,8 @@ export interface Task {
   total_input_tokens?: number;
   total_output_tokens?: number;
   base_branch?: string;
+  total_additions?: number;
+  total_deletions?: number;
 }
 
 export interface NotificationEntry {

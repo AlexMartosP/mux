@@ -5,6 +5,7 @@ import * as tauri from "../lib/tauri";
 import type { AppSettings, ExportOptions } from "../lib/tauri";
 import { useUpdater } from "../hooks/useUpdater";
 import { useTheme } from "../contexts/ThemeContext";
+import { Button } from "./Button";
 
 interface SettingsProps {
   onClose: () => void;
@@ -145,6 +146,14 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
     }
   };
 
+  // Common input style
+  const inputStyle = {
+    backgroundColor: 'var(--bg-surface)',
+    border: '1px solid var(--border-default)',
+    borderRadius: 'var(--border-radius)',
+    color: 'var(--text-primary)',
+  };
+
   return (
     <div className="flex-1 flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <header className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-default)' }}>
@@ -154,25 +163,9 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
             Configure Mux preferences
           </p>
         </div>
-        <button
-          onClick={onClose}
-          className="px-3 py-1.5 text-xs font-medium transition-colors"
-          style={{
-            backgroundColor: 'transparent',
-            border: '1px solid var(--border-active)',
-            color: 'var(--text-secondary)',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-            e.currentTarget.style.color = 'var(--accent-cyan)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'var(--border-active)';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
-        >
-          CLOSE
-        </button>
+        <Button variant="secondary" onClick={onClose}>
+          Close
+        </Button>
       </header>
 
       <div className="flex-1 overflow-y-auto p-6">
@@ -194,31 +187,11 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
                 }
                 placeholder="Not set"
                 className="flex-1 px-4 py-2 text-xs"
-                style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  border: '1px solid var(--border-default)',
-                  color: 'var(--text-primary)',
-                }}
+                style={inputStyle}
               />
-              <button
-                onClick={handleBrowseBaseDir}
-                className="px-4 py-2 text-xs font-medium transition-colors"
-                style={{
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--border-active)',
-                  color: 'var(--text-secondary)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-                  e.currentTarget.style.color = 'var(--accent-cyan)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--border-active)';
-                  e.currentTarget.style.color = 'var(--text-secondary)';
-                }}
-              >
-                BROWSE
-              </button>
+              <Button variant="secondary" onClick={handleBrowseBaseDir}>
+                Browse
+              </Button>
             </div>
           </div>
 
@@ -238,11 +211,7 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
               }
               placeholder="e.g., john-doe"
               className="w-full px-4 py-2 text-xs"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                border: '1px solid var(--border-default)',
-                color: 'var(--text-primary)',
-              }}
+              style={inputStyle}
             />
           </div>
 
@@ -399,6 +368,7 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   border: '1px solid var(--accent-yellow)',
+                  borderRadius: 'var(--border-radius)',
                   color: 'var(--text-dim)',
                 }}
               >
@@ -409,6 +379,7 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
                   style={{
                     backgroundColor: 'var(--bg-elevated)',
                     border: '1px solid var(--border-default)',
+                    borderRadius: 'var(--border-radius)',
                   }}
                 >
 {`{
@@ -444,11 +415,7 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
                 setSettings((prev) => ({ ...prev, max_concurrent_tasks: parseInt(e.target.value) || 0 }))
               }
               className="w-24 px-4 py-2 text-xs"
-              style={{
-                backgroundColor: 'var(--bg-surface)',
-                border: '1px solid var(--border-default)',
-                color: 'var(--text-primary)',
-              }}
+              style={inputStyle}
             />
           </div>
 
@@ -462,30 +429,13 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
             </p>
             <div className="flex items-center gap-3">
               {!updateAvailable ? (
-                <button
-                  onClick={checkForUpdates}
-                  disabled={checking}
-                  className="px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-                  style={{
-                    backgroundColor: 'transparent',
-                    border: '1px solid var(--border-active)',
-                    color: 'var(--text-secondary)',
-                  }}
-                >
-                  {checking ? "CHECKING..." : "CHECK FOR UPDATES"}
-                </button>
+                <Button variant="secondary" onClick={checkForUpdates} disabled={checking}>
+                  {checking ? "Checking..." : "Check for updates"}
+                </Button>
               ) : (
-                <button
-                  onClick={downloadAndInstall}
-                  disabled={downloading}
-                  className="px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-                  style={{
-                    backgroundColor: 'var(--accent-green)',
-                    color: 'var(--bg-primary)',
-                  }}
-                >
-                  {downloading ? `DOWNLOADING ${downloadProgress}%` : `UPDATE TO ${updateAvailable.version}`}
-                </button>
+                <Button variant="primary" color="green" onClick={downloadAndInstall} disabled={downloading}>
+                  {downloading ? `Downloading ${downloadProgress}%` : `Update to ${updateAvailable.version}`}
+                </Button>
               )}
               {updateAvailable && (
                 <span className="text-xs" style={{ color: 'var(--accent-green)' }}>
@@ -504,6 +454,7 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
                 style={{
                   backgroundColor: 'var(--bg-surface)',
                   border: '1px solid var(--border-default)',
+                  borderRadius: 'var(--border-radius)',
                   color: 'var(--text-dim)',
                 }}
               >
@@ -577,28 +528,9 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
 
               {/* Export button */}
               <div className="flex items-center gap-3">
-                <button
-                  onClick={handleExport}
-                  disabled={isExporting}
-                  className="px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-                  style={{
-                    backgroundColor: 'transparent',
-                    border: '1px solid var(--border-active)',
-                    color: 'var(--text-secondary)',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isExporting) {
-                      e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-                      e.currentTarget.style.color = 'var(--accent-cyan)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--border-active)';
-                    e.currentTarget.style.color = 'var(--text-secondary)';
-                  }}
-                >
-                  {isExporting ? "EXPORTING..." : "EXPORT ALL TASKS"}
-                </button>
+                <Button variant="secondary" onClick={handleExport} disabled={isExporting}>
+                  {isExporting ? "Exporting..." : "Export all tasks"}
+                </Button>
                 {exportMessage && (
                   <span
                     className="text-xs"
@@ -613,17 +545,9 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
 
           {/* Save Button */}
           <div className="flex items-center gap-3 pt-4" style={{ borderTop: '1px solid var(--border-default)' }}>
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-              style={{
-                backgroundColor: 'var(--accent-cyan)',
-                color: 'var(--bg-primary)',
-              }}
-            >
-              {isSaving ? "SAVING..." : "SAVE SETTINGS"}
-            </button>
+            <Button variant="primary" onClick={handleSave} disabled={isSaving}>
+              {isSaving ? "Saving..." : "Save settings"}
+            </Button>
             {saveMessage && (
               <span
                 className="text-xs"
@@ -642,26 +566,9 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
             <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
               Found an issue? Let us know and we'll fix it.
             </p>
-            <button
-              onClick={handleSubmitBug}
-              disabled={isSubmittingBug}
-              className="px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-              style={{
-                backgroundColor: 'transparent',
-                border: '1px solid var(--border-active)',
-                color: 'var(--text-secondary)',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-                e.currentTarget.style.color = 'var(--accent-cyan)';
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = 'var(--border-active)';
-                e.currentTarget.style.color = 'var(--text-secondary)';
-              }}
-            >
-              {isSubmittingBug ? "OPENING..." : "REPORT BUG"}
-            </button>
+            <Button variant="secondary" onClick={handleSubmitBug} disabled={isSubmittingBug}>
+              {isSubmittingBug ? "Opening..." : "Report bug"}
+            </Button>
           </div>
 
           {/* Re-run Onboarding */}
@@ -673,28 +580,15 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
               <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
                 Re-run the setup wizard to reconfigure Mux.
               </p>
-              <button
+              <Button
+                variant="secondary"
                 onClick={async () => {
                   await tauri.resetOnboarding();
                   onRestartOnboarding();
                 }}
-                className="px-4 py-2 text-xs font-medium transition-colors"
-                style={{
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--border-active)',
-                  color: 'var(--text-secondary)',
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-                  e.currentTarget.style.color = 'var(--accent-cyan)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--border-active)';
-                  e.currentTarget.style.color = 'var(--text-secondary)';
-                }}
               >
-                RESTART ONBOARDING
-              </button>
+                Restart onboarding
+              </Button>
             </div>
           )}
         </div>

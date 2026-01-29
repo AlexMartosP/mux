@@ -208,3 +208,27 @@ pub fn update_task_base_branch(
 ) -> Result<()> {
     state.db.update_task_base_branch(&task_id, &base_branch)
 }
+
+/// Refresh git stats (total additions/deletions) for a task
+#[tauri::command]
+pub fn refresh_task_git_stats(
+    state: State<Arc<AppState>>,
+    task_id: String,
+) -> Result<(i32, i32)> {
+    let task = state
+        .db
+        .get_task(&task_id)?
+        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+
+    let base_branch = GitService::get_default_branch(&task.repository_path)?;
+    let changes = GitService::get_changed_files(&task.worktree_path, &base_branch)?;
+
+    // Sum up all additions and deletions
+    let total_additions: i32 = changes.iter().map(|c| c.additions).sum();
+    let total_deletions: i32 = changes.iter().map(|c| c.deletions).sum();
+
+    // Update the task in the database
+    state.db.update_task_git_stats(&task_id, total_additions, total_deletions)?;
+
+    Ok((total_additions, total_deletions))
+}

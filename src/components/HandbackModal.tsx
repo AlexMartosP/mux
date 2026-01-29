@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Task, FileChange } from "../types/task";
 import * as tauri from "../lib/tauri";
+import { Button } from "./Button";
 
 interface HandbackModalProps {
   task: Task;
@@ -60,6 +61,14 @@ export function HandbackModal({ task, isOpen, onClose, onHandback }: HandbackMod
 
   if (!isOpen) return null;
 
+  // Common input style
+  const inputStyle = {
+    backgroundColor: "var(--bg-surface)",
+    border: "1px solid var(--border-default)",
+    borderRadius: "var(--border-radius)",
+    color: "var(--text-primary)",
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
@@ -70,6 +79,7 @@ export function HandbackModal({ task, isOpen, onClose, onHandback }: HandbackMod
         style={{
           backgroundColor: "var(--bg-primary)",
           border: "1px solid var(--border-active)",
+          borderRadius: "var(--border-radius)",
         }}
       >
         {/* Header */}
@@ -85,17 +95,9 @@ export function HandbackModal({ task, isOpen, onClose, onHandback }: HandbackMod
               Commit your changes and resume Claude
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="px-3 py-1.5 text-xs font-medium transition-colors"
-            style={{
-              backgroundColor: "transparent",
-              border: "1px solid var(--border-active)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            CANCEL
-          </button>
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
         </div>
 
         {/* Content */}
@@ -106,7 +108,7 @@ export function HandbackModal({ task, isOpen, onClose, onHandback }: HandbackMod
               className="block text-xs font-medium mb-2"
               style={{ color: "var(--text-primary)" }}
             >
-              CHANGES SINCE TAKEOVER
+              Changes since takeover
             </label>
             {isLoading ? (
               <p className="text-xs" style={{ color: "var(--text-dim)" }}>
@@ -119,10 +121,7 @@ export function HandbackModal({ task, isOpen, onClose, onHandback }: HandbackMod
             ) : (
               <div
                 className="p-3 max-h-40 overflow-y-auto"
-                style={{
-                  backgroundColor: "var(--bg-surface)",
-                  border: "1px solid var(--border-default)",
-                }}
+                style={inputStyle}
               >
                 {changes.map((change) => (
                   <div
@@ -173,11 +172,7 @@ export function HandbackModal({ task, isOpen, onClose, onHandback }: HandbackMod
               placeholder="Describe the changes you made..."
               rows={3}
               className="w-full px-4 py-3 text-sm resize-none"
-              style={{
-                backgroundColor: "var(--bg-surface)",
-                border: "1px solid var(--border-default)",
-                color: "var(--text-primary)",
-              }}
+              style={inputStyle}
             />
             <p className="text-xs mt-1" style={{ color: "var(--text-dim)" }}>
               This will be squashed with the WIP checkpoint commit
@@ -198,11 +193,7 @@ export function HandbackModal({ task, isOpen, onClose, onHandback }: HandbackMod
               placeholder="Tell Claude what you changed and what to do next..."
               rows={2}
               className="w-full px-4 py-3 text-sm resize-none"
-              style={{
-                backgroundColor: "var(--bg-surface)",
-                border: "1px solid var(--border-default)",
-                color: "var(--text-primary)",
-              }}
+              style={inputStyle}
             />
           </div>
 
@@ -219,28 +210,17 @@ export function HandbackModal({ task, isOpen, onClose, onHandback }: HandbackMod
           className="px-6 py-4 flex items-center justify-end gap-3"
           style={{ borderTop: "1px solid var(--border-default)" }}
         >
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-xs font-medium transition-colors"
-            style={{
-              backgroundColor: "transparent",
-              border: "1px solid var(--border-active)",
-              color: "var(--text-secondary)",
-            }}
-          >
-            CANCEL
-          </button>
-          <button
+          <Button variant="secondary" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            color="green"
             onClick={handleSubmit}
             disabled={isSubmitting || !commitMessage.trim()}
-            className="px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-            style={{
-              backgroundColor: "var(--accent-green)",
-              color: "var(--bg-primary)",
-            }}
           >
-            {isSubmitting ? "HANDING BACK..." : "COMMIT & HAND BACK"}
-          </button>
+            {isSubmitting ? "Handing back..." : "Commit & hand back"}
+          </Button>
         </div>
       </div>
     </div>

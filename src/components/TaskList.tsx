@@ -1,5 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { GitPullRequest } from "lucide-react";
 import type { Task, TaskStatus } from "../types/task";
+import * as tauri from "../lib/tauri";
 
 interface ContextMenuState {
   visible: boolean;
@@ -214,7 +216,7 @@ export function TaskList({
                 onClick={() => toggleCategory(group.category)}
                 className="w-full text-left px-3 py-2 flex items-center gap-2 transition-colors"
                 style={{
-                  backgroundColor: "var(--bg-elevated)",
+                  backgroundColor: "var(--bg-surface)",
                   borderBottom: "1px solid var(--border-default)",
                 }}
               >
@@ -267,13 +269,10 @@ export function TaskList({
                             className="group px-3 py-2 flex items-center gap-2 transition-colors cursor-pointer"
                             style={{
                               backgroundColor: isSelected
-                                ? "var(--bg-elevated)"
+                                ? "var(--bg-accent-subtle)"
                                 : isChecked
                                 ? "var(--bg-surface)"
                                 : "transparent",
-                              borderLeft: isSelected
-                                ? "2px solid var(--accent-cyan)"
-                                : "2px solid transparent",
                               borderBottom: "1px solid var(--border-default)",
                             }}
                             onClick={() =>
@@ -284,7 +283,7 @@ export function TaskList({
                             onContextMenu={(e) => handleContextMenu(e, task.id)}
                             onMouseEnter={(e) => {
                               if (!isSelected && !selectMode) {
-                                e.currentTarget.style.backgroundColor = "var(--bg-elevated)";
+                                e.currentTarget.style.backgroundColor = "var(--bg-hover)";
                               }
                             }}
                             onMouseLeave={(e) => {
@@ -321,12 +320,47 @@ export function TaskList({
                                     : "var(--text-secondary)",
                                 }}
                               />
-                              <SlidingText
-                                text={task.branch}
-                                className="text-xs mt-0.5"
-                                style={{ color: "var(--text-dim)" }}
-                              />
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <SlidingText
+                                  text={task.branch}
+                                  className="text-xs"
+                                  style={{ color: "var(--text-dim)" }}
+                                />
+                                {/* Git stats */}
+                                {(task.total_additions || task.total_deletions) ? (
+                                  <span className="text-xs flex-shrink-0">
+                                    <span style={{ color: "var(--accent-green)" }}>
+                                      +{task.total_additions || 0}
+                                    </span>
+                                    <span style={{ color: "var(--text-dim)" }}> </span>
+                                    <span style={{ color: "var(--accent-red)" }}>
+                                      -{task.total_deletions || 0}
+                                    </span>
+                                  </span>
+                                ) : null}
+                              </div>
                             </div>
+
+                            {/* PR icon */}
+                            {task.pr_url && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  tauri.openPRInBrowser(task.pr_url!);
+                                }}
+                                className="flex-shrink-0 p-1 rounded transition-colors"
+                                style={{ color: "var(--accent-cyan)" }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.backgroundColor = "var(--bg-surface)";
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.backgroundColor = "transparent";
+                                }}
+                                title="Open PR in browser"
+                              >
+                                <GitPullRequest size={14} />
+                              </button>
+                            )}
                           </div>
                         );
                       })}
