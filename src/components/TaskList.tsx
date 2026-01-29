@@ -1,5 +1,12 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import type { Task, TaskStatus } from "../types/task";
+
+interface ContextMenuState {
+  visible: boolean;
+  x: number;
+  y: number;
+  taskId: string | null;
+}
 
 interface TaskListProps {
   tasks: Task[];
@@ -7,6 +14,7 @@ interface TaskListProps {
   onSelectTask: (taskId: string) => void;
   pendingPermissionTaskIds?: Set<string>;
   onTogglePin?: (taskId: string, pinned: boolean) => void;
+  onArchiveTask?: (taskId: string) => void;
   // Multi-select props
   selectMode?: boolean;
   selectedTaskIds?: Set<string>;
@@ -95,11 +103,50 @@ export function TaskList({
   onSelectTask,
   pendingPermissionTaskIds,
   onTogglePin,
+  onArchiveTask,
   selectMode = false,
   selectedTaskIds = new Set(),
   onToggleTaskSelection,
 }: TaskListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  const [contextMenu, setContextMenu] = useState<ContextMenuState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    taskId: null,
+  });
+  const contextMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close context menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu((prev) => ({ ...prev, visible: false }));
+      }
+    };
+
+    if (contextMenu.visible) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [contextMenu.visible]);
+
+  const handleContextMenu = (e: React.MouseEvent, taskId: string) => {
+    e.preventDefault();
+    setContextMenu({
+      visible: true,
+      x: e.clientX,
+      y: e.clientY,
+      taskId,
+    });
+  };
+
+  const handleArchive = () => {
+    if (contextMenu.taskId && onArchiveTask) {
+      onArchiveTask(contextMenu.taskId);
+    }
+    setContextMenu((prev) => ({ ...prev, visible: false }));
+  };
 
   const groups = useMemo(() => groupTasksByRepository(tasks), [tasks]);
 
@@ -125,6 +172,7 @@ export function TaskList({
   }
 
   return (
+    <>
     <div className="flex flex-col">
       {groups.map((group) => {
         const isCollapsed = collapsedGroups.has(group.path);
@@ -187,6 +235,7 @@ export function TaskList({
                           borderLeft: `2px solid ${isSelected ? config.borderColor : hasPendingPermission ? 'var(--accent-yellow)' : 'transparent'}`,
                           borderBottom: '1px solid var(--border-default)',
                         }}
+                        onContextMenu={(e) => handleContextMenu(e, task.id)}
                       >
                         {selectMode && (
                           <input
@@ -284,5 +333,36 @@ export function TaskList({
         );
       })}
     </div>
+
+    {/* Context Menu */}
+    {contextMenu.visible && (
+      <div
+        ref={contextMenuRef}
+        className="fixed z-50 py-1 min-w-32 shadow-lg"
+        style={{
+          left: contextMenu.x,
+          top: contextMenu.y,
+          backgroundColor: 'var(--bg-elevated)',
+          border: '1px solid var(--border-default)',
+        }}
+      >
+        <button
+          onClick={handleArchive}
+          className="w-full text-left px-3 py-1.5 text-xs transition-colors"
+          style={{ color: 'var(--text-secondary)' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = 'var(--bg-surface)';
+            e.currentTarget.style.color = 'var(--text-primary)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = 'transparent';
+            e.currentTarget.style.color = 'var(--text-secondary)';
+          }}
+        >
+          Archive
+        </button>
+      </div>
+    )}
+    </>
   );
 }

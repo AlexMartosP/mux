@@ -680,6 +680,15 @@ export function Sidebar({
               onUpdateTask({ ...task, pinned });
             }
           }}
+          onArchiveTask={async (taskId) => {
+            const task = tasks.find(t => t.id === taskId);
+            const confirmed = window.confirm(
+              `Archive "${task?.name || 'this task'}"?\n\nThis will remove the associated worktree and cannot be undone.`
+            );
+            if (confirmed) {
+              await onArchiveTasks([taskId]);
+            }
+          }}
           selectMode={selectMode}
           selectedTaskIds={selectedTaskIds}
           onToggleTaskSelection={toggleTaskSelection}
