@@ -1,13 +1,14 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { Menu } from "@base-ui/react/menu";
+import { Send, Square, ArrowUp, ArrowDown, RefreshCw, Hand, Undo2, FolderOpen, GitPullRequest, MoreVertical } from "lucide-react";
+import { Button } from "./Button";
 import type { Task } from "../types/task";
 import { useTaskOutput } from "../hooks/useTaskOutput";
-import { useTaskActivity } from "../hooks/useTaskActivity";
 import { usePermissions } from "../hooks/usePermissions";
 import { useSlashCommands } from "../hooks/useSlashCommands";
 import { ChangesPanel } from "./ChangesPanel";
-import { ActivityFeed } from "./ActivityFeed";
 import { OutputRenderer } from "./OutputRenderer";
 import { PermissionPopover } from "./PermissionPopover";
 import { HandbackModal } from "./HandbackModal";
@@ -30,17 +31,6 @@ interface ChatViewProps {
   onDelete: (id: string) => void;
   onUpdateTask?: (task: Task) => void;
 }
-
-const statusConfig: Record<Task["status"], { indicator: string; color: string }> = {
-  idle: { indicator: "IDLE", color: "var(--text-dim)" },
-  running: { indicator: "RUNNING", color: "var(--accent-green)" },
-  waiting_input: { indicator: "WAITING", color: "var(--accent-yellow)" },
-  completed: { indicator: "COMPLETED", color: "var(--text-secondary)" },
-  error: { indicator: "ERROR", color: "var(--accent-red)" },
-  manual_control: { indicator: "MANUAL", color: "var(--accent-magenta)" },
-  interrupted: { indicator: "INTERRUPTED", color: "var(--accent-orange, #f97316)" },
-  queued: { indicator: "QUEUED", color: "var(--accent-cyan)" },
-};
 
 export function ChatView({
   task,
@@ -93,23 +83,17 @@ export function ChatView({
   const { commands: newTaskSlashCommands, refresh: refreshNewTaskSlashCommands } = useSlashCommands(task ? undefined : repositoryPath || undefined);
   const [followUpMessages, setFollowUpMessages] = useState<FollowUpMessage[]>([]);
   const [editingTitle, setEditingTitle] = useState(false);
-  const [editingDescription, setEditingDescription] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
-  const [editedDescription, setEditedDescription] = useState("");
   const [copiedBranch, setCopiedBranch] = useState(false);
   const [isHandbackModalOpen, setIsHandbackModalOpen] = useState(false);
   const [isTakingOver, setIsTakingOver] = useState(false);
-  const [takeoverError, setTakeoverError] = useState<string | null>(null);
-  const [moreMenuOpen, setMoreMenuOpen] = useState(false);
-  const [openInMenuOpen, setOpenInMenuOpen] = useState(false);
   const [changesPanelWidth, setChangesPanelWidth] = useState(320);
   const [isResizing, setIsResizing] = useState(false);
-  const [changesPanelFullScreen, setChangesPanelFullScreen] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const followUpTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const moreMenuRef = useRef<HTMLDivElement>(null);
-  const openInMenuRef = useRef<HTMLDivElement>(null);
   const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
+  const slashCommandsRef = useRef<HTMLDivElement>(null);
+  const newTaskSlashCommandsRef = useRef<HTMLDivElement>(null);
 
   // Fetch available repositories from base directory
   useEffect(() => {
@@ -182,7 +166,6 @@ export function ChatView({
   }, [branches, baseBranchSearch]);
 
   const { output, outputRef, isLoadingMore, hasMore, remainingCount, loadMore } = useTaskOutput(task?.id ?? null);
-  const { currentActivity, activeAgent } = useTaskActivity(task?.id ?? null);
   const { currentRequest: permissionRequest, dismissRequest } = usePermissions(task?.id);
 
   // Fetch current base branch from git (real-time sync for rebases)
@@ -215,20 +198,6 @@ export function ChatView({
       textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 200)}px`;
     }
   }, [prompt]);
-
-  // Close dropdown menus on click outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
-        setMoreMenuOpen(false);
-      }
-      if (openInMenuRef.current && !openInMenuRef.current.contains(e.target as Node)) {
-        setOpenInMenuOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
 
   // Handle panel resizing
   useEffect(() => {
@@ -272,7 +241,6 @@ export function ChatView({
     } catch (err) {
       console.error(`Failed to open in ${editor}:`, err);
     }
-    setOpenInMenuOpen(false);
   };
 
   const handleBrowse = async () => {
@@ -330,15 +298,23 @@ export function ChatView({
     if (showNewTaskSlashCommands && filteredNewTaskCommands.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setNewTaskSelectedCommandIndex((prev) =>
-          prev < filteredNewTaskCommands.length - 1 ? prev + 1 : 0
-        );
+        const newIndex = newTaskSelectedCommandIndex < filteredNewTaskCommands.length - 1
+          ? newTaskSelectedCommandIndex + 1 : 0;
+        setNewTaskSelectedCommandIndex(newIndex);
+        // Scroll into view
+        const container = newTaskSlashCommandsRef.current;
+        const item = container?.querySelector(`[data-index="${newIndex}"]`);
+        item?.scrollIntoView({ block: 'nearest' });
         return;
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setNewTaskSelectedCommandIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredNewTaskCommands.length - 1
-        );
+        const newIndex = newTaskSelectedCommandIndex > 0
+          ? newTaskSelectedCommandIndex - 1 : filteredNewTaskCommands.length - 1;
+        setNewTaskSelectedCommandIndex(newIndex);
+        // Scroll into view
+        const container = newTaskSlashCommandsRef.current;
+        const item = container?.querySelector(`[data-index="${newIndex}"]`);
+        item?.scrollIntoView({ block: 'nearest' });
         return;
       } else if (e.key === "Tab") {
         e.preventDefault();
@@ -400,14 +376,22 @@ export function ChatView({
     if (showSlashCommands && filteredCommands.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev < filteredCommands.length - 1 ? prev + 1 : 0
-        );
+        const newIndex = selectedCommandIndex < filteredCommands.length - 1
+          ? selectedCommandIndex + 1 : 0;
+        setSelectedCommandIndex(newIndex);
+        // Scroll into view
+        const container = slashCommandsRef.current;
+        const item = container?.querySelector(`[data-index="${newIndex}"]`);
+        item?.scrollIntoView({ block: 'nearest' });
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSelectedCommandIndex((prev) =>
-          prev > 0 ? prev - 1 : filteredCommands.length - 1
-        );
+        const newIndex = selectedCommandIndex > 0
+          ? selectedCommandIndex - 1 : filteredCommands.length - 1;
+        setSelectedCommandIndex(newIndex);
+        // Scroll into view
+        const container = slashCommandsRef.current;
+        const item = container?.querySelector(`[data-index="${newIndex}"]`);
+        item?.scrollIntoView({ block: 'nearest' });
       } else if (e.key === "Tab") {
         e.preventDefault();
         handleSelectCommand(filteredCommands[selectedCommandIndex].command);
@@ -482,22 +466,6 @@ export function ChatView({
     setEditingTitle(false);
   };
 
-  // Handle description edit
-  const startEditingDescription = () => {
-    if (task) {
-      setEditedDescription(task.description || "");
-      setEditingDescription(true);
-    }
-  };
-
-  const saveDescription = async () => {
-    if (task && onUpdateTask) {
-      await tauri.updateTaskDescription(task.id, editedDescription.trim());
-      onUpdateTask({ ...task, description: editedDescription.trim() });
-    }
-    setEditingDescription(false);
-  };
-
   // Clear follow-up messages when task changes
   useEffect(() => {
     setFollowUpMessages([]);
@@ -508,7 +476,7 @@ export function ChatView({
     return (
       <div className="flex-1 flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <header className="px-6 py-4" style={{ borderBottom: '1px solid var(--border-default)' }}>
-          <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>NEW TASK</h2>
+          <h2 style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>New task</h2>
           <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
             Select a repository and describe what you want Claude to do
           </p>
@@ -529,6 +497,7 @@ export function ChatView({
                     style={{
                       backgroundColor: repositoryPath === repo.path ? 'var(--bg-elevated)' : 'var(--bg-surface)',
                       border: `1px solid ${repositoryPath === repo.path ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
+                      borderRadius: 'var(--border-radius)',
                       color: repositoryPath === repo.path ? 'var(--text-primary)' : 'var(--text-secondary)',
                     }}
                     onMouseEnter={(e) => {
@@ -567,21 +536,27 @@ export function ChatView({
           {/* Slash command suggestions for new task */}
           {showNewTaskSlashCommands && filteredNewTaskCommands.length > 0 && (
             <div
-              className="absolute bottom-full left-4 right-4 mb-1"
+              ref={newTaskSlashCommandsRef}
+              className="absolute bottom-full left-4 right-4 mb-1 flex flex-col"
               style={{
-                backgroundColor: 'var(--bg-surface)',
+                backgroundColor: 'var(--bg-elevated)',
                 border: '1px solid var(--border-active)',
+                borderRadius: 'var(--border-radius)',
+                zIndex: 'var(--z-dropdown)',
+                maxHeight: '240px',
               }}
             >
+              <div style={{ flex: 1, overflowY: 'auto' }}>
               {filteredNewTaskCommands.map((cmd, index) => (
                 <button
                   key={cmd.command}
+                  data-index={index}
                   onClick={() => handleSelectNewTaskCommand(cmd.command)}
                   className="w-full text-left px-3 py-2 flex items-center gap-3 transition-colors"
                   style={{
                     backgroundColor:
                       index === newTaskSelectedCommandIndex
-                        ? 'var(--bg-elevated)'
+                        ? 'var(--bg-surface)'
                         : 'transparent',
                   }}
                   onMouseEnter={() => setNewTaskSelectedCommandIndex(index)}
@@ -600,6 +575,7 @@ export function ChatView({
                     style={{
                       backgroundColor: 'var(--bg-primary)',
                       border: '1px solid var(--border-default)',
+                      borderRadius: 'var(--border-radius)',
                       color: cmd.source === 'project' ? 'var(--accent-green)' :
                              cmd.source === 'global' ? 'var(--accent-yellow)' :
                              'var(--text-dim)',
@@ -609,27 +585,34 @@ export function ChatView({
                   </span>
                 </button>
               ))}
+              </div>
               <div
-                className="px-3 py-1.5 text-xs flex items-center justify-between"
+                className="flex items-center justify-between"
                 style={{
+                  padding: 'var(--space-2) var(--space-3)',
+                  fontSize: '12px',
                   color: 'var(--text-dim)',
                   borderTop: '1px solid var(--border-default)',
                 }}
               >
-                <span>↑↓ navigate • Tab select • Esc close</span>
+                <span className="flex items-center gap-1">
+                  <ArrowUp size={12} strokeWidth={1.5} />
+                  <ArrowDown size={12} strokeWidth={1.5} />
+                  <span>navigate • Tab select • Esc close</span>
+                </span>
                 <button
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
                     refreshNewTaskSlashCommands();
                   }}
-                  className="text-xs transition-colors"
+                  className="transition-colors"
                   style={{ color: 'var(--text-dim)' }}
                   onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
                   onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
                   title="Refresh commands"
                 >
-                  [↻]
+                  <RefreshCw size={12} strokeWidth={1.5} />
                 </button>
               </div>
             </div>
@@ -637,27 +620,14 @@ export function ChatView({
 
           <form onSubmit={handleSubmit} className="space-y-3">
             <div className="flex items-center gap-2">
-              <button
-                type="button"
+              <Button
+                variant="ghost"
                 onClick={handleBrowse}
-                className="flex items-center gap-2 px-3 py-2 text-xs transition-colors"
-                style={{
-                  backgroundColor: 'transparent',
-                  border: '1px solid var(--border-active)',
-                  color: 'var(--text-secondary)'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-                  e.currentTarget.style.color = 'var(--accent-cyan)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = 'var(--border-active)';
-                  e.currentTarget.style.color = 'var(--text-secondary)';
-                }}
+                className="flex items-center gap-2"
               >
                 <span style={{ color: 'var(--accent-cyan)' }}>[...]</span>
                 BROWSE OTHER
-              </button>
+              </Button>
               {repositoryPath && (
                 <span className="text-xs truncate flex-1" style={{ color: 'var(--text-primary)' }}>
                   {repositoryPath}
@@ -675,6 +645,7 @@ export function ChatView({
                   style={{
                     backgroundColor: 'transparent',
                     border: `1px solid ${selectedBranch ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
+                    borderRadius: 'var(--border-radius)',
                     color: selectedBranch ? 'var(--text-primary)' : 'var(--text-dim)',
                   }}
                 >
@@ -693,6 +664,7 @@ export function ChatView({
                     style={{
                       backgroundColor: 'var(--bg-elevated)',
                       border: '1px solid var(--border-active)',
+                      borderRadius: 'var(--border-radius)',
                     }}
                   >
                     <input
@@ -774,6 +746,7 @@ export function ChatView({
                   style={{
                     backgroundColor: 'transparent',
                     border: `1px solid ${selectedBaseBranch ? 'var(--accent-yellow)' : 'var(--border-default)'}`,
+                    borderRadius: 'var(--border-radius)',
                     color: selectedBaseBranch ? 'var(--text-primary)' : 'var(--text-dim)',
                   }}
                 >
@@ -795,6 +768,7 @@ export function ChatView({
                     style={{
                       backgroundColor: 'var(--bg-elevated)',
                       border: '1px solid var(--border-active)',
+                      borderRadius: 'var(--border-radius)',
                     }}
                   >
                     <input
@@ -866,7 +840,16 @@ export function ChatView({
               </div>
             )}
 
-            <div className="flex gap-2">
+            {/* Floating input container */}
+            <div
+              className="p-3"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--border-default)',
+                borderRadius: 'var(--border-radius)',
+              }}
+            >
+              {/* Textarea on top */}
               <textarea
                 ref={textareaRef}
                 value={prompt}
@@ -888,24 +871,27 @@ export function ChatView({
                 }
                 disabled={!repositoryPath}
                 rows={1}
-                className="flex-1 px-4 py-3 text-xs resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full text-xs resize-none bg-transparent border-none outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  border: '1px solid var(--border-default)',
                   color: 'var(--text-primary)',
                 }}
               />
-              <button
-                type="submit"
-                disabled={isSubmitting || !repositoryPath.trim() || !prompt.trim()}
-                className="px-4 py-3 text-xs font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                style={{
-                  backgroundColor: 'var(--accent-cyan)',
-                  color: 'var(--bg-primary)',
-                }}
-              >
-                {isSubmitting ? "..." : "RUN"}
-              </button>
+              {/* Button row: send on right */}
+              <div className="flex justify-end mt-2">
+                <Button
+                  type="submit"
+                  variant={(!isSubmitting && repositoryPath.trim() && prompt.trim()) ? "primary" : "ghost"}
+                  size="icon"
+                  disabled={isSubmitting || !repositoryPath.trim() || !prompt.trim()}
+                  title="Start task"
+                >
+                  {isSubmitting ? (
+                    <span className="inline-block w-4 h-4 text-center">...</span>
+                  ) : (
+                    <Send size={16} strokeWidth={1.5} />
+                  )}
+                </Button>
+              </div>
             </div>
           </form>
         </div>
@@ -916,238 +902,273 @@ export function ChatView({
   // Existing task view
   const isRunning = task.status === "running";
   const isSettingUp = task.status === "idle" && output.length === 0;
-  const statusCfg = statusConfig[task.status];
 
   return (
     <div className="flex-1 flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
-      <header className="px-6 py-4" style={{ borderBottom: '1px solid var(--border-default)' }}>
-        <div className="flex items-center justify-between">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3">
-              {editingTitle ? (
-                <input
-                  type="text"
-                  value={editedTitle}
-                  onChange={(e) => setEditedTitle(e.target.value)}
-                  onBlur={saveTitle}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") saveTitle();
-                    if (e.key === "Escape") setEditingTitle(false);
-                  }}
-                  autoFocus
-                  className="text-sm font-medium px-1 -ml-1"
-                  style={{
-                    color: 'var(--text-primary)',
-                    backgroundColor: 'var(--bg-surface)',
-                    border: '1px solid var(--accent-cyan)',
-                    outline: 'none',
-                  }}
-                />
-              ) : (
-                <h2
-                  className="text-sm font-medium cursor-pointer hover:underline"
-                  style={{ color: 'var(--text-primary)' }}
-                  onClick={startEditingTitle}
-                  title="Click to edit"
-                >
-                  {task.name}
-                </h2>
-              )}
-              <span className="text-xs" style={{ color: statusCfg.color }}>
-                [{statusCfg.indicator}]
-              </span>
-            </div>
-            <p className="text-xs mt-1 flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
-              <span>{task.repository_path.split("/").pop()}</span>
-              <span>•</span>
-              <button
-                onClick={handleCopyBranch}
-                className="hover:underline cursor-pointer transition-colors"
-                style={{ color: copiedBranch ? 'var(--accent-green)' : 'var(--text-secondary)' }}
-                title="Click to copy"
-              >
-                {copiedBranch ? "Copied!" : task.branch}
-              </button>
-              {currentBaseBranch && (
-                <>
-                  <span style={{ color: 'var(--accent-yellow)' }}>↑</span>
-                  <span
-                    style={{ color: 'var(--text-dim)' }}
-                    title={`Based on ${currentBaseBranch}`}
-                  >
-                    {currentBaseBranch}
-                  </span>
-                </>
-              )}
-              {task.total_cost_usd != null && task.total_cost_usd > 0 && (
-                <>
-                  <span>•</span>
-                  <span title={`${(task.total_input_tokens ?? 0).toLocaleString()} in / ${(task.total_output_tokens ?? 0).toLocaleString()} out`}>
-                    ${task.total_cost_usd.toFixed(4)}
-                  </span>
-                </>
-              )}
-            </p>
-            {editingDescription ? (
-              <textarea
-                value={editedDescription}
-                onChange={(e) => setEditedDescription(e.target.value)}
-                onBlur={saveDescription}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && e.metaKey) saveDescription();
-                  if (e.key === "Escape") setEditingDescription(false);
-                }}
-                autoFocus
-                rows={2}
-                className="text-xs mt-2 max-w-xl w-full px-1 resize-none"
-                style={{
-                  color: 'var(--text-dim)',
-                  backgroundColor: 'var(--bg-surface)',
-                  border: '1px solid var(--accent-cyan)',
-                  outline: 'none',
-                }}
-                placeholder="Add a description..."
-              />
-            ) : (
-              <p
-                className="text-xs mt-2 max-w-xl cursor-pointer hover:underline"
+      <header
+        className="flex items-center justify-between"
+        style={{
+          padding: 'var(--space-3) var(--space-4)',
+          borderBottom: '1px solid var(--border-default)',
+        }}
+      >
+        {/* Left: Title and metadata inline */}
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          {/* Title */}
+          {editingTitle ? (
+            <input
+              type="text"
+              value={editedTitle}
+              onChange={(e) => setEditedTitle(e.target.value)}
+              onBlur={saveTitle}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") saveTitle();
+                if (e.key === "Escape") setEditingTitle(false);
+              }}
+              autoFocus
+              style={{
+                fontSize: '13px',
+                fontWeight: 500,
+                color: 'var(--text-primary)',
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--accent-cyan)',
+                borderRadius: 'var(--border-radius)',
+                outline: 'none',
+                padding: '2px var(--space-2)',
+              }}
+            />
+          ) : (
+            <h2
+              className="cursor-pointer hover:underline truncate"
+              style={{
+                fontSize: '13px',
+                fontWeight: 500,
+                color: 'var(--text-primary)',
+              }}
+              onClick={startEditingTitle}
+              title="Click to edit"
+            >
+              {task.name}
+            </h2>
+          )}
+
+          {/* Separator */}
+          <span style={{ color: 'var(--text-dim)' }}>•</span>
+
+          {/* Repo */}
+          <span
+            className="text-xs truncate"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            {task.repository_path.split("/").pop()}
+          </span>
+
+          {/* Separator */}
+          <span style={{ color: 'var(--text-dim)' }}>•</span>
+
+          {/* Branch (clickable to copy) */}
+          <button
+            onClick={handleCopyBranch}
+            className="text-xs hover:underline cursor-pointer transition-colors truncate max-w-[200px]"
+            style={{ color: copiedBranch ? 'var(--accent-green)' : 'var(--text-secondary)' }}
+            title="Click to copy branch name"
+          >
+            {copiedBranch ? "Copied!" : task.branch}
+          </button>
+
+          {/* Base branch */}
+          {currentBaseBranch && (
+            <>
+              <span style={{ color: 'var(--accent-yellow)' }}>↑</span>
+              <span
+                className="text-xs truncate max-w-[120px]"
                 style={{ color: 'var(--text-dim)' }}
-                onClick={startEditingDescription}
-                title="Click to edit"
+                title={`Based on ${currentBaseBranch}`}
               >
-                {task.description || "Click to add description..."}
-              </p>
-            )}
-          </div>
-          <div className="flex gap-2 ml-4">
-            {isRunning && (
-              <TerminalButton onClick={() => onStop(task.id)} color="yellow">
-                STOP
-              </TerminalButton>
-            )}
-
-            {/* Takeover/Handback */}
-            {task.status !== "manual_control" ? (
-              <TerminalButton
-                onClick={async () => {
-                  if (isTakingOver) return;
-
-                  // Confirm before takeover
-                  const confirmed = window.confirm(
-                    `Take over this task?\n\n` +
-                    `This will:\n` +
-                    `• ${task.status === "running" ? "Stop Claude" : "Pause the task"}\n` +
-                    `• Commit any uncommitted changes in the worktree\n` +
-                    `• Stash any changes in your repo root\n` +
-                    `• Checkout the task branch (${task.branch}) in your repo root\n\n` +
-                    `You can then work on the code directly and hand back when done.`
-                  );
-                  if (!confirmed) return;
-
-                  setIsTakingOver(true);
-                  setTakeoverError(null);
-                  try {
-                    const result = await tauri.takeoverTask(task.id);
-                    console.log("Takeover successful:", result);
-                  } catch (err) {
-                    console.error("Takeover failed:", err);
-                    setTakeoverError(err instanceof Error ? err.message : "Takeover failed");
-                  } finally {
-                    setIsTakingOver(false);
-                  }
-                }}
-                color="magenta"
-                title="Take over control - work from repo root"
-                disabled={isTakingOver}
-              >
-                {isTakingOver ? "TAKING OVER..." : "TAKEOVER"}
-              </TerminalButton>
-            ) : (
-              <TerminalButton
-                onClick={() => setIsHandbackModalOpen(true)}
-                color="green"
-                title="Commit changes and hand back to Claude"
-              >
-                HANDBACK
-              </TerminalButton>
-            )}
-            {takeoverError && (
-              <span className="text-xs" style={{ color: 'var(--accent-red)' }}>
-                {takeoverError}
+                {currentBaseBranch}
               </span>
-            )}
+            </>
+          )}
+        </div>
 
-            {/* Open In dropdown */}
-            <div className="relative" ref={openInMenuRef}>
-              <TerminalButton onClick={() => setOpenInMenuOpen(!openInMenuOpen)} color="cyan">
-                OPEN IN ▼
-              </TerminalButton>
-              {openInMenuOpen && (
-                <div
-                  className="absolute top-full right-0 mt-1 min-w-[120px] z-50"
+        {/* Right: Action buttons */}
+        <div className="flex items-center" style={{ gap: 'var(--space-2)' }}>
+          {/* Takeover/Handback */}
+          {task.status !== "manual_control" ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={async () => {
+                if (isTakingOver) return;
+
+                const confirmed = window.confirm(
+                  `Take over this task?\n\n` +
+                  `This will:\n` +
+                  `• ${task.status === "running" ? "Stop Claude" : "Pause the task"}\n` +
+                  `• Commit any uncommitted changes in the worktree\n` +
+                  `• Stash any changes in your repo root\n` +
+                  `• Checkout the task branch (${task.branch}) in your repo root\n\n` +
+                  `You can then work on the code directly and hand back when done.`
+                );
+                if (!confirmed) return;
+
+                setIsTakingOver(true);
+                try {
+                  const result = await tauri.takeoverTask(task.id);
+                  console.log("Takeover successful:", result);
+                } catch (err) {
+                  console.error("Takeover failed:", err);
+                  // Could show a toast notification here
+                } finally {
+                  setIsTakingOver(false);
+                }
+              }}
+              title="Takeover - work from repo root"
+              disabled={isTakingOver}
+            >
+              <Hand size={16} strokeWidth={1.5} />
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsHandbackModalOpen(true)}
+              title="Handback - commit and return to Claude"
+              style={{ color: 'var(--accent-green)' }}
+            >
+              <Undo2 size={16} strokeWidth={1.5} />
+            </Button>
+          )}
+
+          {/* Open In dropdown */}
+          <Menu.Root>
+            <Menu.Trigger
+              className="btn-ghost btn-icon transition-colors"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '32px',
+                height: '32px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                borderRadius: 'var(--border-radius)',
+                color: 'var(--text-dim)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--text-dim)';
+              }}
+              title="Open in editor"
+            >
+              <FolderOpen size={16} strokeWidth={1.5} />
+            </Menu.Trigger>
+            <Menu.Portal>
+              <Menu.Positioner side="bottom" align="end" sideOffset={4}>
+                <Menu.Popup
                   style={{
+                    minWidth: '120px',
                     backgroundColor: 'var(--bg-elevated)',
                     border: '1px solid var(--border-active)',
+                    borderRadius: 'var(--border-radius)',
+                    padding: 'var(--space-1) 0',
+                    zIndex: 'var(--z-dropdown)',
                   }}
                 >
-                  <button
+                  <Menu.Item
                     onClick={() => openInEditor('vscode')}
-                    className="w-full px-3 py-2 text-xs text-left transition-colors"
-                    style={{ color: 'var(--text-secondary)' }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-surface)'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    className="w-full text-left transition-colors cursor-pointer outline-none data-[highlighted]:bg-[var(--bg-surface)]"
+                    style={{
+                      padding: 'var(--space-2) var(--space-3)',
+                      fontSize: '12px',
+                      color: 'var(--text-secondary)',
+                    }}
                   >
                     VS Code
-                  </button>
-                  <button
+                  </Menu.Item>
+                  <Menu.Item
                     onClick={() => openInEditor('cursor')}
-                    className="w-full px-3 py-2 text-xs text-left transition-colors"
-                    style={{ color: 'var(--text-secondary)' }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-surface)'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    className="w-full text-left transition-colors cursor-pointer outline-none data-[highlighted]:bg-[var(--bg-surface)]"
+                    style={{
+                      padding: 'var(--space-2) var(--space-3)',
+                      fontSize: '12px',
+                      color: 'var(--text-secondary)',
+                    }}
                   >
                     Cursor
-                  </button>
-                </div>
-              )}
-            </div>
+                  </Menu.Item>
+                </Menu.Popup>
+              </Menu.Positioner>
+            </Menu.Portal>
+          </Menu.Root>
 
-            {/* View PR - only show if PR exists */}
-            {task.pr_url && (
-              <TerminalButton onClick={() => tauri.openPRInBrowser(task.pr_url!)} color="magenta">
-                VIEW PR
-              </TerminalButton>
-            )}
+          {/* View PR - only show if PR exists */}
+          {task.pr_url && (
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => tauri.openPRInBrowser(task.pr_url!)}
+              title="View Pull Request"
+              style={{ color: 'var(--accent-green)' }}
+            >
+              <GitPullRequest size={16} strokeWidth={1.5} />
+            </Button>
+          )}
 
-            {/* More menu */}
-            <div className="relative" ref={moreMenuRef}>
-              <TerminalButton onClick={() => setMoreMenuOpen(!moreMenuOpen)} color="default">
-                •••
-              </TerminalButton>
-              {moreMenuOpen && (
-                <div
-                  className="absolute top-full right-0 mt-1 min-w-[120px] z-50"
+          {/* More menu */}
+          <Menu.Root>
+            <Menu.Trigger
+              className="btn-ghost btn-icon transition-colors"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: '32px',
+                height: '32px',
+                backgroundColor: 'transparent',
+                border: 'none',
+                borderRadius: 'var(--border-radius)',
+                color: 'var(--text-dim)',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--text-secondary)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--text-dim)';
+              }}
+              title="More options"
+            >
+              <MoreVertical size={16} strokeWidth={1.5} />
+            </Menu.Trigger>
+            <Menu.Portal>
+              <Menu.Positioner side="bottom" align="end" sideOffset={4}>
+                <Menu.Popup
                   style={{
+                    minWidth: '120px',
                     backgroundColor: 'var(--bg-elevated)',
                     border: '1px solid var(--border-active)',
+                    borderRadius: 'var(--border-radius)',
+                    padding: 'var(--space-1) 0',
+                    zIndex: 'var(--z-dropdown)',
                   }}
                 >
-                  <button
-                    onClick={() => {
-                      onDelete(task.id);
-                      setMoreMenuOpen(false);
+                  <Menu.Item
+                    onClick={() => onDelete(task.id)}
+                    className="w-full text-left transition-colors cursor-pointer outline-none data-[highlighted]:bg-[var(--bg-surface)]"
+                    style={{
+                      padding: 'var(--space-2) var(--space-3)',
+                      fontSize: '12px',
+                      color: 'var(--accent-red)',
                     }}
-                    className="w-full px-3 py-2 text-xs text-left transition-colors"
-                    style={{ color: 'var(--accent-red)' }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-surface)'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
                   >
                     Archive
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
+                  </Menu.Item>
+                </Menu.Popup>
+              </Menu.Positioner>
+            </Menu.Portal>
+          </Menu.Root>
         </div>
       </header>
 
@@ -1156,14 +1177,14 @@ export function ChatView({
         <div
           className="px-6 py-3"
           style={{
-            backgroundColor: 'rgba(255, 0, 255, 0.1)',
-            borderBottom: '1px solid var(--accent-magenta)',
+            backgroundColor: 'var(--bg-accent-subtle)',
+            borderBottom: '1px solid var(--accent-cyan)',
           }}
         >
           <div className="flex items-center gap-3">
-            <span style={{ color: 'var(--accent-magenta)' }}>[M]</span>
+            <span style={{ color: 'var(--accent-cyan)' }}>[M]</span>
             <div className="flex-1">
-              <p className="text-xs" style={{ color: 'var(--accent-magenta)' }}>
+              <p className="text-xs" style={{ color: 'var(--accent-cyan)' }}>
                 MANUAL CONTROL MODE
               </p>
               <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
@@ -1179,14 +1200,14 @@ export function ChatView({
         <div
           className="px-6 py-3"
           style={{
-            backgroundColor: 'rgba(249, 115, 22, 0.1)',
-            borderBottom: '1px solid var(--accent-orange, #f97316)',
+            backgroundColor: 'var(--bg-warning-subtle)',
+            borderBottom: '1px solid var(--accent-yellow)',
           }}
         >
           <div className="flex items-center gap-3">
-            <span style={{ color: 'var(--accent-orange, #f97316)' }}>[!]</span>
+            <span style={{ color: 'var(--accent-yellow)' }}>[!]</span>
             <div className="flex-1">
-              <p className="text-xs" style={{ color: 'var(--accent-orange, #f97316)' }}>
+              <p className="text-xs" style={{ color: 'var(--accent-yellow)' }}>
                 TASK INTERRUPTED
               </p>
               <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
@@ -1216,27 +1237,12 @@ export function ChatView({
                 The task encountered an error. Review the output below for details, or try restarting.
               </p>
             </div>
-            <button
-              onClick={() => onRestart(task.id)}
-              className="px-3 py-1.5 text-xs font-medium transition-colors"
-              style={{
-                backgroundColor: 'transparent',
-                border: '1px solid var(--accent-red)',
-                color: 'var(--accent-red)',
-              }}
-            >
+            <Button variant="secondary" color="red" onClick={() => onRestart(task.id)}>
               RETRY
-            </button>
+            </Button>
           </div>
         </div>
       )}
-
-      {/* Activity Feed */}
-      <ActivityFeed
-        currentActivity={currentActivity}
-        activeAgent={activeAgent}
-        isRunning={isRunning}
-      />
 
       {/* Main content - Chat on left, Changes on right */}
       <div className="flex-1 flex overflow-hidden">
@@ -1246,19 +1252,13 @@ export function ChatView({
             {/* Initial prompt */}
             <div className="mb-6">
               <div
-                className="p-4"
+                className="p-3 inline-block max-w-[85%]"
                 style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  borderLeft: '2px solid var(--accent-cyan)',
+                  backgroundColor: 'var(--bg-elevated)',
+                  borderRadius: 'var(--border-radius)',
                 }}
               >
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-xs" style={{ color: 'var(--accent-cyan)' }}>USER</span>
-                  <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
-                    {new Date(task.created_at).toLocaleString()}
-                  </span>
-                </div>
-                <div style={{ color: 'var(--text-primary)', fontSize: 'var(--font-xs)' }}>
+                <div className="whitespace-pre-wrap text-xs" style={{ color: 'var(--text-primary)' }}>
                   {task.prompt}
                 </div>
               </div>
@@ -1318,6 +1318,7 @@ export function ChatView({
                       <OutputRenderer
                         output={segment.outputSlice}
                         isRunning={segment.isLast ? isRunning : false}
+                        repositoryPath={task.repository_path}
                       />
                     </div>
                   );
@@ -1327,19 +1328,13 @@ export function ChatView({
                   return (
                     <div key={msg.id} className="mt-6">
                       <div
-                        className="p-4"
+                        className="p-3 inline-block max-w-[85%]"
                         style={{
-                          backgroundColor: 'var(--bg-surface)',
-                          borderLeft: '2px solid var(--accent-cyan)',
+                          backgroundColor: 'var(--bg-elevated)',
+                          borderRadius: 'var(--border-radius)',
                         }}
                       >
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs" style={{ color: 'var(--accent-cyan)' }}>USER</span>
-                          <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
-                            {new Date(msg.timestamp).toLocaleString()}
-                          </span>
-                        </div>
-                        <div className="whitespace-pre-wrap" style={{ color: 'var(--text-primary)', fontSize: 'var(--font-xs)' }}>
+                        <div className="whitespace-pre-wrap text-xs" style={{ color: 'var(--text-primary)' }}>
                           {msg.content}
                         </div>
                       </div>
@@ -1353,28 +1348,14 @@ export function ChatView({
             {/* Load more button */}
             {hasMore && !isRunning && (
               <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border-default)' }}>
-                <button
+                <Button
+                  variant="ghost"
                   onClick={loadMore}
                   disabled={isLoadingMore}
-                  className="w-full py-2 text-xs transition-colors disabled:opacity-50"
-                  style={{
-                    backgroundColor: 'var(--bg-surface)',
-                    border: '1px solid var(--border-default)',
-                    color: 'var(--text-secondary)',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (!isLoadingMore) {
-                      e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-                      e.currentTarget.style.color = 'var(--accent-cyan)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.borderColor = 'var(--border-default)';
-                    e.currentTarget.style.color = 'var(--text-secondary)';
-                  }}
+                  className="w-full"
                 >
                   {isLoadingMore ? 'Loading...' : `Load more (${remainingCount} remaining)`}
-                </button>
+                </Button>
               </div>
             )}
           </div>
@@ -1388,80 +1369,128 @@ export function ChatView({
             />
           )}
 
-          {/* Follow-up input */}
-          <div className="p-4 relative" style={{ borderTop: '1px solid var(--border-default)' }}>
+          {/* Follow-up input - floating box */}
+          <div className="p-4 relative">
             {/* Slash command suggestions */}
             {showSlashCommands && filteredCommands.length > 0 && (
               <div
-                className="absolute bottom-full left-4 right-4 mb-1"
+                ref={slashCommandsRef}
                 style={{
-                  backgroundColor: 'var(--bg-surface)',
+                  position: 'absolute',
+                  bottom: '100%',
+                  left: 'var(--space-4)',
+                  right: 'var(--space-4)',
+                  marginBottom: 'var(--space-1)',
+                  backgroundColor: 'var(--bg-elevated)',
                   border: '1px solid var(--border-active)',
+                  borderRadius: 'var(--border-radius)',
+                  zIndex: 'var(--z-dropdown)',
+                  maxHeight: '240px',
+                  display: 'flex',
+                  flexDirection: 'column',
                 }}
               >
-                {filteredCommands.map((cmd, index) => (
-                  <button
-                    key={cmd.command}
-                    onClick={() => handleSelectCommand(cmd.command)}
-                    className="w-full text-left px-3 py-2 flex items-center gap-3 transition-colors"
-                    style={{
-                      backgroundColor:
-                        index === selectedCommandIndex
-                          ? 'var(--bg-elevated)'
-                          : 'transparent',
-                    }}
-                    onMouseEnter={() => setSelectedCommandIndex(index)}
-                  >
-                    <span
-                      className="text-xs font-medium"
-                      style={{ color: 'var(--accent-cyan)' }}
-                    >
-                      {cmd.command}
-                    </span>
-                    <span className="text-xs flex-1 truncate" style={{ color: 'var(--text-dim)' }}>
-                      {cmd.description}
-                    </span>
-                    <span
-                      className="text-xs px-1.5 py-0.5"
+                <div style={{ flex: 1, overflowY: 'auto' }}>
+                  {filteredCommands.map((cmd, index) => (
+                    <button
+                      key={cmd.command}
+                      data-index={index}
+                      onClick={() => handleSelectCommand(cmd.command)}
+                      className="w-full text-left transition-colors"
                       style={{
-                        backgroundColor: 'var(--bg-primary)',
-                        border: '1px solid var(--border-default)',
-                        color: cmd.source === 'project' ? 'var(--accent-green)' :
-                               cmd.source === 'global' ? 'var(--accent-yellow)' :
-                               'var(--text-dim)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 'var(--space-3)',
+                        padding: 'var(--space-2) var(--space-3)',
+                        backgroundColor:
+                          index === selectedCommandIndex
+                            ? 'var(--bg-surface)'
+                            : 'transparent',
                       }}
+                      onMouseEnter={() => setSelectedCommandIndex(index)}
                     >
-                      {cmd.source}
-                    </span>
-                  </button>
-                ))}
+                      <span
+                        style={{
+                          fontSize: '12px',
+                          fontWeight: 500,
+                          color: 'var(--accent-cyan)',
+                        }}
+                      >
+                        {cmd.command}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '12px',
+                          flex: 1,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          color: 'var(--text-dim)',
+                        }}
+                      >
+                        {cmd.description}
+                      </span>
+                      <span
+                        style={{
+                          fontSize: '10px',
+                          padding: '2px var(--space-1)',
+                          backgroundColor: 'var(--bg-primary)',
+                          border: '1px solid var(--border-default)',
+                          borderRadius: 'var(--border-radius)',
+                          color: cmd.source === 'project' ? 'var(--accent-green)' :
+                                 cmd.source === 'global' ? 'var(--accent-yellow)' :
+                                 'var(--text-dim)',
+                        }}
+                      >
+                        {cmd.source}
+                      </span>
+                    </button>
+                  ))}
+                </div>
                 <div
-                  className="px-3 py-1.5 text-xs flex items-center justify-between"
                   style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: 'var(--space-2) var(--space-3)',
+                    fontSize: '12px',
                     color: 'var(--text-dim)',
                     borderTop: '1px solid var(--border-default)',
                   }}
                 >
-                  <span>↑↓ navigate • Tab select • Esc close</span>
+                  <span className="flex items-center gap-1">
+                    <ArrowUp size={12} strokeWidth={1.5} />
+                    <ArrowDown size={12} strokeWidth={1.5} />
+                    <span>navigate • Tab select • Esc close</span>
+                  </span>
                   <button
                     onClick={(e) => {
                       e.preventDefault();
                       e.stopPropagation();
                       refreshSlashCommands();
                     }}
-                    className="text-xs transition-colors"
+                    className="transition-colors"
                     style={{ color: 'var(--text-dim)' }}
                     onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
                     onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
                     title="Refresh commands"
                   >
-                    [↻]
+                    <RefreshCw size={12} strokeWidth={1.5} />
                   </button>
                 </div>
               </div>
             )}
 
-            <div className="flex gap-2">
+            {/* Floating input container */}
+            <div
+              className="p-3"
+              style={{
+                backgroundColor: 'var(--bg-surface)',
+                border: '1px solid var(--border-default)',
+                borderRadius: 'var(--border-radius)',
+              }}
+            >
+              {/* Textarea on top */}
               <textarea
                 ref={followUpTextareaRef}
                 value={followUpPrompt}
@@ -1478,65 +1507,53 @@ export function ChatView({
                 }}
                 placeholder={
                   isRunning
-                    ? "Task is running... click ■ to stop"
+                    ? "Task is running..."
                     : `Type / for commands, or send a follow-up... (${sendWithEnter ? "Enter" : "⌘+Enter"} to send)`
                 }
                 disabled={isRunning}
                 rows={1}
-                className="flex-1 px-4 py-3 text-xs resize-none disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full text-xs resize-none bg-transparent border-none outline-none disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
-                  backgroundColor: 'var(--bg-surface)',
-                  border: '1px solid var(--border-default)',
                   color: 'var(--text-primary)',
                 }}
               />
-              {isRunning ? (
-                <button
-                  onClick={() => onStop(task.id)}
-                  className="px-4 py-3 text-xs font-medium transition-colors self-end"
-                  style={{
-                    backgroundColor: 'var(--bg-surface)',
-                    border: '1px solid var(--accent-red)',
-                    color: 'var(--accent-red)',
-                  }}
-                  title="Stop task"
-                >
-                  ■
-                </button>
-              ) : (
-                <button
-                  onClick={handleFollowUpSubmit}
-                  disabled={!followUpPrompt.trim()}
-                  className="px-4 py-3 text-xs font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed self-end"
-                  style={{
-                    backgroundColor: followUpPrompt.trim() ? 'var(--accent-cyan)' : 'var(--bg-surface)',
-                    border: '1px solid var(--border-default)',
-                    color: followUpPrompt.trim() ? 'var(--bg-primary)' : 'var(--text-dim)',
+              {/* Buttons row: accept edits toggle on left, send/stop on right */}
+              <div className="flex items-center justify-between mt-2">
+                {/* Accept edits toggle button on left */}
+                <Button
+                  variant="ghost"
+                  active={task.auto_accept_edits ?? false}
+                  onClick={async () => {
+                    const newValue = !(task.auto_accept_edits ?? false);
+                    await tauri.setTaskAutoAcceptEdits(task.id, newValue);
+                    if (onUpdateTask) onUpdateTask({ ...task, auto_accept_edits: newValue });
                   }}
                 >
-                  &gt;
-                </button>
-              )}
-            </div>
-            {/* Auto-accept edits toggle */}
-            <div className="flex items-center gap-2 px-1 pt-1">
-              <label
-                className="flex items-center gap-1.5 text-xs cursor-pointer select-none"
-                style={{ color: 'var(--text-dim)' }}
-              >
-                <input
-                  type="checkbox"
-                  checked={task.auto_accept_edits ?? false}
-                  onChange={async (e) => {
-                    const enabled = e.target.checked;
-                    await tauri.setTaskAutoAcceptEdits(task.id, enabled);
-                    if (onUpdateTask) onUpdateTask({ ...task, auto_accept_edits: enabled });
-                  }}
-                  className="accent-current"
-                  style={{ accentColor: 'var(--accent-cyan)' }}
-                />
-                Auto-accept edits
-              </label>
+                  Accept edits
+                </Button>
+                {/* Send/Stop button on right */}
+                {isRunning ? (
+                  <Button
+                    variant="secondary"
+                    color="red"
+                    size="icon"
+                    onClick={() => onStop(task.id)}
+                    title="Stop task"
+                  >
+                    <Square size={16} strokeWidth={1.5} fill="currentColor" />
+                  </Button>
+                ) : (
+                  <Button
+                    variant={followUpPrompt.trim() ? "primary" : "ghost"}
+                    size="icon"
+                    onClick={handleFollowUpSubmit}
+                    disabled={!followUpPrompt.trim()}
+                    title="Send message"
+                  >
+                    <Send size={16} strokeWidth={1.5} />
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -1592,35 +1609,9 @@ export function ChatView({
               setFollowUpMessages((prev) => [...prev, newMessage]);
               onRestart(task.id, reviewPrompt);
             }}
-            onFullScreen={() => setChangesPanelFullScreen(true)}
           />
         </div>
       </div>
-
-      {/* Full-screen Changes panel */}
-      {changesPanelFullScreen && (
-        <div
-          className="fixed inset-0 z-50 flex flex-col"
-          style={{ backgroundColor: 'var(--bg-primary)' }}
-        >
-          <ChangesPanel
-            taskId={task.id}
-            onSendReview={(reviewPrompt) => {
-              const newMessage: FollowUpMessage = {
-                id: crypto.randomUUID(),
-                content: reviewPrompt,
-                timestamp: new Date().toISOString(),
-                outputIndex: output.length,
-              };
-              setFollowUpMessages((prev) => [...prev, newMessage]);
-              onRestart(task.id, reviewPrompt);
-              setChangesPanelFullScreen(false);
-            }}
-            isFullScreen
-            onExitFullScreen={() => setChangesPanelFullScreen(false)}
-          />
-        </div>
-      )}
 
       {/* Handback Modal */}
       <HandbackModal
@@ -1635,55 +1626,4 @@ export function ChatView({
   );
 }
 
-// Terminal-style button component
-function TerminalButton({
-  children,
-  onClick,
-  disabled,
-  color,
-  title,
-}: {
-  children: React.ReactNode;
-  onClick: () => void | Promise<void>;
-  disabled?: boolean;
-  color: "green" | "yellow" | "red" | "cyan" | "magenta" | "default";
-  title?: string;
-}) {
-  const colorMap = {
-    green: 'var(--accent-green)',
-    yellow: 'var(--accent-yellow)',
-    red: 'var(--accent-red)',
-    cyan: 'var(--accent-cyan)',
-    magenta: 'var(--accent-magenta)',
-    default: 'var(--text-secondary)',
-  };
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      title={title}
-      className="px-3 py-1.5 text-xs font-medium transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-      style={{
-        backgroundColor: 'transparent',
-        border: `1px solid ${disabled ? 'var(--border-default)' : colorMap[color]}`,
-        color: disabled ? 'var(--text-dim)' : colorMap[color],
-      }}
-      onMouseEnter={(e) => {
-        if (!disabled) {
-          e.currentTarget.style.backgroundColor = colorMap[color];
-          e.currentTarget.style.color = 'var(--bg-primary)';
-        }
-      }}
-      onMouseLeave={(e) => {
-        if (!disabled) {
-          e.currentTarget.style.backgroundColor = 'transparent';
-          e.currentTarget.style.color = colorMap[color];
-        }
-      }}
-    >
-      {children}
-    </button>
-  );
-}
 
