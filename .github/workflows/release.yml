@@ -57,6 +57,14 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
+      - name: Check signing key
+        run: |
+          if [ -z "${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}" ]; then
+            echo "::error::TAURI_SIGNING_PRIVATE_KEY secret is not set! Updates will fail without signatures."
+            exit 1
+          fi
+          echo "Signing key is configured"
+
       - name: Build Tauri app
         uses: tauri-apps/tauri-action@v0
         env:
@@ -95,42 +103,59 @@ jobs:
           merge-multiple: true
 
       - name: List artifacts
-        run: find artifacts -type f | head -50
+        run: |
+          echo "=== All artifacts ==="
+          find artifacts -type f
+          echo "=== Signature files ==="
+          find artifacts -name "*.sig" -type f
 
       - name: Generate latest.json
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
 
-          # Find the signature files
-          AARCH64_SIG=$(cat artifacts/*aarch64*/*.sig 2>/dev/null || cat artifacts/*.sig 2>/dev/null | head -1 || echo "")
-          X64_SIG=$(cat artifacts/*x86_64*/*.sig 2>/dev/null || cat artifacts/*.sig 2>/dev/null | tail -1 || echo "")
+          # Find signature files by searching recursively
+          AARCH64_SIG_FILE=$(find artifacts -name "*.sig" -type f | grep -i aarch64 | head -1)
+          X64_SIG_FILE=$(find artifacts -name "*.sig" -type f | grep -i x86_64 | head -1)
 
-          # If we can't find separate sigs, try to find them differently
-          if [ -z "$AARCH64_SIG" ]; then
-            AARCH64_SIG=$(find artifacts -name "*.sig" -path "*aarch64*" -exec cat {} \; 2>/dev/null || echo "")
-          fi
-          if [ -z "$X64_SIG" ]; then
-            X64_SIG=$(find artifacts -name "*.sig" -path "*x86_64*" -exec cat {} \; 2>/dev/null || echo "")
+          echo "Found aarch64 sig file: $AARCH64_SIG_FILE"
+          echo "Found x64 sig file: $X64_SIG_FILE"
+
+          # Read signature contents
+          AARCH64_SIG=""
+          X64_SIG=""
+
+          if [ -n "$AARCH64_SIG_FILE" ] && [ -f "$AARCH64_SIG_FILE" ]; then
+            AARCH64_SIG=$(cat "$AARCH64_SIG_FILE")
+            echo "aarch64 signature: ${AARCH64_SIG:0:50}..."
+          else
+            echo "WARNING: No aarch64 signature file found!"
           fi
 
-          cat > latest.json << EOF
-          {
-            "version": "${VERSION}",
-            "notes": "Mux v${VERSION}",
-            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-            "platforms": {
-              "darwin-aarch64": {
-                "url": "https://github.com/${RELEASES_REPO}/releases/download/v${VERSION}/Mux.app.tar.gz",
-                "signature": "${AARCH64_SIG}"
+          if [ -n "$X64_SIG_FILE" ] && [ -f "$X64_SIG_FILE" ]; then
+            X64_SIG=$(cat "$X64_SIG_FILE")
+            echo "x64 signature: ${X64_SIG:0:50}..."
+          else
+            echo "WARNING: No x64 signature file found!"
+          fi
+
+          # Generate latest.json (using printf to avoid heredoc issues with signatures)
+          printf '%s\n' "{
+            \"version\": \"${VERSION}\",
+            \"notes\": \"Mux v${VERSION}\",
+            \"pub_date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",
+            \"platforms\": {
+              \"darwin-aarch64\": {
+                \"url\": \"https://github.com/${RELEASES_REPO}/releases/download/v${VERSION}/Mux.app.tar.gz\",
+                \"signature\": \"${AARCH64_SIG}\"
               },
-              "darwin-x86_64": {
-                "url": "https://github.com/${RELEASES_REPO}/releases/download/v${VERSION}/Mux_x64.app.tar.gz",
-                "signature": "${X64_SIG}"
+              \"darwin-x86_64\": {
+                \"url\": \"https://github.com/${RELEASES_REPO}/releases/download/v${VERSION}/Mux_x64.app.tar.gz\",
+                \"signature\": \"${X64_SIG}\"
               }
             }
-          }
-          EOF
+          }" > latest.json
 
+          echo "=== Generated latest.json ==="
           cat latest.json
 
       - name: Prepare release files
