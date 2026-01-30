@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { save } from "@tauri-apps/plugin-dialog";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import * as tauri from "../lib/tauri";
 import type { AppSettings, ExportOptions } from "../lib/tauri";
@@ -62,21 +62,6 @@ export function Settings({ onClose, onRestartOnboarding, onWorkspacesChange }: S
       setSettings(loaded);
     } catch (err) {
       console.error("Failed to load settings:", err);
-    }
-  };
-
-  const handleBrowseBaseDir = async () => {
-    try {
-      const selected = await open({
-        directory: true,
-        multiple: false,
-        title: "Select Base Repository Directory",
-      });
-      if (selected && typeof selected === "string") {
-        setSettings((prev) => ({ ...prev, base_repo_directory: selected }));
-      }
-    } catch (err) {
-      console.error("Failed to open folder picker:", err);
     }
   };
 
@@ -178,54 +163,9 @@ export function Settings({ onClose, onRestartOnboarding, onWorkspacesChange }: S
               WORKSPACES
             </label>
             <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
-              Organize tasks into workspaces, each with its own repository folder.
+              Organize agents into workspaces, each with its own repository folder and settings.
             </p>
             <WorkspaceSettings onWorkspacesChange={onWorkspacesChange} />
-          </div>
-
-          {/* Base Repository Directory (fallback when no workspace selected) */}
-          <div>
-            <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
-              DEFAULT REPOSITORY DIRECTORY
-            </label>
-            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
-              Fallback directory when no workspace is selected. Folders here will be shown as quick-select options.
-            </p>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={settings.base_repo_directory || ""}
-                onChange={(e) =>
-                  setSettings((prev) => ({ ...prev, base_repo_directory: e.target.value || null }))
-                }
-                placeholder="Not set"
-                className="flex-1 px-4 py-2 text-xs"
-                style={inputStyle}
-              />
-              <Button variant="secondary" onClick={handleBrowseBaseDir}>
-                Browse
-              </Button>
-            </div>
-          </div>
-
-          {/* Branch Prefix */}
-          <div>
-            <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
-              BRANCH PREFIX
-            </label>
-            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
-              Optional prefix for auto-generated branch names (e.g., "username" or "feature").
-            </p>
-            <input
-              type="text"
-              value={settings.branch_prefix || ""}
-              onChange={(e) =>
-                setSettings((prev) => ({ ...prev, branch_prefix: e.target.value || null }))
-              }
-              placeholder="e.g., john-doe"
-              className="w-full px-4 py-2 text-xs"
-              style={inputStyle}
-            />
           </div>
 
           {/* Notifications */}

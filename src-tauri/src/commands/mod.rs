@@ -29,6 +29,7 @@ pub use agent::{
 };
 pub use terminal::{close_terminal, open_terminal, terminal_input, terminal_resize, TerminalState};
 pub use workspace::{
-    create_workspace, delete_workspace, get_default_workspace, get_workspace, get_workspaces,
-    list_workspace_repositories, set_default_workspace, update_workspace,
+    create_workspace, delete_workspace, delete_workspace_setting, get_all_workspace_settings,
+    get_default_workspace, get_workspace, get_workspace_setting, get_workspaces,
+    list_workspace_repositories, set_default_workspace, set_workspace_setting, update_workspace,
 };

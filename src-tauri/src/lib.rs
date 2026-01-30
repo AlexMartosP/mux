@@ -7,18 +7,20 @@ mod services;
 use commands::{
     add_permission_rule, check_claude_hook_status, check_cli_status, check_github_auth,
     clear_notifications, close_terminal, complete_onboarding, create_pull_request,
-    create_workspace, delete_agent, delete_agents, delete_workspace, export_agents,
-    generate_agent_metadata, get_branch_base, get_cost_summary, get_default_workspace, get_file_diff,
-    get_file_diff_with_context, get_full_diff, get_notifications, get_pr_preview, get_settings,
-    get_slash_commands, get_agent, get_agent_changes, get_agent_commits, get_agent_output,
-    get_agent_output_count, get_agents, get_unread_notification_count, get_workspace, get_workspaces,
+    create_workspace, delete_agent, delete_agents, delete_workspace, delete_workspace_setting,
+    export_agents, generate_agent_metadata, get_all_workspace_settings, get_branch_base,
+    get_cost_summary, get_default_workspace, get_file_diff, get_file_diff_with_context,
+    get_full_diff, get_notifications, get_pr_preview, get_settings, get_slash_commands, get_agent,
+    get_agent_changes, get_agent_commits, get_agent_output, get_agent_output_count, get_agents,
+    get_unread_notification_count, get_workspace, get_workspace_setting, get_workspaces,
     handback_agent, install_claude_hook, install_cli, is_onboarding_completed, list_branches,
     list_repositories, list_workspace_repositories, mark_all_notifications_read,
     mark_notification_read, open_in_editor, open_pr_in_browser, open_terminal, refresh_agent_git_stats,
     reset_onboarding, respond_permission, restart_agent, revert_file_changes, set_default_workspace,
-    set_setting, set_agent_auto_accept_edits, set_agent_pinned, spawn_agent, stop_agent, takeover_agent,
-    terminal_input, terminal_resize, uninstall_claude_hook, update_settings, update_agent_base_branch,
-    update_agent_description, update_agent_name, update_workspace, AppState, TerminalState,
+    set_setting, set_workspace_setting, set_agent_auto_accept_edits, set_agent_pinned, spawn_agent,
+    stop_agent, takeover_agent, terminal_input, terminal_resize, uninstall_claude_hook,
+    update_settings, update_agent_base_branch, update_agent_description, update_agent_name,
+    update_workspace, AppState, TerminalState,
 };
 use db::Database;
 use models::AgentStatus;
@@ -169,6 +171,11 @@ pub fn run() {
             delete_workspace,
             set_default_workspace,
             list_workspace_repositories,
+            // Workspace settings
+            get_workspace_setting,
+            set_workspace_setting,
+            delete_workspace_setting,
+            get_all_workspace_settings,
             // Terminal
             open_terminal,
             terminal_input,

@@ -163,6 +163,18 @@ impl Database {
         // Migration: Add workspace_id column to tasks
         let _ = conn.execute("ALTER TABLE tasks ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL", []);
 
+        // Workspace settings table (for per-workspace configuration)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS workspace_settings (
+                workspace_id TEXT NOT NULL,
+                key TEXT NOT NULL,
+                value TEXT NOT NULL,
+                PRIMARY KEY (workspace_id, key),
+                FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
         Ok(())
     }
 
@@ -883,6 +895,53 @@ impl Database {
             params![workspace_id, task_id],
         )?;
         Ok(())
+    }
+
+    // Workspace settings methods
+
+    /// Get a workspace setting
+    pub fn get_workspace_setting(&self, workspace_id: &str, key: &str) -> Result<Option<String>> {
+        let conn = self.conn.lock().unwrap();
+        let value = conn
+            .query_row(
+                "SELECT value FROM workspace_settings WHERE workspace_id = ? AND key = ?",
+                params![workspace_id, key],
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(value)
+    }
+
+    /// Set a workspace setting
+    pub fn set_workspace_setting(&self, workspace_id: &str, key: &str, value: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO workspace_settings (workspace_id, key, value) VALUES (?, ?, ?)",
+            params![workspace_id, key, value],
+        )?;
+        Ok(())
+    }
+
+    /// Delete a workspace setting
+    pub fn delete_workspace_setting(&self, workspace_id: &str, key: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM workspace_settings WHERE workspace_id = ? AND key = ?",
+            params![workspace_id, key],
+        )?;
+        Ok(())
+    }
+
+    /// Get all settings for a workspace
+    pub fn get_all_workspace_settings(&self, workspace_id: &str) -> Result<std::collections::HashMap<String, String>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare("SELECT key, value FROM workspace_settings WHERE workspace_id = ?")?;
+        let settings = stmt
+            .query_map([workspace_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?
+            .collect::<std::result::Result<std::collections::HashMap<_, _>, _>>()?;
+        Ok(settings)
     }
 
     /// Get tasks by workspace

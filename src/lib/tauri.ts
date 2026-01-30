@@ -359,6 +359,23 @@ export async function listWorkspaceRepositories(reposFolderPath: string): Promis
   return invoke("list_workspace_repositories", { reposFolderPath });
 }
 
+// Workspace settings
+export async function getWorkspaceSetting(workspaceId: string, key: string): Promise<string | null> {
+  return invoke("get_workspace_setting", { workspaceId, key });
+}
+
+export async function setWorkspaceSetting(workspaceId: string, key: string, value: string): Promise<void> {
+  return invoke("set_workspace_setting", { workspaceId, key, value });
+}
+
+export async function deleteWorkspaceSetting(workspaceId: string, key: string): Promise<void> {
+  return invoke("delete_workspace_setting", { workspaceId, key });
+}
+
+export async function getAllWorkspaceSettings(workspaceId: string): Promise<Record<string, string>> {
+  return invoke("get_all_workspace_settings", { workspaceId });
+}
+
 // Terminal
 export async function openTerminal(agentId: string): Promise<void> {
   return invoke("open_terminal", { agentId });
