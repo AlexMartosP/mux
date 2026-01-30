@@ -377,6 +377,29 @@ pub fn restart_task(
 
     // Determine if this is a follow-up (continue conversation) or fresh restart
     let is_follow_up = prompt.is_some();
+
+    // If this is a follow-up, save the user message to the database
+    if let Some(ref follow_up_prompt) = prompt {
+        let timestamp = chrono::Utc::now().to_rfc3339();
+        state.db.append_output(
+            &id,
+            "user_message",
+            follow_up_prompt,
+            &timestamp,
+            None,
+            None,
+        )?;
+        log::info!("[restart_task] Saved user follow-up message to database");
+
+        // Emit the user message as output so the frontend can display it immediately
+        let _ = app_handle.emit("task-output", serde_json::json!({
+            "task_id": id,
+            "output_type": "user_message",
+            "content": follow_up_prompt,
+            "timestamp": timestamp
+        }));
+    }
+
     let prompt_to_use = prompt.unwrap_or(task.prompt);
 
     log::info!("[restart_task] Starting Claude in worktree={}, continue={}", task.worktree_path, is_follow_up);

@@ -16,10 +16,10 @@ const categoryConfig: Record<string, { icon: string; label: string; color: strin
   io: { icon: "IO", label: "File System Error", color: "var(--accent-red)" },
   json: { icon: "JS", label: "Parse Error", color: "var(--accent-red)" },
   not_found: { icon: "?", label: "Not Found", color: "var(--accent-yellow)" },
-  git: { icon: "G", label: "Git Error", color: "var(--accent-orange, #f97316)" },
-  github: { icon: "GH", label: "GitHub Error", color: "var(--accent-magenta)" },
+  git: { icon: "G", label: "Git Error", color: "var(--accent-yellow)" },
+  github: { icon: "GH", label: "GitHub Error", color: "var(--accent-cyan)" },
   process: { icon: "P", label: "Process Error", color: "var(--accent-red)" },
-  worktree: { icon: "WT", label: "Worktree Error", color: "var(--accent-orange, #f97316)" },
+  worktree: { icon: "WT", label: "Worktree Error", color: "var(--accent-yellow)" },
   other: { icon: "!", label: "Error", color: "var(--accent-red)" },
 };
 

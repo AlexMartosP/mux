@@ -8,7 +8,6 @@ import { ToastContainer } from "./components/Toast";
 import { useTasks } from "./hooks/useTasks";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useUpdateNotifications } from "./hooks/useUpdateNotifications";
-import { ReviewProvider } from "./contexts/ReviewContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import * as tauri from "./lib/tauri";
@@ -255,9 +254,7 @@ function App() {
   return (
     <ThemeProvider>
       <ToastProvider>
-        <ReviewProvider>
-          <AppContent />
-        </ReviewProvider>
+        <AppContent />
       </ToastProvider>
     </ThemeProvider>
   );

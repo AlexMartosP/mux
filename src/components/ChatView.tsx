@@ -82,6 +82,8 @@ export function ChatView({
   const { commands: slashCommands, refresh: refreshSlashCommands } = useSlashCommands(task?.repository_path);
   const { commands: newTaskSlashCommands, refresh: refreshNewTaskSlashCommands } = useSlashCommands(task ? undefined : repositoryPath || undefined);
   const [followUpMessages, setFollowUpMessages] = useState<FollowUpMessage[]>([]);
+  // Track which task we've reconstructed follow-ups for
+  const reconstructedTaskRef = useRef<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
   const [copiedBranch, setCopiedBranch] = useState(false);
@@ -466,10 +468,34 @@ export function ChatView({
     setEditingTitle(false);
   };
 
-  // Clear follow-up messages when task changes
+  // Reconstruct follow-up messages from output when task changes
   useEffect(() => {
-    setFollowUpMessages([]);
-  }, [task?.id]);
+    // Reset when no task selected
+    if (!task?.id) {
+      reconstructedTaskRef.current = null;
+      setFollowUpMessages([]);
+      return;
+    }
+
+    // Reconstruct once when task changes and output has data
+    if (task.id !== reconstructedTaskRef.current && output.length > 0) {
+      reconstructedTaskRef.current = task.id;
+
+      const reconstructed: FollowUpMessage[] = [];
+      for (let i = 0; i < output.length; i++) {
+        const item = output[i];
+        if (item.output_type === "user_message") {
+          reconstructed.push({
+            id: `output-${i}`,
+            content: item.content,
+            timestamp: item.timestamp,
+            outputIndex: i,
+          });
+        }
+      }
+      setFollowUpMessages(reconstructed);
+    }
+  }, [task?.id, output]);
 
   // New task view
   if (!task) {
@@ -1285,11 +1311,15 @@ export function ChatView({
                 | { type: 'output'; outputSlice: typeof output; isLast: boolean }
                 | { type: 'followup'; message: FollowUpMessage };
 
+              // Helper to filter out user_message items (they're rendered as FollowUpMessage UI)
+              const filterUserMessages = (items: typeof output) =>
+                items.filter(item => item.output_type !== "user_message");
+
               const segments: Segment[] = [];
 
               if (followUpMessages.length === 0) {
-                // No follow-ups: render all output as one segment
-                segments.push({ type: 'output', outputSlice: output, isLast: true });
+                // No follow-ups: render all output as one segment (filter user_messages just in case)
+                segments.push({ type: 'output', outputSlice: filterUserMessages(output), isLast: true });
               } else {
                 // Sort follow-ups by outputIndex to ensure correct ordering
                 const sorted = [...followUpMessages].sort((a, b) => a.outputIndex - b.outputIndex);
@@ -1297,15 +1327,16 @@ export function ChatView({
                 let lastIndex = 0;
                 for (const msg of sorted) {
                   // Add output segment for content before this follow-up
-                  const slice = output.slice(lastIndex, msg.outputIndex);
+                  const slice = filterUserMessages(output.slice(lastIndex, msg.outputIndex));
                   segments.push({ type: 'output', outputSlice: slice, isLast: false });
                   // Add the follow-up message
                   segments.push({ type: 'followup', message: msg });
-                  lastIndex = msg.outputIndex;
+                  // Skip past the user_message item itself
+                  lastIndex = msg.outputIndex + 1;
                 }
 
                 // Remaining output after the last follow-up
-                const remainingOutput = output.slice(lastIndex);
+                const remainingOutput = filterUserMessages(output.slice(lastIndex));
                 segments.push({ type: 'output', outputSlice: remainingOutput, isLast: true });
               }
 

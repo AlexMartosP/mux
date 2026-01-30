@@ -82,6 +82,11 @@ impl GitService {
                 let deletions = parts[1].parse().unwrap_or(0);
                 let path = parts[2].to_string();
 
+                // Skip directories (paths ending with /)
+                if path.ends_with('/') {
+                    continue;
+                }
+
                 files.push(FileChange {
                     path,
                     status: FileStatus::Modified, // Will be updated below
@@ -124,7 +129,7 @@ impl GitService {
         Ok(files)
     }
 
-    /// Get uncommitted changes (staged and unstaged)
+    /// Get uncommitted changes (staged and unstaged) with line counts
     fn get_uncommitted_changes(worktree_path: &str) -> Result<Vec<FileChange>> {
         let output = Command::new("git")
             .args(["status", "--porcelain"])
@@ -139,12 +144,40 @@ impl GitService {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let mut files: Vec<FileChange> = Vec::new();
 
+        // Get numstat for uncommitted changes to get line counts
+        let numstat_output = Command::new("git")
+            .args(["diff", "--numstat", "HEAD"])
+            .current_dir(worktree_path)
+            .output()
+            .ok();
+
+        let mut numstat_map: std::collections::HashMap<String, (i32, i32)> = std::collections::HashMap::new();
+        if let Some(numstat) = numstat_output {
+            if numstat.status.success() {
+                let numstat_str = String::from_utf8_lossy(&numstat.stdout);
+                for line in numstat_str.lines() {
+                    let parts: Vec<&str> = line.split('\t').collect();
+                    if parts.len() >= 3 {
+                        let adds = parts[0].parse().unwrap_or(0);
+                        let dels = parts[1].parse().unwrap_or(0);
+                        let path = parts[2].to_string();
+                        numstat_map.insert(path, (adds, dels));
+                    }
+                }
+            }
+        }
+
         for line in stdout.lines() {
             if line.len() < 4 {
                 continue;
             }
             let status_str = &line[0..2];
             let path = line[3..].to_string();
+
+            // Skip directories (paths ending with /)
+            if path.ends_with('/') {
+                continue;
+            }
 
             let status = if status_str.contains('?') {
                 FileStatus::Untracked
@@ -158,11 +191,13 @@ impl GitService {
                 FileStatus::Modified
             };
 
+            let (additions, deletions) = numstat_map.get(&path).copied().unwrap_or((0, 0));
+
             files.push(FileChange {
                 path,
                 status,
-                additions: 0,
-                deletions: 0,
+                additions,
+                deletions,
             });
         }
 

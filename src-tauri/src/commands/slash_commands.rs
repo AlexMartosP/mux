@@ -22,59 +22,80 @@ struct ClaudeSettings {
 }
 
 /// Get all available slash commands for a given repository path
+/// Commands are deduplicated by command name, with project commands taking precedence
+/// over global, and global over builtin.
 #[tauri::command]
 pub fn get_slash_commands(repository_path: Option<String>) -> Vec<SlashCommand> {
-    let mut commands = Vec::new();
+    // Use HashMap to deduplicate by command name
+    // Insert in order: builtin -> global -> project (later overwrites earlier)
+    let mut commands_map: HashMap<String, SlashCommand> = HashMap::new();
 
-    // Add built-in Claude Code commands
-    commands.extend(get_builtin_commands());
+    // Add built-in Claude Code commands (lowest priority)
+    for cmd in get_builtin_commands() {
+        commands_map.insert(cmd.command.clone(), cmd);
+    }
 
-    // Add global custom commands from ~/.claude/
+    // Add global custom commands from ~/.claude/ (medium priority)
     if let Ok(home) = env::var("HOME") {
         let claude_dir = PathBuf::from(&home).join(".claude");
 
         // Read from ~/.claude/commands/*.md files (legacy)
         let global_commands_dir = claude_dir.join("commands");
         if let Ok(custom) = read_custom_commands(&global_commands_dir, "global") {
-            commands.extend(custom);
+            for cmd in custom {
+                commands_map.insert(cmd.command.clone(), cmd);
+            }
         }
 
         // Read from ~/.claude/skills/*/SKILL.md (new skills format)
         let global_skills_dir = claude_dir.join("skills");
         if let Ok(skills) = read_skills(&global_skills_dir, "global") {
-            commands.extend(skills);
+            for cmd in skills {
+                commands_map.insert(cmd.command.clone(), cmd);
+            }
         }
 
         // Read from ~/.claude/settings.json slashCommands
         let global_settings = claude_dir.join("settings.json");
         if let Ok(custom) = read_settings_commands(&global_settings, "global") {
-            commands.extend(custom);
+            for cmd in custom {
+                commands_map.insert(cmd.command.clone(), cmd);
+            }
         }
     }
 
-    // Add project-level custom commands from <repo>/.claude/
+    // Add project-level custom commands from <repo>/.claude/ (highest priority)
     if let Some(repo_path) = repository_path {
         let project_claude_dir = PathBuf::from(&repo_path).join(".claude");
 
         // Read from <repo>/.claude/commands/*.md files (legacy)
         let project_commands_dir = project_claude_dir.join("commands");
         if let Ok(custom) = read_custom_commands(&project_commands_dir, "project") {
-            commands.extend(custom);
+            for cmd in custom {
+                commands_map.insert(cmd.command.clone(), cmd);
+            }
         }
 
         // Read from <repo>/.claude/skills/*/SKILL.md (new skills format)
         let project_skills_dir = project_claude_dir.join("skills");
         if let Ok(skills) = read_skills(&project_skills_dir, "project") {
-            commands.extend(skills);
+            for cmd in skills {
+                commands_map.insert(cmd.command.clone(), cmd);
+            }
         }
 
         // Read from <repo>/.claude/settings.json slashCommands
         let project_settings = project_claude_dir.join("settings.json");
         if let Ok(custom) = read_settings_commands(&project_settings, "project") {
-            commands.extend(custom);
+            for cmd in custom {
+                commands_map.insert(cmd.command.clone(), cmd);
+            }
         }
     }
 
+    // Convert to sorted Vec
+    let mut commands: Vec<SlashCommand> = commands_map.into_values().collect();
+    commands.sort_by(|a, b| a.command.cmp(&b.command));
     commands
 }
 

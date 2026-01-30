@@ -26,6 +26,7 @@ pub enum OutputType {
     System,
     Stdout,
     Stderr,
+    UserMessage, // User's follow-up messages
 }
 
 impl OutputType {
@@ -38,6 +39,7 @@ impl OutputType {
             OutputType::System => "system",
             OutputType::Stdout => "stdout",
             OutputType::Stderr => "stderr",
+            OutputType::UserMessage => "user_message",
         }
     }
 }

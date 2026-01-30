@@ -1,101 +1,271 @@
-/* Syntax highlighting for diff viewer - terminal-inspired theme */
+/* Custom styles for react-diff-view - terminal theme */
 
-/* Keywords and control flow */
-.hljs-keyword,
-.hljs-selector-tag,
-.hljs-built_in,
-.hljs-name {
-  color: var(--accent-magenta);
+.diff-viewer {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
-/* Strings */
-.hljs-string,
-.hljs-attr,
-.hljs-symbol,
-.hljs-bullet {
-  color: var(--accent-green);
+/* Override react-diff-view default styles */
+.diff {
+  background: var(--bg-primary);
+  color: var(--text-secondary);
 }
 
-/* Numbers */
-.hljs-number,
-.hljs-literal {
-  color: var(--accent-cyan);
+.diff-gutter-col {
+  width: 50px;
 }
 
-/* Types and classes */
-.hljs-type,
-.hljs-class,
-.hljs-title {
-  color: var(--accent-yellow);
-}
-
-/* Functions */
-.hljs-title.function_,
-.hljs-function {
-  color: var(--accent-cyan);
-}
-
-/* Comments */
-.hljs-comment,
-.hljs-quote {
+.diff-gutter {
+  background: var(--bg-surface);
   color: var(--text-dim);
+  padding: 0 8px;
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid var(--border-default);
+}
+
+.diff-gutter:hover {
+  background: var(--bg-hover);
+}
+
+/* Hunk header */
+.diff-hunk-header {
+  background: rgba(6, 182, 212, 0.05);
+  color: var(--accent-cyan);
+  border-top: 1px solid var(--border-default);
+}
+
+.diff-hunk-header-gutter {
+  background: rgba(6, 182, 212, 0.08);
+}
+
+.diff-hunk-header-content {
+  padding: 4px 12px;
   font-style: italic;
 }
 
-/* Variables and properties */
-.hljs-variable,
-.hljs-template-variable,
-.hljs-property {
-  color: var(--text-primary);
+/* Code content */
+.diff-code {
+  padding: 0 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
-/* Attributes */
-.hljs-attribute {
-  color: var(--accent-cyan);
+/* Addition lines */
+.diff-code-insert {
+  background: rgba(74, 222, 128, 0.1);
 }
 
-/* Tags (HTML/XML) */
-.hljs-tag {
+.diff-gutter-insert {
+  background: rgba(74, 222, 128, 0.15);
+  color: var(--accent-green);
+}
+
+/* Deletion lines */
+.diff-code-delete {
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.diff-gutter-delete {
+  background: rgba(248, 113, 113, 0.15);
   color: var(--accent-red);
 }
 
-/* Regex and special */
-.hljs-regexp,
-.hljs-link {
-  color: var(--accent-yellow);
+/* Context lines */
+.diff-code-normal .diff-code {
+  color: var(--text-secondary);
 }
 
-/* Meta and preprocessor */
-.hljs-meta,
-.hljs-meta .hljs-keyword {
-  color: var(--accent-magenta);
+/* Word-level diff highlighting */
+.diff-code-edit .diff-code {
+  background: transparent;
 }
 
-/* Deletion and addition specific - slightly dimmed to let diff colors show */
-.diff-line-deletion .hljs-keyword,
-.diff-line-deletion .hljs-string,
-.diff-line-deletion .hljs-number,
-.diff-line-deletion .hljs-type,
-.diff-line-deletion .hljs-title,
-.diff-line-deletion .hljs-comment,
-.diff-line-deletion .hljs-variable,
-.diff-line-deletion .hljs-attribute,
-.diff-line-deletion .hljs-tag,
-.diff-line-deletion .hljs-regexp,
-.diff-line-deletion .hljs-meta {
-  opacity: 0.85;
+.diff-code-insert .diff-code mark,
+.diff-code-insert mark {
+  background: rgba(74, 222, 128, 0.3);
+  color: inherit;
 }
 
-.diff-line-addition .hljs-keyword,
-.diff-line-addition .hljs-string,
-.diff-line-addition .hljs-number,
-.diff-line-addition .hljs-type,
-.diff-line-addition .hljs-title,
-.diff-line-addition .hljs-comment,
-.diff-line-addition .hljs-variable,
-.diff-line-addition .hljs-attribute,
-.diff-line-addition .hljs-tag,
-.diff-line-addition .hljs-regexp,
-.diff-line-addition .hljs-meta {
-  opacity: 0.9;
+.diff-code-delete .diff-code mark,
+.diff-code-delete mark {
+  background: rgba(248, 113, 113, 0.3);
+  color: inherit;
+}
+
+/* Table layout */
+.diff table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.diff td {
+  vertical-align: top;
+}
+
+/* Remove default selection highlighting */
+.diff-line:hover {
+  background: var(--bg-hover);
+}
+
+.diff-line:hover .diff-gutter {
+  background: var(--bg-elevated);
+}
+
+/* Split view styles */
+.diff-split .diff-gutter-col {
+  width: 40px;
+}
+
+.diff-split .diff-code {
+  padding: 0 8px;
+}
+
+/* Syntax highlighting - Prism/Refractor tokens */
+.diff-viewer .token.comment,
+.diff-viewer .token.prolog,
+.diff-viewer .token.doctype,
+.diff-viewer .token.cdata {
+  color: var(--text-dim) !important;
+  font-style: italic;
+}
+
+.diff-viewer .token.punctuation {
+  color: var(--text-secondary) !important;
+}
+
+.diff-viewer .token.namespace {
+  opacity: 0.7;
+}
+
+.diff-viewer .token.property,
+.diff-viewer .token.tag,
+.diff-viewer .token.boolean,
+.diff-viewer .token.number,
+.diff-viewer .token.constant,
+.diff-viewer .token.symbol,
+.diff-viewer .token.deleted {
+  color: var(--accent-red) !important;
+}
+
+.diff-viewer .token.selector,
+.diff-viewer .token.attr-name,
+.diff-viewer .token.string,
+.diff-viewer .token.char,
+.diff-viewer .token.builtin,
+.diff-viewer .token.inserted {
+  color: var(--accent-green) !important;
+}
+
+.diff-viewer .token.operator,
+.diff-viewer .token.entity,
+.diff-viewer .token.url,
+.diff-viewer .language-css .token.string,
+.diff-viewer .style .token.string {
+  color: var(--accent-yellow) !important;
+}
+
+.diff-viewer .token.atrule,
+.diff-viewer .token.attr-value,
+.diff-viewer .token.keyword {
+  color: var(--accent-cyan) !important;
+}
+
+.diff-viewer .token.function,
+.diff-viewer .token.class-name {
+  color: var(--accent-yellow) !important;
+}
+
+.diff-viewer .token.regex,
+.diff-viewer .token.important,
+.diff-viewer .token.variable {
+  color: var(--accent-yellow) !important;
+}
+
+.diff-viewer .token.important,
+.diff-viewer .token.bold {
+  font-weight: bold;
+}
+
+.diff-viewer .token.italic {
+  font-style: italic;
+}
+
+.diff-viewer .token.entity {
+  cursor: help;
+}
+
+/* Diff line colors should not override syntax colors */
+.diff-code-insert .diff-code,
+.diff-code-delete .diff-code,
+.diff-code-normal .diff-code {
+  color: inherit;
+}
+
+/* Scrollbar in diff viewer */
+.diff-viewer::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.diff-viewer::-webkit-scrollbar-track {
+  background: var(--bg-primary);
+}
+
+.diff-viewer::-webkit-scrollbar-thumb {
+  background: var(--border-active);
+}
+
+/* Comment support styles */
+.diff-with-comments .diff-gutter {
+  cursor: pointer;
+  position: relative;
+}
+
+.diff-with-comments .diff-gutter:hover::after {
+  content: "+";
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--accent-cyan);
+  font-weight: bold;
+  font-size: 10px;
+}
+
+.diff-comment-widget {
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
+}
+
+/* Widget row styling in react-diff-view */
+.diff-widget {
+  background: var(--bg-surface);
+}
+
+.diff-widget td {
+  padding: 0 !important;
+}
+
+/* SimpleDiffViewer hover-based comment icon */
+.diff-gutter-clickable {
+  cursor: pointer;
+  position: relative;
+}
+
+.diff-add-comment-icon {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--accent-cyan);
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  pointer-events: none;
+}
+
+.diff-row:hover .diff-gutter-clickable .diff-add-comment-icon {
+  opacity: 1;
 }

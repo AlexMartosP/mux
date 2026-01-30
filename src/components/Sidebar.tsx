@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect, RefObject } from "react";
 import { Bell, Settings, Pencil, Plus, ChevronsLeft, ChevronsRight, X } from "lucide-react";
 import type { Task } from "../types/task";
 import { TaskList } from "./TaskList";
+import { Button } from "./Button";
 import { usePermissions } from "../hooks/usePermissions";
 import { formatShortcut, SHORTCUTS } from "../hooks/useKeyboardShortcuts";
 import { useNotifications } from "../hooks/useNotifications";
@@ -180,30 +181,26 @@ export function Sidebar({
       >
         {/* Expand button */}
         <div className="p-2 flex justify-center" style={{ borderBottom: '1px solid var(--border-default)' }}>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={onToggleCollapse}
-            className="p-2 transition-colors"
-            style={{ color: 'var(--text-dim)' }}
-            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
-            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
             title={`Expand sidebar (${formatShortcut(SHORTCUTS.toggleSidebar)})`}
           >
-            <ChevronsRight size={16} strokeWidth={1} />
-          </button>
+            <ChevronsRight size={16} strokeWidth={1.5} />
+          </Button>
         </div>
 
         {/* New task button */}
         <div className="p-2 flex justify-center">
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={onNewTask}
-            className="p-2 transition-colors"
-            style={{ color: 'var(--accent-cyan)' }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-elevated)'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
             title={`New task (${formatShortcut(SHORTCUTS.newTask)})`}
           >
-            <Plus size={16} strokeWidth={1} />
-          </button>
+            <Plus size={16} strokeWidth={1.5} />
+          </Button>
         </div>
 
         {/* Task status indicators */}
@@ -218,7 +215,7 @@ export function Sidebar({
                 case 'waiting_input': return 'var(--accent-yellow)';
                 case 'completed': return 'var(--text-secondary)';
                 case 'error': return 'var(--accent-red)';
-                case 'manual_control': return 'var(--accent-magenta)';
+                case 'manual_control': return 'var(--accent-cyan)';
                 case 'queued': return 'var(--accent-cyan)';
                 default: return 'var(--text-dim)';
               }
@@ -230,11 +227,10 @@ export function Sidebar({
                 onClick={() => onSelectTask(task.id)}
                 className="w-full p-2 flex justify-center transition-colors"
                 style={{
-                  backgroundColor: isSelected ? 'var(--bg-elevated)' : 'transparent',
-                  borderLeft: isSelected ? '2px solid var(--accent-cyan)' : '2px solid transparent',
+                  backgroundColor: isSelected ? 'var(--bg-accent-subtle)' : 'transparent',
                 }}
                 onMouseEnter={(e) => {
-                  if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--bg-primary)';
+                  if (!isSelected) e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
                 }}
                 onMouseLeave={(e) => {
                   if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
@@ -252,16 +248,14 @@ export function Sidebar({
 
         {/* Footer icons */}
         <div className="p-2 flex justify-center gap-1" style={{ borderTop: '1px solid var(--border-default)' }}>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={onOpenSettings}
-            className="p-2 transition-colors"
-            style={{ color: 'var(--text-dim)' }}
-            onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
-            onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
             title={`Settings (${formatShortcut(SHORTCUTS.settings)})`}
           >
-            <Settings size={16} strokeWidth={1} />
-          </button>
+            <Settings size={16} strokeWidth={1.5} />
+          </Button>
         </div>
       </aside>
     );
@@ -275,42 +269,28 @@ export function Sidebar({
       {/* Header */}
       <div className="p-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-default)', color: 'var(--text-primary)' }}>
         <Logo className="h-5 w-auto" />
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={onToggleCollapse}
-          className="p-1 transition-colors"
-          style={{ color: 'var(--text-dim)' }}
-          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
-          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
           title={`Collapse sidebar (${formatShortcut(SHORTCUTS.toggleSidebar)})`}
         >
-          <ChevronsLeft size={16} strokeWidth={1} />
-        </button>
+          <ChevronsLeft size={16} strokeWidth={1.5} />
+        </Button>
       </div>
 
       {/* Controls */}
       <div className="p-3 space-y-2">
         {/* New Task Button */}
-        <button
+        <Button
+          variant="ghost"
           onClick={onNewTask}
-          className="w-full px-4 py-2 text-xs font-medium transition-colors flex items-center justify-center gap-2"
-          style={{
-            backgroundColor: 'transparent',
-            border: '1px solid var(--border-active)',
-            color: 'var(--text-primary)'
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'var(--accent-cyan)';
-            e.currentTarget.style.color = 'var(--accent-cyan)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = 'var(--border-active)';
-            e.currentTarget.style.color = 'var(--text-primary)';
-          }}
+          className="w-full"
           title={`New task (${formatShortcut(SHORTCUTS.newTask)})`}
+          startIcon={<Plus size={14} strokeWidth={1.5} style={{ color: 'var(--accent-cyan)' }} />}
         >
-          <Plus size={14} strokeWidth={1} style={{ color: 'var(--accent-cyan)' }} />
-          NEW TASK
-        </button>
+          New task
+        </Button>
 
         {/* Search Input */}
         <div className="relative">
@@ -324,6 +304,7 @@ export function Sidebar({
             style={{
               backgroundColor: 'var(--bg-primary)',
               border: `1px solid ${searchQuery ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
+              borderRadius: '4px',
               color: 'var(--text-primary)',
             }}
           />
@@ -348,6 +329,7 @@ export function Sidebar({
             style={{
               backgroundColor: 'var(--bg-primary)',
               border: `1px solid ${selectedRepos.size > 0 ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
+              borderRadius: '4px',
               color: selectedRepos.size > 0 ? 'var(--text-primary)' : 'var(--text-dim)',
             }}
           >
@@ -367,6 +349,7 @@ export function Sidebar({
               style={{
                 backgroundColor: 'var(--bg-elevated)',
                 border: '1px solid var(--border-active)',
+                borderRadius: '4px',
               }}
             >
               {repos.map(repo => (
@@ -397,25 +380,14 @@ export function Sidebar({
 
         {/* Clear all filters button */}
         {hasActiveFilters && (
-          <button
+          <Button
+            variant="ghost"
+            color="red"
             onClick={clearAllFilters}
-            className="w-full px-3 py-1.5 text-xs transition-colors"
-            style={{
-              backgroundColor: 'transparent',
-              border: '1px solid var(--border-default)',
-              color: 'var(--text-dim)',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--accent-red)';
-              e.currentTarget.style.color = 'var(--accent-red)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = 'var(--border-default)';
-              e.currentTarget.style.color = 'var(--text-dim)';
-            }}
+            className="w-full"
           >
             Clear filters
-          </button>
+          </Button>
         )}
       </div>
 
@@ -499,30 +471,23 @@ export function Sidebar({
           className="p-3 space-y-2"
           style={{ borderTop: '1px solid var(--border-default)' }}
         >
-          <button
+          <Button
+            variant="secondary"
+            color="red"
             onClick={handleArchiveSelected}
             disabled={selectedTaskIds.size === 0 || isArchiving}
-            className="w-full px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-            style={{
-              backgroundColor: 'transparent',
-              border: '1px solid var(--accent-red)',
-              color: 'var(--accent-red)',
-            }}
+            className="w-full"
           >
-            {isArchiving ? 'ARCHIVING...' : `ARCHIVE SELECTED (${selectedTaskIds.size})`}
-          </button>
-          <button
+            {isArchiving ? 'Archiving...' : `Archive selected (${selectedTaskIds.size})`}
+          </Button>
+          <Button
+            variant="ghost"
             onClick={handleArchiveAll}
             disabled={filteredTasks.length === 0 || isArchiving}
-            className="w-full px-4 py-2 text-xs font-medium transition-colors disabled:opacity-50"
-            style={{
-              backgroundColor: 'transparent',
-              border: '1px solid var(--border-default)',
-              color: 'var(--text-dim)',
-            }}
+            className="w-full"
           >
-            ARCHIVE ALL ({filteredTasks.length})
-          </button>
+            Archive all ({filteredTasks.length})
+          </Button>
         </div>
       )}
 
@@ -532,17 +497,11 @@ export function Sidebar({
         style={{ borderTop: '1px solid var(--border-default)' }}
       >
         {/* Notifications */}
-        <button
-          className="relative p-2 transition-colors"
-          style={{ color: 'var(--text-dim)' }}
-          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
-          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
-          title="Notifications"
-        >
-          <Bell size={18} strokeWidth={1} />
+        <Button variant="ghost" size="icon" title="Notifications" className="relative">
+          <Bell size={16} strokeWidth={1.5} />
           {unreadCount > 0 && (
             <span
-              className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-medium"
+              className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-medium"
               style={{
                 backgroundColor: 'var(--accent-red)',
                 color: 'var(--bg-primary)',
@@ -552,37 +511,29 @@ export function Sidebar({
               {unreadCount > 99 ? '99+' : unreadCount}
             </span>
           )}
-        </button>
+        </Button>
 
         {/* Edit/Select mode */}
         {tasks.length > 0 && (
-          <button
+          <Button
+            variant={selectMode ? "primary" : "ghost"}
+            size="icon"
             onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
-            className="p-2 transition-colors"
-            style={{ color: selectMode ? 'var(--accent-cyan)' : 'var(--text-dim)' }}
-            onMouseEnter={(e) => {
-              if (!selectMode) e.currentTarget.style.color = 'var(--text-secondary)';
-            }}
-            onMouseLeave={(e) => {
-              if (!selectMode) e.currentTarget.style.color = 'var(--text-dim)';
-            }}
             title={selectMode ? "Exit edit mode" : "Edit tasks"}
           >
-            <Pencil size={18} strokeWidth={1} />
-          </button>
+            <Pencil size={16} strokeWidth={1.5} />
+          </Button>
         )}
 
         {/* Settings */}
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={onOpenSettings}
-          className="p-2 transition-colors"
-          style={{ color: 'var(--text-dim)' }}
-          onMouseEnter={(e) => e.currentTarget.style.color = 'var(--text-secondary)'}
-          onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
           title={`Settings (${formatShortcut(SHORTCUTS.settings)})`}
         >
-          <Settings size={18} strokeWidth={1} />
-        </button>
+          <Settings size={16} strokeWidth={1.5} />
+        </Button>
       </div>
     </aside>
   );

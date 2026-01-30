@@ -1,510 +1,430 @@
-import { useMemo, useState, useEffect } from "react";
-import { detectLanguage, highlightLine } from "../lib/syntaxHighlight";
-import { useReview } from "../contexts/ReviewContext";
-import { CommentInput, CommentBubble } from "./CommentInput";
+import { useMemo, useState, useCallback, useEffect } from "react";
+import { parseDiff, Diff, Hunk, tokenize, HunkData } from "react-diff-view";
+import { refractor } from "refractor";
+import { AlignJustify, Columns2, ChevronUp, ChevronDown, MessageSquare } from "lucide-react";
+import "react-diff-view/style/index.css";
 import "../styles/syntax-highlight.css";
+import { CommentInput, type ReviewComment } from "./ReviewComment";
 
-interface DiffViewerProps {
-  diff: string;
-  fileName?: string;
-  onLoadMoreContext?: () => void;
-  loadingContext?: boolean;
-  enableComments?: boolean;
+// File extension to language mapping (refractor common bundle languages)
+const extensionToLanguage: Record<string, string> = {
+  ".js": "javascript",
+  ".jsx": "javascript",
+  ".ts": "typescript",
+  ".tsx": "typescript",
+  ".mjs": "javascript",
+  ".cjs": "javascript",
+  ".html": "markup",
+  ".htm": "markup",
+  ".css": "css",
+  ".scss": "scss",
+  ".sass": "sass",
+  ".less": "less",
+  ".json": "json",
+  ".yaml": "yaml",
+  ".yml": "yaml",
+  ".xml": "markup",
+  ".svg": "markup",
+  ".rs": "rust",
+  ".go": "go",
+  ".c": "c",
+  ".h": "c",
+  ".cpp": "cpp",
+  ".cc": "cpp",
+  ".cxx": "cpp",
+  ".hpp": "cpp",
+  ".hxx": "cpp",
+  ".java": "java",
+  ".kt": "kotlin",
+  ".kts": "kotlin",
+  ".scala": "java", // fallback to java
+  ".cs": "csharp",
+  ".py": "python",
+  ".rb": "ruby",
+  ".php": "php",
+  ".sh": "shell",
+  ".bash": "shell",
+  ".zsh": "shell",
+  ".swift": "swift",
+  ".md": "markdown",
+  ".markdown": "markdown",
+  ".sql": "sql",
+  ".toml": "ini", // fallback to ini
+  ".ini": "ini",
+  ".conf": "shell",
+  ".env": "shell",
+};
+
+function detectLanguage(filePath: string): string | undefined {
+  if (!filePath) return undefined;
+  const ext = filePath.slice(filePath.lastIndexOf(".")).toLowerCase();
+  const lang = extensionToLanguage[ext];
+
+  if (!lang) {
+    console.log("[DiffViewer] No language mapping for ext:", ext);
+    return undefined;
+  }
+
+  // Check if language is registered in refractor
+  try {
+    const isRegistered = refractor.registered(lang);
+    console.log("[DiffViewer] Language", lang, "registered:", isRegistered);
+    if (isRegistered) {
+      return lang;
+    }
+  } catch (e) {
+    console.log("[DiffViewer] Error checking language registration:", e);
+  }
+  return undefined;
 }
 
-interface DiffLine {
-  type: "header" | "addition" | "deletion" | "context" | "hunk";
-  content: string;
-  oldLineNum?: number;
-  newLineNum?: number;
+// Type for change object from react-diff-view
+interface ChangeInfo {
+  key?: string;
+  newLineNumber?: number;
+  oldLineNumber?: number;
+  lineNumber?: number;
 }
 
-interface DiffHunk {
-  header: DiffLine;
-  lines: DiffLine[];
-  additions: number;
-  deletions: number;
+// Helper to get line number from any change type
+function getLineNumber(change: unknown): number | undefined {
+  const c = change as ChangeInfo;
+  return c.newLineNumber || c.oldLineNumber || c.lineNumber;
 }
 
-interface ParsedDiff {
-  headers: DiffLine[];
-  hunks: DiffHunk[];
+// Helper to get the unique key from a change
+function getChangeKey(change: unknown): string | undefined {
+  const c = change as ChangeInfo;
+  return c.key;
 }
 
-function parseDiff(diff: string): ParsedDiff {
-  const lines = diff.split("\n");
-  const headers: DiffLine[] = [];
-  const hunks: DiffHunk[] = [];
-  let currentHunk: DiffHunk | null = null;
-  let oldLine = 0;
-  let newLine = 0;
+// Build widgets for comments and comment input
+function buildWidgets(
+  hunks: HunkData[],
+  activeChangeKey: string | null | undefined,
+  _comments: ReviewComment[], // Used via getCommentsForLine callback
+  fileName: string,
+  onSubmit: (content: string, sendImmediately: boolean) => void,
+  onCancel: () => void,
+  getCommentsForLine: (lineNumber: number) => ReviewComment[]
+): Record<string, React.ReactElement> {
+  const widgets: Record<string, React.ReactElement> = {};
 
-  for (const line of lines) {
-    if (line.startsWith("diff --git") || line.startsWith("index ") ||
-        line.startsWith("---") || line.startsWith("+++") ||
-        line.startsWith("new file") || line.startsWith("deleted file")) {
-      headers.push({ type: "header", content: line });
-    } else if (line.startsWith("@@")) {
-      // Save previous hunk
-      if (currentHunk) {
-        hunks.push(currentHunk);
-      }
+  // Collect all changes from hunks
+  for (const hunk of hunks) {
+    for (const change of hunk.changes) {
+      const changeKey = getChangeKey(change);
+      const lineNum = getLineNumber(change);
+      if (!changeKey || !lineNum) continue;
 
-      const match = line.match(/@@ -(\d+),?\d* \+(\d+),?\d* @@/);
-      if (match) {
-        oldLine = parseInt(match[1], 10);
-        newLine = parseInt(match[2], 10);
-      }
+      const lineComments = getCommentsForLine(lineNum);
+      const isActiveComment = activeChangeKey === changeKey;
 
-      currentHunk = {
-        header: { type: "hunk", content: line },
-        lines: [],
-        additions: 0,
-        deletions: 0,
-      };
-    } else if (currentHunk) {
-      if (line.startsWith("+")) {
-        currentHunk.lines.push({
-          type: "addition",
-          content: line.slice(1),
-          newLineNum: newLine++
-        });
-        currentHunk.additions++;
-      } else if (line.startsWith("-")) {
-        currentHunk.lines.push({
-          type: "deletion",
-          content: line.slice(1),
-          oldLineNum: oldLine++
-        });
-        currentHunk.deletions++;
-      } else if (line.startsWith(" ") || line === "") {
-        currentHunk.lines.push({
-          type: "context",
-          content: line.slice(1) || "",
-          oldLineNum: oldLine++,
-          newLineNum: newLine++
-        });
+      if (lineComments.length > 0 || isActiveComment) {
+        widgets[changeKey] = (
+          <div className="diff-comment-widget px-2 py-1">
+            {/* Existing comments */}
+            {lineComments.map((comment) => (
+              <div
+                key={comment.id}
+                className="flex items-start gap-2 px-2 py-1 mb-1 text-xs"
+                style={{
+                  backgroundColor: "var(--bg-accent-subtle)",
+                  borderLeft: "2px solid var(--accent-cyan)",
+                  borderRadius: "var(--border-radius)",
+                }}
+              >
+                <MessageSquare size={12} strokeWidth={1.5} style={{ color: "var(--accent-cyan)", flexShrink: 0, marginTop: 2 }} />
+                <span style={{ color: "var(--text-secondary)" }}>{comment.content}</span>
+              </div>
+            ))}
+            {/* Comment input */}
+            {isActiveComment && (
+              <CommentInput
+                filePath={fileName}
+                lineNumber={lineNum}
+                onSubmit={onSubmit}
+                onCancel={onCancel}
+              />
+            )}
+          </div>
+        );
       }
     }
   }
 
-  // Don't forget the last hunk
-  if (currentHunk) {
-    hunks.push(currentHunk);
-  }
-
-  return { headers, hunks };
+  return widgets;
 }
 
-// Map diff line type to review line type
-function getLineType(type: DiffLine["type"]): "old" | "new" | "context" {
-  switch (type) {
-    case "deletion":
-      return "old";
-    case "addition":
-      return "new";
-    default:
-      return "context";
-  }
+interface DiffViewerProps {
+  diff: string;
+  fileName?: string;
+  onExpandContext?: () => void;
+  loadingContext?: boolean;
+  isFullScreen?: boolean;
+  // Comment support
+  comments?: ReviewComment[];
+  onAddComment?: (lineNumber: number, content: string, sendImmediately: boolean) => void;
+  activeCommentLine?: number | null;
+  onSetActiveCommentLine?: (lineNumber: number | null) => void;
 }
+
+type ViewType = "unified" | "split";
 
 export function DiffViewer({
   diff,
   fileName,
-  onLoadMoreContext,
+  onExpandContext,
   loadingContext,
-  enableComments = false,
+  isFullScreen = false,
+  comments = [],
+  onAddComment,
+  activeCommentLine,
+  onSetActiveCommentLine,
 }: DiffViewerProps) {
-  const parsedDiff = useMemo(() => parseDiff(diff), [diff]);
-  const language = useMemo(() => detectLanguage(fileName || ""), [fileName]);
-  const [collapsedHunks, setCollapsedHunks] = useState<Set<number>>(new Set());
-  const [hoveredLine, setHoveredLine] = useState<string | null>(null);
-  const [commentingLine, setCommentingLine] = useState<{
-    lineNumber: number;
-    lineType: "old" | "new" | "context";
-  } | null>(null);
-  const [editingCommentId, setEditingCommentId] = useState<string | null>(null);
-  const [compactMode, setCompactMode] = useState(false);
+  const [viewType, setViewType] = useState<ViewType>("unified");
+  // Track the change key internally for widget matching
+  const [activeChangeKey, setActiveChangeKey] = useState<string | null>(null);
 
-  const review = useReview();
+  // Handle gutter click for comments - needs both change key and line number
+  const handleGutterClick = useCallback((change: unknown) => {
+    console.log("[DiffViewer] Gutter clicked, change:", change);
+    if (!onSetActiveCommentLine) {
+      console.log("[DiffViewer] No onSetActiveCommentLine handler");
+      return;
+    }
 
-  // Detect small container width
+    const changeKey = getChangeKey(change);
+    const lineNum = getLineNumber(change);
+    console.log("[DiffViewer] changeKey:", changeKey, "lineNum:", lineNum);
+
+    if (!changeKey || !lineNum) {
+      console.log("[DiffViewer] Missing changeKey or lineNum");
+      return;
+    }
+
+    // Toggle: if clicking the same line, close; otherwise open
+    if (activeCommentLine === lineNum) {
+      console.log("[DiffViewer] Closing comment input");
+      onSetActiveCommentLine(null);
+      setActiveChangeKey(null);
+    } else {
+      console.log("[DiffViewer] Opening comment input for line", lineNum);
+      onSetActiveCommentLine(lineNum);
+      setActiveChangeKey(changeKey);
+    }
+  }, [activeCommentLine, onSetActiveCommentLine]);
+
+  // Handle comment submission
+  const handleCommentSubmit = useCallback((content: string, sendImmediately: boolean) => {
+    if (activeCommentLine && onAddComment) {
+      onAddComment(activeCommentLine, content, sendImmediately);
+      onSetActiveCommentLine?.(null);
+      setActiveChangeKey(null);
+    }
+  }, [activeCommentLine, onAddComment, onSetActiveCommentLine]);
+
+  // Get comments for a specific line
+  const getCommentsForLine = useCallback((lineNumber: number) => {
+    return comments.filter(c => c.lineNumber === lineNumber);
+  }, [comments]);
+
+  // Reset internal change key when external line is cleared (e.g., file switch)
   useEffect(() => {
-    const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        setCompactMode(entry.contentRect.width < 500);
+    if (activeCommentLine === null) {
+      setActiveChangeKey(null);
+    }
+  }, [activeCommentLine]);
+
+  // In compact mode, always use unified view
+  const effectiveViewType = isFullScreen ? viewType : "unified";
+
+  const { files, tokens } = useMemo(() => {
+    if (!diff || diff.trim() === "") {
+      return { files: [], tokens: undefined };
+    }
+
+    try {
+      const parsed = parseDiff(diff);
+      const language = detectLanguage(fileName || "");
+
+      console.log("[DiffViewer] fileName:", fileName, "detected language:", language);
+
+      // Tokenize for syntax highlighting
+      let tokenized = undefined;
+      if (language && parsed.length > 0 && parsed[0].hunks) {
+        const options = {
+          highlight: true,
+          refractor,
+          language,
+        };
+        try {
+          tokenized = tokenize(parsed[0].hunks, options);
+          console.log("[DiffViewer] tokenized successfully, keys:", tokenized ? Object.keys(tokenized).length : 0);
+        } catch (err) {
+          console.warn("[DiffViewer] Failed to tokenize:", err);
+        }
       }
-    });
-    const el = document.getElementById("diff-viewer-root");
-    if (el) observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
 
-  const toggleHunk = (index: number) => {
-    setCollapsedHunks(prev => {
-      const next = new Set(prev);
-      if (next.has(index)) {
-        next.delete(index);
-      } else {
-        next.add(index);
-      }
-      return next;
-    });
-  };
+      return { files: parsed, tokens: tokenized };
+    } catch (err) {
+      console.error("[DiffViewer] Failed to parse diff:", err);
+      return { files: [], tokens: undefined };
+    }
+  }, [diff, fileName]);
 
-  const handleAddComment = (lineNumber: number, lineType: "old" | "new" | "context") => {
-    setCommentingLine({ lineNumber, lineType });
-  };
-
-  const handleSubmitComment = (content: string) => {
-    if (!commentingLine || !fileName) return;
-    review.addComment({
-      filePath: fileName,
-      lineNumber: commentingLine.lineNumber,
-      lineType: commentingLine.lineType,
-      content,
-    });
-    setCommentingLine(null);
-  };
-
-  const handleCancelComment = () => {
-    setCommentingLine(null);
-    setEditingCommentId(null);
-  };
-
-  if (!diff || diff.trim() === "") {
+  if (!diff || diff.trim() === "" || files.length === 0) {
     return (
-      <div className="p-4 text-xs italic" style={{ color: 'var(--text-dim)' }}>
+      <div className="p-4 text-xs" style={{ color: "var(--text-dim)" }}>
         No changes
       </div>
     );
   }
 
   return (
-    <div id="diff-viewer-root" className="text-xs overflow-auto">
-      {fileName && (
+    <div className="diff-viewer">
+      {/* View toggle - only in full screen mode */}
+      {isFullScreen && (
         <div
-          className="px-4 py-2 font-medium sticky top-0 z-10"
+          className="flex items-center justify-end gap-1 px-2 py-1"
           style={{
-            backgroundColor: 'var(--bg-surface)',
-            borderBottom: '1px solid var(--border-default)',
-            color: 'var(--text-primary)',
+            borderBottom: "1px solid var(--border-default)",
+            backgroundColor: "var(--bg-surface)",
           }}
         >
-          {fileName}
+          <button
+            onClick={() => setViewType("unified")}
+            className="p-1.5 rounded transition-colors"
+            style={{
+              backgroundColor: viewType === "unified" ? "var(--bg-elevated)" : "transparent",
+              color: viewType === "unified" ? "var(--accent-cyan)" : "var(--text-dim)",
+            }}
+            title="Unified view"
+          >
+            <AlignJustify size={14} strokeWidth={1.5} />
+          </button>
+          <button
+            onClick={() => setViewType("split")}
+            className="p-1.5 rounded transition-colors"
+            style={{
+              backgroundColor: viewType === "split" ? "var(--bg-elevated)" : "transparent",
+              color: viewType === "split" ? "var(--accent-cyan)" : "var(--text-dim)",
+            }}
+            title="Split view"
+          >
+            <Columns2 size={14} strokeWidth={1.5} />
+          </button>
         </div>
       )}
-      <div className="overflow-x-auto">
-        {/* File headers */}
-        {parsedDiff.headers.map((line, index) => (
-          <div
-            key={`header-${index}`}
-            className="flex"
-            style={getLineStyle(line.type)}
-          >
-            <div
-              className={`flex-shrink-0 ${compactMode ? 'w-10' : 'w-20'} flex select-none`}
-              style={{
-                color: 'var(--text-dim)',
-                borderRight: '1px solid var(--border-default)',
-              }}
-            />
-            <span className="flex-shrink-0 w-5 text-center select-none" />
-            <pre className="flex-1 px-2 whitespace-pre overflow-x-auto">
-              {line.content}
-            </pre>
-          </div>
-        ))}
 
-        {/* Hunks */}
-        {parsedDiff.hunks.map((hunk, hunkIndex) => {
-          const isCollapsed = collapsedHunks.has(hunkIndex);
+      {/* Diff content with expand controls */}
+      {files.map((file, fileIndex) => {
+        const hunks = file.hunks as HunkData[];
 
-          return (
-            <div key={`hunk-${hunkIndex}`}>
-              {/* Hunk header - clickable to collapse/expand */}
-              <div
-                className="flex cursor-pointer select-none"
-                style={{
-                  ...getLineStyle("hunk"),
-                  borderTop: '1px solid var(--border-default)',
-                }}
-                onClick={() => toggleHunk(hunkIndex)}
-              >
-                <div
-                  className="flex-shrink-0 w-20 flex items-center justify-center"
-                  style={{
-                    color: 'var(--text-dim)',
-                    borderRight: '1px solid var(--border-default)',
+        // Debug: log whether comment support is enabled
+        console.log("[DiffViewer] Rendering file:", file.newPath, "onAddComment:", !!onAddComment, "at", new Date().toISOString());
+
+        // Custom gutter renderer that handles clicks for comments
+        const renderGutter = onAddComment
+          ? ({ change, renderDefault, wrapInAnchor }: { change: unknown; renderDefault: () => React.ReactNode; wrapInAnchor: (element: React.ReactNode) => React.ReactNode }) => {
+              return (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    console.log("[DiffViewer] Gutter span clicked, change:", change);
+                    handleGutterClick(change);
                   }}
+                  style={{ cursor: 'pointer', display: 'block', width: '100%', height: '100%' }}
                 >
-                  <span
-                    className="transition-transform duration-200"
-                    style={{
-                      transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
-                      color: 'var(--accent-cyan)',
-                    }}
-                  >
-                    ▼
-                  </span>
-                </div>
-                <span className="flex-shrink-0 w-5 text-center" />
-                <pre className="flex-1 px-2 whitespace-pre overflow-x-auto flex items-center gap-2">
-                  <span>{hunk.header.content}</span>
-                  {isCollapsed && (
-                    <span
-                      className="text-xs px-2 py-0.5 rounded"
-                      style={{
-                        backgroundColor: 'var(--bg-elevated)',
-                        color: 'var(--text-secondary)',
-                      }}
-                    >
-                      {hunk.lines.length} lines hidden
-                      {hunk.additions > 0 && (
-                        <span style={{ color: 'var(--accent-green)', marginLeft: '4px' }}>
-                          +{hunk.additions}
-                        </span>
-                      )}
-                      {hunk.deletions > 0 && (
-                        <span style={{ color: 'var(--accent-red)', marginLeft: '4px' }}>
-                          -{hunk.deletions}
-                        </span>
-                      )}
-                    </span>
-                  )}
-                </pre>
-              </div>
+                  {wrapInAnchor(renderDefault())}
+                </span>
+              );
+            }
+          : undefined;
 
-              {/* Hunk lines - with collapse animation */}
-              <div
-                className="overflow-hidden transition-all duration-200"
-                style={{
-                  maxHeight: isCollapsed ? 0 : 'none',
-                  opacity: isCollapsed ? 0 : 1,
-                }}
-              >
-                {hunk.lines.map((line, lineIndex) => {
-                  const shouldHighlight = line.type === "addition" || line.type === "deletion" || line.type === "context";
-                  const highlightedContent = shouldHighlight
-                    ? highlightLine(line.content, language)
-                    : line.content;
-                  const lineClass = line.type === "addition"
-                    ? "diff-line-addition"
-                    : line.type === "deletion"
-                      ? "diff-line-deletion"
-                      : "";
+        return (
+          <div key={`${file.oldPath}-${file.newPath}-${fileIndex}`}>
+            {/* Expand up control at top if first hunk doesn't start at line 1 */}
+            {onExpandContext && hunks.length > 0 && hunks[0].oldStart > 1 && (
+              <ExpandControl
+                direction="up"
+                onClick={onExpandContext}
+                disabled={loadingContext}
+              />
+            )}
 
-                  const lineNumber = line.type === "deletion"
-                    ? line.oldLineNum
-                    : line.newLineNum;
-                  const lineType = getLineType(line.type);
-                  const lineKey = `${hunkIndex}-${lineIndex}-${lineType}-${lineNumber}`;
-                  const isHovered = hoveredLine === lineKey;
-                  const isCommenting = commentingLine?.lineNumber === lineNumber &&
-                    commentingLine?.lineType === lineType;
-
-                  // Get comments for this line
-                  const lineComments = fileName && enableComments
-                    ? review.getCommentsForLine(fileName, lineNumber || 0, lineType)
-                    : [];
-
-                  return (
-                    <div key={`line-${lineIndex}`}>
-                      <div
-                        className={`flex ${lineClass} group relative`}
-                        style={getLineStyle(line.type)}
-                        onMouseEnter={() => enableComments && setHoveredLine(lineKey)}
-                        onMouseLeave={() => enableComments && setHoveredLine(null)}
-                      >
-                        <div
-                          className={`flex-shrink-0 ${compactMode ? 'w-10' : 'w-20'} flex select-none relative`}
-                          style={{
-                            color: 'var(--text-dim)',
-                            borderRight: '1px solid var(--border-default)',
-                          }}
-                        >
-                          {/* Add comment button */}
-                          {enableComments && isHovered && lineNumber && (
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleAddComment(lineNumber, lineType);
-                              }}
-                              className="absolute left-0 top-0 bottom-0 w-4 flex items-center justify-center transition-colors"
-                              style={{
-                                color: 'var(--accent-cyan)',
-                                backgroundColor: 'var(--bg-elevated)',
-                              }}
-                              title="Add comment"
-                            >
-                              +
-                            </button>
-                          )}
-                          {/* Comment indicator */}
-                          {lineComments.length > 0 && !isHovered && (
-                            <span
-                              className="absolute left-0 top-0 bottom-0 w-4 flex items-center justify-center"
-                              style={{ color: 'var(--accent-cyan)' }}
-                              title={`${lineComments.length} comment(s)`}
-                            >
-                              ●
-                            </span>
-                          )}
-                          {compactMode ? (
-                            <span className="w-10 text-right px-1">
-                              {line.type === "deletion" ? line.oldLineNum : line.newLineNum ?? ""}
-                            </span>
-                          ) : (
-                            <>
-                              <span className="w-10 text-right px-1">
-                                {line.oldLineNum ?? ""}
-                              </span>
-                              <span className="w-10 text-right px-1">
-                                {line.newLineNum ?? ""}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                        <span className="flex-shrink-0 w-5 text-center select-none">
-                          {getLinePrefix(line.type)}
-                        </span>
-                        {shouldHighlight ? (
-                          <pre
-                            className="flex-1 px-2 whitespace-pre overflow-x-auto"
-                            dangerouslySetInnerHTML={{ __html: highlightedContent }}
-                          />
-                        ) : (
-                          <pre className="flex-1 px-2 whitespace-pre overflow-x-auto">
-                            {line.content}
-                          </pre>
-                        )}
-                      </div>
-
-                      {/* Inline comments */}
-                      {lineComments.length > 0 && (
-                        <div
-                          className={`${compactMode ? 'ml-10' : 'ml-20'} mr-2`}
-                          style={{ backgroundColor: 'var(--bg-primary)' }}
-                        >
-                          {lineComments.map((comment) => (
-                            editingCommentId === comment.id ? (
-                              <div key={comment.id} className="py-1">
-                                <CommentInput
-                                  onSubmit={(content) => {
-                                    review.updateComment(comment.id, content);
-                                    setEditingCommentId(null);
-                                  }}
-                                  onCancel={() => setEditingCommentId(null)}
-                                  initialValue={comment.content}
-                                  lineNumber={comment.lineNumber}
-                                  lineType={comment.lineType}
-                                />
-                              </div>
-                            ) : (
-                              <CommentBubble
-                                key={comment.id}
-                                content={comment.content}
-                                onEdit={() => setEditingCommentId(comment.id)}
-                                onDelete={() => review.removeComment(comment.id)}
-                              />
-                            )
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Comment input */}
-                      {isCommenting && (
-                        <div className={`${compactMode ? 'ml-10' : 'ml-20'} mr-2 py-1`}>
-                          <CommentInput
-                            onSubmit={handleSubmitComment}
-                            onCancel={handleCancelComment}
-                            lineNumber={lineNumber || 0}
-                            lineType={lineType}
-                          />
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-
-        {/* Show more context button */}
-        {onLoadMoreContext && parsedDiff.hunks.length > 0 && (
-          <div
-            className="flex justify-center py-2"
-            style={{
-              borderTop: '1px solid var(--border-default)',
-              backgroundColor: 'var(--bg-surface)',
-            }}
-          >
-            <button
-              onClick={onLoadMoreContext}
-              disabled={loadingContext}
-              className="text-xs px-3 py-1 rounded transition-colors"
-              style={{
-                color: loadingContext ? 'var(--text-dim)' : 'var(--accent-cyan)',
-                border: `1px solid ${loadingContext ? 'var(--border-default)' : 'var(--accent-cyan)'}`,
-                cursor: loadingContext ? 'not-allowed' : 'pointer',
-              }}
-              onMouseEnter={(e) => {
-                if (!loadingContext) {
-                  e.currentTarget.style.backgroundColor = 'var(--accent-cyan)';
-                  e.currentTarget.style.color = 'var(--bg-primary)';
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = 'transparent';
-                e.currentTarget.style.color = loadingContext ? 'var(--text-dim)' : 'var(--accent-cyan)';
-              }}
+            <Diff
+              viewType={effectiveViewType}
+              diffType={file.type}
+              hunks={hunks}
+              tokens={tokens}
+              renderGutter={renderGutter}
+              widgets={onAddComment ? buildWidgets(hunks, activeChangeKey, comments, fileName || '', handleCommentSubmit, () => { onSetActiveCommentLine?.(null); setActiveChangeKey(null); }, getCommentsForLine) : undefined}
+              className={onAddComment ? "diff-with-comments" : undefined}
             >
-              {loadingContext ? 'Loading...' : '↕ Show more context'}
-            </button>
+              {(diffHunks: HunkData[]) =>
+                diffHunks.map((hunk) => (
+                  <Hunk key={hunk.content} hunk={hunk} />
+                ))
+              }
+            </Diff>
+
+            {/* Expand down control at bottom */}
+            {onExpandContext && hunks.length > 0 && (
+              <ExpandControl
+                direction="down"
+                onClick={onExpandContext}
+                disabled={loadingContext}
+              />
+            )}
           </div>
-        )}
-      </div>
+        );
+      })}
     </div>
   );
 }
 
-function getLineStyle(type: DiffLine["type"]): React.CSSProperties {
-  switch (type) {
-    case "addition":
-      return {
-        backgroundColor: 'rgba(0, 255, 0, 0.1)',
-        color: 'var(--accent-green)',
-      };
-    case "deletion":
-      return {
-        backgroundColor: 'rgba(255, 68, 68, 0.1)',
-        color: 'var(--accent-red)',
-      };
-    case "hunk":
-      return {
-        backgroundColor: 'rgba(0, 255, 255, 0.05)',
-        color: 'var(--accent-cyan)',
-      };
-    case "header":
-      return {
-        backgroundColor: 'var(--bg-surface)',
-        color: 'var(--text-dim)',
-      };
-    default:
-      return {
-        color: 'var(--text-secondary)',
-      };
-  }
-}
-
-function getLinePrefix(type: DiffLine["type"]): string {
-  switch (type) {
-    case "addition":
-      return "+";
-    case "deletion":
-      return "-";
-    default:
-      return "";
-  }
+// Expand control component for showing context
+function ExpandControl({
+  direction,
+  onClick,
+  disabled,
+}: {
+  direction: "up" | "down";
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      className="flex items-center justify-center py-1 cursor-pointer transition-colors group"
+      style={{
+        backgroundColor: "var(--bg-surface)",
+        borderTop: "1px solid var(--border-default)",
+        borderBottom: "1px solid var(--border-default)",
+      }}
+      onClick={disabled ? undefined : onClick}
+    >
+      <div
+        className="flex items-center gap-1 px-2 py-0.5 rounded text-xs transition-colors"
+        style={{
+          color: disabled ? "var(--text-dim)" : "var(--text-secondary)",
+          cursor: disabled ? "not-allowed" : "pointer",
+        }}
+      >
+        {direction === "up" ? (
+          <ChevronUp size={14} strokeWidth={1.5} />
+        ) : (
+          <ChevronDown size={14} strokeWidth={1.5} />
+        )}
+        <span className="group-hover:text-[var(--accent-cyan)]">
+          {disabled ? "Loading..." : "Expand"}
+        </span>
+        {direction === "down" ? (
+          <ChevronDown size={14} strokeWidth={1.5} />
+        ) : (
+          <ChevronUp size={14} strokeWidth={1.5} />
+        )}
+      </div>
+    </div>
+  );
 }

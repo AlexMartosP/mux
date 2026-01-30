@@ -542,6 +542,15 @@ impl Database {
         Ok(())
     }
 
+    pub fn update_task_branch(&self, id: &str, branch: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET branch = ? WHERE id = ?",
+            params![branch, id],
+        )?;
+        Ok(())
+    }
+
     pub fn update_task_description(&self, id: &str, description: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(

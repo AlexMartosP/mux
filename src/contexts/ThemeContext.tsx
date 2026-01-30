@@ -62,10 +62,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
 
     if (theme.id === "terminal") {
-      // Terminal theme: no border radius, no shadows
-      styleElement.textContent = `
-        *, *::before, *::after { border-radius: 0 !important; }
-      `;
+      // Terminal theme: minimal styling, let inline styles control border-radius
+      styleElement.textContent = ``;
     } else {
       // Clean themes: rounded corners, shadows, softer appearance
       styleElement.textContent = `
@@ -120,7 +118,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           border-radius: 4px;
         }
         ::-webkit-scrollbar-thumb:hover {
-          background: var(--border-bright);
+          background: var(--border-active);
         }
       `;
     }

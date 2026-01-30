@@ -1,0 +1,1131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MUX Design System</title>
+  <!-- Fonts - Geist Mono -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/geist@1.2.0/dist/fonts/geist-mono/style.min.css">
+  <style>
+    :root {
+      /* Backgrounds */
+      --bg-primary: #0a0a0a;
+      --bg-surface: #141414;
+      --bg-elevated: #1a1a1a;
+      --bg-hover: #1f1f1f;
+
+      /* Text */
+      --text-primary: #e5e5e5;
+      --text-secondary: #a3a3a3;
+      --text-dim: #525252;
+
+      /* Borders */
+      --border-default: #262626;
+      --border-active: #404040;
+      --border-bright: #525252;
+
+      /* Accent Colors */
+      --accent-cyan: #06b6d4;
+      --accent-green: #4ade80;
+      --accent-yellow: #facc15;
+      --accent-red: #f87171;
+
+      /* Subtle Backgrounds */
+      --bg-accent-subtle: rgba(6, 182, 212, 0.08);
+      --bg-success-subtle: rgba(74, 222, 128, 0.08);
+      --bg-warning-subtle: rgba(250, 204, 21, 0.08);
+      --bg-error-subtle: rgba(248, 113, 113, 0.08);
+      --bg-overlay: rgba(0, 0, 0, 0.8);
+
+      /* Typography */
+      --font-family: 'Geist Mono', monospace;
+      --border-radius: 4px;
+
+      /* Spacing */
+      --space-1: 4px;
+      --space-2: 8px;
+      --space-3: 12px;
+      --space-4: 16px;
+      --space-5: 20px;
+      --space-6: 24px;
+      --space-8: 32px;
+      --space-10: 40px;
+      --space-12: 48px;
+
+      /* Transitions */
+      --duration-fast: 100ms;
+      --duration-normal: 150ms;
+      --duration-slow: 300ms;
+      --easing-default: ease;
+      --easing-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+      /* Z-index */
+      --z-base: 0;
+      --z-dropdown: 100;
+      --z-sticky: 200;
+      --z-modal: 300;
+      --z-toast: 400;
+
+      /* Focus */
+      --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-cyan);
+
+      /* Disabled */
+      --opacity-disabled: 0.4;
+
+      /* Line Height */
+      --leading-tight: 1.25;
+      --leading-normal: 1.5;
+      --leading-relaxed: 1.75;
+
+      /* Icon Sizes */
+      --icon-sm: 14px;
+      --icon-md: 16px;
+      --icon-lg: 20px;
+      --icon-xl: 24px;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: var(--font-family);
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      padding: 40px;
+      line-height: 1.6;
+    }
+
+    h1 {
+      font-size: 24px;
+      font-weight: 500;
+      margin-bottom: 8px;
+      color: var(--accent-cyan);
+    }
+
+    h2 {
+      font-size: 14px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-dim);
+      margin: 40px 0 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    h3 {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin: 24px 0 12px;
+    }
+
+    .subtitle {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-bottom: 40px;
+    }
+
+    /* Color Swatches */
+    .color-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .color-swatch {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--border-radius);
+      overflow: hidden;
+    }
+
+    .color-preview {
+      height: 60px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      color: var(--bg-primary);
+      font-weight: 500;
+    }
+
+    .color-info {
+      padding: 12px;
+      border-top: 1px solid var(--border-default);
+    }
+
+    .color-name {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .color-value {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    .color-usage {
+      font-size: 10px;
+      color: var(--text-secondary);
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border-default);
+    }
+
+    /* Background Levels */
+    .bg-levels {
+      display: flex;
+      gap: 2px;
+      height: 120px;
+      border-radius: var(--border-radius);
+      overflow: hidden;
+    }
+
+    .bg-level {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .bg-level span {
+      font-size: 11px;
+    }
+
+    .bg-level .label {
+      color: var(--text-secondary);
+    }
+
+    .bg-level .value {
+      color: var(--text-dim);
+    }
+
+    /* Typography */
+    .type-scale {
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .type-sample {
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+    }
+
+    .type-label {
+      font-size: 10px;
+      color: var(--text-dim);
+      width: 80px;
+      flex-shrink: 0;
+    }
+
+    /* Buttons */
+    .button-row {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: var(--font-family);
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      transition: all 150ms ease;
+    }
+
+    .btn-primary {
+      background: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      color: var(--bg-primary);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      opacity: 0.9;
+    }
+
+    .btn-secondary {
+      background: transparent;
+      border: 1px solid var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--accent-cyan);
+      color: var(--bg-primary);
+    }
+
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-dim);
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+      background: var(--bg-hover);
+      color: var(--text-secondary);
+    }
+
+    .btn-icon {
+      padding: 8px;
+      background: transparent;
+      border: 1px solid var(--border-default);
+      color: var(--text-dim);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .btn-icon:hover:not(:disabled) {
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+
+    /* Semantic buttons */
+    .btn-danger {
+      background: transparent;
+      border: 1px solid var(--accent-red);
+      color: var(--accent-red);
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: var(--accent-red);
+      color: var(--bg-primary);
+    }
+
+    .btn-warning {
+      background: transparent;
+      border: 1px solid var(--accent-yellow);
+      color: var(--accent-yellow);
+    }
+
+    .btn-warning:hover:not(:disabled) {
+      background: var(--accent-yellow);
+      color: var(--bg-primary);
+    }
+
+    .btn-success {
+      background: transparent;
+      border: 1px solid var(--accent-green);
+      color: var(--accent-green);
+    }
+
+    .btn-success:hover:not(:disabled) {
+      background: var(--accent-green);
+      color: var(--bg-primary);
+    }
+
+    /* Toggle */
+    .toggle-btn {
+      padding: 6px 12px;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: var(--font-family);
+      border-radius: var(--border-radius);
+      cursor: pointer;
+      transition: all 150ms ease;
+    }
+
+    .toggle-btn.off {
+      background: transparent;
+      border: 1px solid transparent;
+      color: var(--text-dim);
+    }
+
+    .toggle-btn.off:hover:not(:disabled) {
+      background: var(--bg-hover);
+      color: var(--text-secondary);
+    }
+
+    .toggle-btn.on {
+      background: var(--accent-cyan);
+      border: 1px solid var(--accent-cyan);
+      color: var(--bg-primary);
+    }
+
+    /* States */
+    .state-cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+      gap: 12px;
+    }
+
+    .state-card {
+      padding: 16px;
+      border-radius: var(--border-radius);
+    }
+
+    .state-card.running {
+      background: var(--bg-success-subtle);
+    }
+
+    .state-card.waiting {
+      background: var(--bg-warning-subtle);
+    }
+
+    .state-card.error {
+      background: var(--bg-error-subtle);
+    }
+
+    .state-card.selected {
+      background: var(--bg-accent-subtle);
+    }
+
+    .state-label {
+      font-size: 11px;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .state-card.running .state-label { color: var(--accent-green); }
+    .state-card.waiting .state-label { color: var(--accent-yellow); }
+    .state-card.error .state-label { color: var(--accent-red); }
+    .state-card.selected .state-label { color: var(--accent-cyan); }
+
+    .state-desc {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 8px;
+    }
+
+    /* Inputs */
+    .input-demo {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      max-width: 400px;
+    }
+
+    .input {
+      padding: 8px 12px;
+      font-size: 12px;
+      font-family: var(--font-family);
+      background: var(--bg-primary);
+      border: 1px solid var(--border-default);
+      border-radius: var(--border-radius);
+      color: var(--text-primary);
+      outline: none;
+      transition: border-color 150ms ease;
+    }
+
+    .input:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    .input::placeholder {
+      color: var(--text-dim);
+    }
+
+    /* Cards */
+    .card-demo {
+      display: flex;
+      gap: 16px;
+    }
+
+    .card {
+      padding: 16px;
+      border-radius: var(--border-radius);
+      border: 1px solid var(--border-default);
+    }
+
+    .card.surface {
+      background: var(--bg-surface);
+    }
+
+    .card.elevated {
+      background: var(--bg-elevated);
+    }
+
+    .card-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-primary);
+    }
+
+    .card-desc {
+      font-size: 11px;
+      color: var(--text-dim);
+      margin-top: 8px;
+    }
+
+    /* Principles */
+    .principles {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
+    }
+
+    .principle {
+      padding: 20px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-default);
+      border-radius: var(--border-radius);
+    }
+
+    .principle-title {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--accent-cyan);
+      margin-bottom: 8px;
+    }
+
+    .principle-desc {
+      font-size: 11px;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
+    /* Usage table */
+    .usage-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 11px;
+    }
+
+    .usage-table th {
+      text-align: left;
+      padding: 12px;
+      background: var(--bg-surface);
+      color: var(--text-dim);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-bottom: 1px solid var(--border-default);
+    }
+
+    .usage-table td {
+      padding: 12px;
+      border-bottom: 1px solid var(--border-default);
+      color: var(--text-secondary);
+    }
+
+    .usage-table .color-dot {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 8px;
+      vertical-align: middle;
+    }
+
+    .section {
+      margin-bottom: 60px;
+    }
+  </style>
+</head>
+<body>
+  <h1>MUX Design System</h1>
+  <p class="subtitle">Terminal aesthetic meets clean minimalism</p>
+
+  <!-- Design Principles -->
+  <section class="section">
+    <h2>Design Principles</h2>
+    <div class="principles">
+      <div class="principle">
+        <div class="principle-title">Color = Meaning</div>
+        <div class="principle-desc">Colors communicate state, not decoration. Most UI elements are neutral. Color appears only when conveying status (error, success, warning) or primary interaction.</div>
+      </div>
+      <div class="principle">
+        <div class="principle-title">One Primary Accent</div>
+        <div class="principle-desc">Cyan is the primary brand color. It marks interactive elements, focus states, and selected items. Everything else stays neutral.</div>
+      </div>
+      <div class="principle">
+        <div class="principle-title">Terminal Aesthetic</div>
+        <div class="principle-desc">Monospace typography, dark backgrounds, and minimal color create a focused, developer-centric experience with that "hacker" feel.</div>
+      </div>
+      <div class="principle">
+        <div class="principle-title">Three Depth Levels</div>
+        <div class="principle-desc">Primary (base) → Surface (containers) → Elevated (overlays). Simple hierarchy that scales across themes.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Background Colors -->
+  <section class="section">
+    <h2>Backgrounds</h2>
+    <div class="bg-levels">
+      <div class="bg-level" style="background: var(--bg-primary);">
+        <span class="label">Primary</span>
+        <span class="value">#0a0a0a</span>
+      </div>
+      <div class="bg-level" style="background: var(--bg-surface);">
+        <span class="label">Surface</span>
+        <span class="value">#141414</span>
+      </div>
+      <div class="bg-level" style="background: var(--bg-elevated);">
+        <span class="label">Elevated</span>
+        <span class="value">#1a1a1a</span>
+      </div>
+      <div class="bg-level" style="background: var(--bg-hover);">
+        <span class="label">Hover</span>
+        <span class="value">#1f1f1f</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Accent Colors -->
+  <section class="section">
+    <h2>Accent Colors</h2>
+
+    <h3>Primary Accent</h3>
+    <div class="color-grid">
+      <div class="color-swatch">
+        <div class="color-preview" style="background: var(--accent-cyan);">Aa</div>
+        <div class="color-info">
+          <div class="color-name">Cyan</div>
+          <div class="color-value">#06b6d4</div>
+          <div class="color-usage">Interactive elements, focus, links, primary buttons, selected states</div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Semantic Colors (State-based only)</h3>
+    <div class="color-grid">
+      <div class="color-swatch">
+        <div class="color-preview" style="background: var(--accent-green);">Aa</div>
+        <div class="color-info">
+          <div class="color-name">Green</div>
+          <div class="color-value">#4ade80</div>
+          <div class="color-usage">Success, running, positive actions, added files</div>
+        </div>
+      </div>
+      <div class="color-swatch">
+        <div class="color-preview" style="background: var(--accent-yellow);">Aa</div>
+        <div class="color-info">
+          <div class="color-name">Yellow</div>
+          <div class="color-value">#facc15</div>
+          <div class="color-usage">Warning, waiting, needs attention, modified files</div>
+        </div>
+      </div>
+      <div class="color-swatch">
+        <div class="color-preview" style="background: var(--accent-red);">Aa</div>
+        <div class="color-info">
+          <div class="color-name">Red</div>
+          <div class="color-value">#f87171</div>
+          <div class="color-usage">Error, destructive actions, deleted files, stop</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Typography -->
+  <section class="section">
+    <h2>Typography</h2>
+
+    <h3>Font Family</h3>
+    <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px; padding: 16px; margin-bottom: 24px;">
+      <div style="font-size: 11px; color: var(--text-dim); margin-bottom: 8px;">--font-family</div>
+      <div style="font-size: 14px; color: var(--text-primary);">
+        'Geist Mono', monospace
+      </div>
+      <div style="font-size: 11px; color: var(--text-dim); margin-top: 12px;">
+        Geist Mono by Vercel. Clean, modern monospace with excellent readability.
+      </div>
+    </div>
+
+    <h3>Font Sizes</h3>
+    <div style="display: flex; flex-direction: column; gap: 16px; margin-bottom: 24px;">
+      <div style="display: flex; align-items: baseline; gap: 16px;">
+        <span style="font-size: 10px; color: var(--text-dim); width: 60px;">10px</span>
+        <span style="font-size: 10px; color: var(--text-secondary);">Labels, badges, helper text</span>
+      </div>
+      <div style="display: flex; align-items: baseline; gap: 16px;">
+        <span style="font-size: 10px; color: var(--text-dim); width: 60px;">11px</span>
+        <span style="font-size: 11px; color: var(--text-secondary);">Small text, descriptions, metadata</span>
+      </div>
+      <div style="display: flex; align-items: baseline; gap: 16px;">
+        <span style="font-size: 10px; color: var(--text-dim); width: 60px;">12px</span>
+        <span style="font-size: 12px; color: var(--text-secondary);">Body text, buttons, inputs (default)</span>
+      </div>
+      <div style="display: flex; align-items: baseline; gap: 16px;">
+        <span style="font-size: 10px; color: var(--text-dim); width: 60px;">13px</span>
+        <span style="font-size: 13px; color: var(--text-secondary);">Emphasized body text</span>
+      </div>
+      <div style="display: flex; align-items: baseline; gap: 16px;">
+        <span style="font-size: 10px; color: var(--text-dim); width: 60px;">14px</span>
+        <span style="font-size: 14px; color: var(--text-secondary);">Section headers, large text</span>
+      </div>
+      <div style="display: flex; align-items: baseline; gap: 16px;">
+        <span style="font-size: 10px; color: var(--text-dim); width: 60px;">24px</span>
+        <span style="font-size: 24px; color: var(--text-secondary);">Page titles</span>
+      </div>
+    </div>
+
+    <h3>Font Weights</h3>
+    <div style="display: flex; gap: 24px; margin-bottom: 24px;">
+      <div>
+        <span style="font-size: 14px; font-weight: 400; color: var(--text-primary);">Regular (400)</span>
+        <div style="font-size: 10px; color: var(--text-dim); margin-top: 4px;">Body text</div>
+      </div>
+      <div>
+        <span style="font-size: 14px; font-weight: 500; color: var(--text-primary);">Medium (500)</span>
+        <div style="font-size: 10px; color: var(--text-dim); margin-top: 4px;">Buttons, labels</div>
+      </div>
+      <div>
+        <span style="font-size: 14px; font-weight: 600; color: var(--text-primary);">Semibold (600)</span>
+        <div style="font-size: 10px; color: var(--text-dim); margin-top: 4px;">Headers</div>
+      </div>
+    </div>
+
+    <h3>Text Colors</h3>
+    <div class="type-scale">
+      <div class="type-sample">
+        <span class="type-label">Primary</span>
+        <span style="color: var(--text-primary); font-size: 14px;">The quick brown fox jumps over the lazy dog</span>
+      </div>
+      <div class="type-sample">
+        <span class="type-label">Secondary</span>
+        <span style="color: var(--text-secondary); font-size: 14px;">The quick brown fox jumps over the lazy dog</span>
+      </div>
+      <div class="type-sample">
+        <span class="type-label">Dim</span>
+        <span style="color: var(--text-dim); font-size: 14px;">The quick brown fox jumps over the lazy dog</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Buttons -->
+  <section class="section">
+    <h2>Buttons</h2>
+
+    <h3>Primary Actions</h3>
+    <div class="button-row">
+      <button class="btn btn-primary">Primary</button>
+      <button class="btn btn-secondary">Secondary</button>
+      <button class="btn btn-ghost">Ghost</button>
+      <button class="btn btn-icon">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+      </button>
+    </div>
+
+    <h3>Semantic Actions (Use Sparingly)</h3>
+    <div class="button-row">
+      <button class="btn btn-danger">STOP</button>
+      <button class="btn btn-danger">Archive</button>
+      <button class="btn btn-warning">Caution</button>
+      <button class="btn btn-success">Confirm</button>
+    </div>
+
+    <h3>Toggle Button</h3>
+    <div class="button-row">
+      <button class="toggle-btn off">Accept edits</button>
+      <button class="toggle-btn on">Accept edits</button>
+      <span style="font-size: 11px; color: var(--text-dim); margin-left: 8px;">← OFF / ON →</span>
+    </div>
+
+    <h3>Neutral Actions (Most buttons should be this)</h3>
+    <div class="button-row">
+      <button class="btn btn-ghost">TAKEOVER</button>
+      <button class="btn btn-ghost">HANDBACK</button>
+      <button class="btn btn-ghost">OPEN IN ▼</button>
+      <button class="btn btn-ghost">VIEW PR</button>
+    </div>
+  </section>
+
+  <!-- States -->
+  <section class="section">
+    <h2>State Indicators</h2>
+    <div class="state-cards">
+      <div class="state-card running">
+        <div class="state-label">Running</div>
+        <div class="state-desc">Task is actively executing</div>
+      </div>
+      <div class="state-card waiting">
+        <div class="state-label">Waiting</div>
+        <div class="state-desc">Needs user input or approval</div>
+      </div>
+      <div class="state-card error">
+        <div class="state-label">Error</div>
+        <div class="state-desc">Task failed or encountered issue</div>
+      </div>
+      <div class="state-card selected">
+        <div class="state-label">Selected</div>
+        <div class="state-desc">Currently active/focused item</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Inputs -->
+  <section class="section">
+    <h2>Inputs</h2>
+    <div class="input-demo">
+      <input type="text" class="input" placeholder="Search tasks...">
+      <input type="text" class="input" value="Some entered text">
+    </div>
+  </section>
+
+  <!-- Cards -->
+  <section class="section">
+    <h2>Cards & Containers</h2>
+    <div class="card-demo">
+      <div class="card surface" style="width: 200px;">
+        <div class="card-title">Surface Card</div>
+        <div class="card-desc">Used for grouping related content</div>
+      </div>
+      <div class="card elevated" style="width: 200px;">
+        <div class="card-title">Elevated Card</div>
+        <div class="card-desc">Used for dropdowns and overlays</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Color Usage Guide -->
+  <section class="section">
+    <h2>Color Usage Guide</h2>
+    <table class="usage-table">
+      <thead>
+        <tr>
+          <th>Element</th>
+          <th>Color</th>
+          <th>Rationale</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Primary button</td>
+          <td><span class="color-dot" style="background: var(--accent-cyan);"></span>Cyan</td>
+          <td>Primary action</td>
+        </tr>
+        <tr>
+          <td>Secondary button</td>
+          <td><span class="color-dot" style="background: var(--accent-cyan);"></span>Cyan (outline)</td>
+          <td>Important but not primary</td>
+        </tr>
+        <tr>
+          <td>Ghost button</td>
+          <td><span class="color-dot" style="background: var(--text-dim);"></span>Neutral</td>
+          <td>Most actions - no border, bg on hover</td>
+        </tr>
+        <tr>
+          <td>STOP button</td>
+          <td><span class="color-dot" style="background: var(--accent-red);"></span>Red</td>
+          <td>Destructive/stop action</td>
+        </tr>
+        <tr>
+          <td>Archive button</td>
+          <td><span class="color-dot" style="background: var(--accent-red);"></span>Red</td>
+          <td>Destructive action</td>
+        </tr>
+        <tr>
+          <td>TAKEOVER / HANDBACK</td>
+          <td><span class="color-dot" style="background: var(--text-dim);"></span>Ghost</td>
+          <td>Regular action, not special</td>
+        </tr>
+        <tr>
+          <td>OPEN IN / VIEW PR</td>
+          <td><span class="color-dot" style="background: var(--text-dim);"></span>Ghost</td>
+          <td>Navigation, secondary</td>
+        </tr>
+        <tr>
+          <td>Accept edits (on)</td>
+          <td><span class="color-dot" style="background: var(--accent-cyan);"></span>Cyan</td>
+          <td>Active toggle state</td>
+        </tr>
+        <tr>
+          <td>Running status</td>
+          <td><span class="color-dot" style="background: var(--accent-green);"></span>Green</td>
+          <td>Semantic state</td>
+        </tr>
+        <tr>
+          <td>Waiting status</td>
+          <td><span class="color-dot" style="background: var(--accent-yellow);"></span>Yellow</td>
+          <td>Semantic state</td>
+        </tr>
+        <tr>
+          <td>Error status</td>
+          <td><span class="color-dot" style="background: var(--accent-red);"></span>Red</td>
+          <td>Semantic state</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- Spacing -->
+  <section class="section">
+    <h2>Spacing</h2>
+    <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;">
+      Base unit: 4px. Use consistent spacing multiples for visual rhythm.
+    </p>
+
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 80px;">--space-1</span>
+        <div style="width: 4px; height: 20px; background: var(--accent-cyan);"></div>
+        <span style="font-size: 11px; color: var(--text-secondary);">4px — Tight: icon padding, inline gaps</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 80px;">--space-2</span>
+        <div style="width: 8px; height: 20px; background: var(--accent-cyan);"></div>
+        <span style="font-size: 11px; color: var(--text-secondary);">8px — Compact: button padding, small gaps</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 80px;">--space-3</span>
+        <div style="width: 12px; height: 20px; background: var(--accent-cyan);"></div>
+        <span style="font-size: 11px; color: var(--text-secondary);">12px — Default: input padding, list item gaps</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 80px;">--space-4</span>
+        <div style="width: 16px; height: 20px; background: var(--accent-cyan);"></div>
+        <span style="font-size: 11px; color: var(--text-secondary);">16px — Medium: card padding, section gaps</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 80px;">--space-5</span>
+        <div style="width: 20px; height: 20px; background: var(--accent-cyan);"></div>
+        <span style="font-size: 11px; color: var(--text-secondary);">20px — Comfortable: panel padding</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 80px;">--space-6</span>
+        <div style="width: 24px; height: 20px; background: var(--accent-cyan);"></div>
+        <span style="font-size: 11px; color: var(--text-secondary);">24px — Spacious: header padding, large gaps</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 80px;">--space-8</span>
+        <div style="width: 32px; height: 20px; background: var(--accent-cyan);"></div>
+        <span style="font-size: 11px; color: var(--text-secondary);">32px — Large: major section separation</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 80px;">--space-10</span>
+        <div style="width: 40px; height: 20px; background: var(--accent-cyan);"></div>
+        <span style="font-size: 11px; color: var(--text-secondary);">40px — Page margins</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 80px;">--space-12</span>
+        <div style="width: 48px; height: 20px; background: var(--accent-cyan);"></div>
+        <span style="font-size: 11px; color: var(--text-secondary);">48px — Extra large: major layout gaps</span>
+      </div>
+    </div>
+
+    <h3>Usage Examples</h3>
+    <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 16px; margin-top: 12px;">
+      <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px; padding: var(--space-2);">
+        <span style="font-size: 10px; color: var(--text-dim);">padding: space-2 (8px)</span>
+        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Compact card</div>
+      </div>
+      <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px; padding: var(--space-4);">
+        <span style="font-size: 10px; color: var(--text-dim);">padding: space-4 (16px)</span>
+        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Default card</div>
+      </div>
+      <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px; padding: var(--space-6);">
+        <span style="font-size: 10px; color: var(--text-dim);">padding: space-6 (24px)</span>
+        <div style="font-size: 11px; color: var(--text-secondary); margin-top: 4px;">Spacious card</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Border Radius -->
+  <section class="section">
+    <h2>Border Radius</h2>
+    <div class="button-row" style="gap: 24px;">
+      <div style="text-align: center;">
+        <div style="width: 60px; height: 60px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px;"></div>
+        <span style="font-size: 10px; color: var(--text-dim); margin-top: 8px; display: block;">4px (default)</span>
+      </div>
+      <div style="text-align: center;">
+        <div style="width: 60px; height: 60px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 8px;"></div>
+        <span style="font-size: 10px; color: var(--text-dim); margin-top: 8px; display: block;">8px (large)</span>
+      </div>
+      <div style="text-align: center;">
+        <div style="width: 60px; height: 60px; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 50%;"></div>
+        <span style="font-size: 10px; color: var(--text-dim); margin-top: 8px; display: block;">50% (pill/circle)</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Icons -->
+  <section class="section">
+    <h2>Icons</h2>
+    <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;">
+      Using Lucide icons. Consistent stroke width of 1.5 across all sizes.
+    </p>
+
+    <h3>Sizes</h3>
+    <div style="display: flex; align-items: end; gap: 24px; margin-bottom: 24px;">
+      <div style="text-align: center;">
+        <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--text-secondary);">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </div>
+        <span style="font-size: 10px; color: var(--text-dim); margin-top: 8px; display: block;">14px (sm)</span>
+      </div>
+      <div style="text-align: center;">
+        <div style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--text-secondary);">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </div>
+        <span style="font-size: 10px; color: var(--text-dim); margin-top: 8px; display: block;">16px (md)</span>
+      </div>
+      <div style="text-align: center;">
+        <div style="width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--text-secondary);">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </div>
+        <span style="font-size: 10px; color: var(--text-dim); margin-top: 8px; display: block;">20px (lg)</span>
+      </div>
+      <div style="text-align: center;">
+        <div style="width: 48px; height: 48px; display: flex; align-items: center; justify-content: center; background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px;">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="color: var(--text-secondary);">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </div>
+        <span style="font-size: 10px; color: var(--text-dim); margin-top: 8px; display: block;">24px (xl)</span>
+      </div>
+    </div>
+
+    <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px; padding: 16px;">
+      <div style="font-size: 11px; color: var(--text-dim); margin-bottom: 8px;">Stroke Width</div>
+      <code style="font-size: 11px; color: var(--accent-cyan);">strokeWidth={1.5}</code>
+      <div style="font-size: 11px; color: var(--text-dim); margin-top: 8px;">
+        Consistent across all icon sizes for visual harmony.
+      </div>
+    </div>
+  </section>
+
+  <!-- Transitions -->
+  <section class="section">
+    <h2>Transitions</h2>
+    <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;">
+      Consistent timing for smooth interactions.
+    </p>
+
+    <div style="display: flex; flex-direction: column; gap: 16px;">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 120px;">--duration-fast</span>
+        <span style="font-size: 11px; color: var(--text-secondary); width: 60px;">100ms</span>
+        <span style="font-size: 11px; color: var(--text-dim);">Micro-interactions: hover, focus</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 120px;">--duration-normal</span>
+        <span style="font-size: 11px; color: var(--text-secondary); width: 60px;">150ms</span>
+        <span style="font-size: 11px; color: var(--text-dim);">Default: buttons, toggles</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 120px;">--duration-slow</span>
+        <span style="font-size: 11px; color: var(--text-secondary); width: 60px;">300ms</span>
+        <span style="font-size: 11px; color: var(--text-dim);">Larger animations: modals, panels</span>
+      </div>
+    </div>
+
+    <h3>Easing</h3>
+    <div style="display: flex; flex-direction: column; gap: 12px; margin-top: 12px;">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 120px;">--easing-default</span>
+        <code style="font-size: 11px; color: var(--accent-cyan); background: var(--bg-surface); padding: 2px 6px; border-radius: 2px;">ease</code>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 120px;">--easing-in-out</span>
+        <code style="font-size: 11px; color: var(--accent-cyan); background: var(--bg-surface); padding: 2px 6px; border-radius: 2px;">cubic-bezier(0.4, 0, 0.2, 1)</code>
+      </div>
+    </div>
+
+    <h3>Interactive Demo</h3>
+    <div style="display: flex; gap: 16px; margin-top: 12px;">
+      <button class="btn btn-secondary" style="transition: all var(--duration-fast) var(--easing-default);">Fast (100ms)</button>
+      <button class="btn btn-secondary" style="transition: all var(--duration-normal) var(--easing-default);">Normal (150ms)</button>
+      <button class="btn btn-secondary" style="transition: all var(--duration-slow) var(--easing-default);">Slow (300ms)</button>
+    </div>
+  </section>
+
+  <!-- Z-Index -->
+  <section class="section">
+    <h2>Z-Index Scale</h2>
+    <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;">
+      Layering hierarchy for overlapping elements.
+    </p>
+
+    <div style="display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 100px;">--z-base</span>
+        <span style="font-size: 11px; color: var(--accent-cyan); width: 40px;">0</span>
+        <span style="font-size: 11px; color: var(--text-secondary);">Default content</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 100px;">--z-dropdown</span>
+        <span style="font-size: 11px; color: var(--accent-cyan); width: 40px;">100</span>
+        <span style="font-size: 11px; color: var(--text-secondary);">Dropdowns, menus, popovers</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 100px;">--z-sticky</span>
+        <span style="font-size: 11px; color: var(--accent-cyan); width: 40px;">200</span>
+        <span style="font-size: 11px; color: var(--text-secondary);">Sticky headers, floating elements</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 100px;">--z-modal</span>
+        <span style="font-size: 11px; color: var(--accent-cyan); width: 40px;">300</span>
+        <span style="font-size: 11px; color: var(--text-secondary);">Modals, dialogs</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 16px;">
+        <span style="font-size: 11px; color: var(--text-dim); width: 100px;">--z-toast</span>
+        <span style="font-size: 11px; color: var(--accent-cyan); width: 40px;">400</span>
+        <span style="font-size: 11px; color: var(--text-secondary);">Toasts, notifications (always on top)</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Focus States -->
+  <section class="section">
+    <h2>Focus States</h2>
+    <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;">
+      Accessible focus indicators for keyboard navigation.
+    </p>
+
+    <h3>Focus Ring</h3>
+    <div style="display: flex; gap: 24px; align-items: center; margin-bottom: 24px;">
+      <button class="btn btn-secondary" style="box-shadow: var(--focus-ring);">Focused Button</button>
+      <input type="text" class="input" value="Focused Input" style="box-shadow: var(--focus-ring); border-color: var(--accent-cyan); width: 200px;">
+    </div>
+
+    <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px; padding: 16px;">
+      <div style="font-size: 11px; color: var(--text-dim); margin-bottom: 8px;">--focus-ring</div>
+      <code style="font-size: 11px; color: var(--accent-cyan);">0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-cyan)</code>
+      <div style="font-size: 11px; color: var(--text-dim); margin-top: 8px;">
+        Double ring: inner matches background, outer is accent color.
+      </div>
+    </div>
+  </section>
+
+  <!-- Disabled States -->
+  <section class="section">
+    <h2>Disabled States</h2>
+    <p style="font-size: 11px; color: var(--text-secondary); margin-bottom: 16px;">
+      Visual treatment for non-interactive elements.
+    </p>
+
+    <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 24px;">
+      <button class="btn btn-primary" disabled style="opacity: var(--opacity-disabled); cursor: not-allowed;">Disabled Primary</button>
+      <button class="btn btn-secondary" disabled style="opacity: var(--opacity-disabled); cursor: not-allowed;">Disabled Secondary</button>
+      <button class="btn btn-ghost" disabled style="opacity: var(--opacity-disabled); cursor: not-allowed;">Disabled Ghost</button>
+    </div>
+
+    <div style="display: flex; gap: 16px; align-items: center; margin-bottom: 24px;">
+      <input type="text" class="input" value="Disabled input" disabled style="opacity: var(--opacity-disabled); cursor: not-allowed; width: 200px;">
+    </div>
+
+    <div style="background: var(--bg-surface); border: 1px solid var(--border-default); border-radius: 4px; padding: 16px;">
+      <div style="font-size: 11px; color: var(--text-dim); margin-bottom: 8px;">--opacity-disabled</div>
+      <code style="font-size: 11px; color: var(--accent-cyan);">0.4</code>
+      <div style="font-size: 11px; color: var(--text-dim); margin-top: 8px;">
+        Apply to any element with <code style="color: var(--accent-cyan);">cursor: not-allowed</code>
+      </div>
+    </div>
+  </section>
+
+</body>
+</html>

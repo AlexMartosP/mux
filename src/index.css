@@ -6,37 +6,88 @@
   /* Layout */
   --sidebar-width: 280px;
 
-  /* Background colors */
+  /* Backgrounds */
   --bg-primary: #0a0a0a;
   --bg-surface: #141414;
   --bg-elevated: #1a1a1a;
+  --bg-hover: #1f1f1f;
 
-  /* Border colors */
-  --border-default: #2a2a2a;
-  --border-active: #3a3a3a;
-  --border-bright: #4a4a4a;
+  /* Borders */
+  --border-default: #262626;
+  --border-active: #404040;
 
-  /* Text colors */
-  --text-primary: #e8e8e8;
-  --text-secondary: #a8a8a8;
-  --text-dim: #8a8a8a;
+  /* Text */
+  --text-primary: #e5e5e5;
+  --text-secondary: #a3a3a3;
+  --text-dim: #525252;
 
-  /* Accent colors — accessible, color-blind friendly */
+  /* Accents */
+  --accent-cyan: #06b6d4;
   --accent-green: #4ade80;
   --accent-yellow: #facc15;
   --accent-red: #f87171;
-  --accent-cyan: #06b6d4;
-  --accent-magenta: #c084fc;
-  --accent-orange: #fb923c;
+
+  /* Subtle Backgrounds (State overlays) */
+  --bg-accent-subtle: rgba(6, 182, 212, 0.08);
+  --bg-success-subtle: rgba(74, 222, 128, 0.08);
+  --bg-warning-subtle: rgba(250, 204, 21, 0.08);
+  --bg-error-subtle: rgba(248, 113, 113, 0.08);
+  --bg-overlay: rgba(0, 0, 0, 0.8);
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+
+  /* Transitions */
+  --duration-fast: 100ms;
+  --duration-normal: 150ms;
+  --duration-slow: 300ms;
+  --easing-default: ease;
+  --easing-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* Z-Index */
+  --z-base: 0;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 300;
+  --z-toast: 400;
+
+  /* Focus */
+  --focus-ring: 0 0 0 2px var(--bg-primary), 0 0 0 4px var(--accent-cyan);
+
+  /* Disabled */
+  --opacity-disabled: 0.4;
+
+  /* Line Height */
+  --leading-tight: 1.25;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.75;
+
+  /* Icon Sizes */
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 24px;
 
   /* Typography */
-  --font-mono: "Geist Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-family: 'Geist Mono', monospace;
+  --font-mono: 'Geist Mono', monospace;
   --font-xs: 12px;
   --font-sm: 13px;
   --font-base: 14px;
   --font-md: 15px;
   --font-lg: 16px;
   --font-xl: 18px;
+
+  /* Shape */
+  --border-radius: 4px;
 }
 
 /* Base styles */
@@ -54,6 +105,8 @@ html, body {
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow: hidden;
+  height: 100%;
 }
 
 /* Border radius is now controlled by theme via JavaScript */
@@ -63,6 +116,44 @@ button, a {
   user-select: none;
   -webkit-user-drag: none;
 }
+
+/* Button styles */
+.btn-ghost {
+  position: relative;
+  isolation: isolate;
+}
+
+/* Ghost buttons without icon size have no padding - pseudo extends beyond */
+.btn-ghost:not(.btn-icon) {
+  padding: 0 !important;
+}
+
+.btn-ghost::before {
+  content: "";
+  position: absolute;
+  background: var(--bg-hover);
+  border-radius: var(--border-radius);
+  opacity: 0;
+  transition: opacity var(--duration-normal) var(--easing-default);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* Non-icon ghost: pseudo extends beyond text */
+.btn-ghost:not(.btn-icon)::before {
+  inset: -6px -12px;
+}
+
+/* Icon ghost: pseudo covers button area */
+.btn-ghost.btn-icon::before {
+  inset: 0;
+}
+
+.btn-ghost:hover:not(:disabled)::before {
+  opacity: 1;
+}
+
+/* Ghost button colors are handled via JS inline styles to support active prop */
 
 /* Terminal-style scrollbar */
 ::-webkit-scrollbar {
@@ -79,7 +170,7 @@ button, a {
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--border-bright);
+  background: var(--border-active);
 }
 
 ::-webkit-scrollbar-corner {
@@ -133,8 +224,8 @@ button, a {
 }
 
 .status-manual {
-  color: var(--accent-magenta);
-  border-color: var(--accent-magenta);
+  color: var(--accent-cyan);
+  border-color: var(--accent-cyan);
 }
 
 /* Text utilities */
@@ -166,8 +257,8 @@ button, a {
   color: var(--accent-red);
 }
 
-.text-accent-magenta {
-  color: var(--accent-magenta);
+.text-accent-cyan {
+  color: var(--accent-cyan);
 }
 
 /* Background utilities */
@@ -182,7 +273,7 @@ button, a {
 /* Focus states - terminal style */
 input:focus, textarea:focus, select:focus, button:focus {
   outline: none;
-  border-color: var(--border-bright);
+  border-color: var(--border-active);
 }
 
 /* Terminal-style block cursor */

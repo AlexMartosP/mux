@@ -80,11 +80,21 @@ impl GitHubService {
     }
 
     /// Create a pull request
-    pub fn create_pr(worktree_path: &str, input: PRCreateInput) -> Result<PullRequest> {
-        // First, push the branch
-        Self::push_branch(worktree_path).map_err(|e| {
+    /// If new_branch_name is provided, renames the branch before pushing
+    /// Returns (PullRequest, Option<new_branch_name>) - new_branch_name is set if branch was renamed
+    pub fn create_pr(
+        worktree_path: &str,
+        input: PRCreateInput,
+        new_branch_name: Option<&str>,
+    ) -> Result<(PullRequest, Option<String>)> {
+        // First, push the branch (may rename if new_branch_name is provided)
+        let renamed_branch = Self::push_branch(worktree_path, new_branch_name).map_err(|e| {
             AppError::GitHub(format!("Failed to push branch: {}", e))
         })?;
+
+        if let Some(ref new_name) = renamed_branch {
+            eprintln!("Branch was renamed to '{}' before push", new_name);
+        }
 
         // Build gh pr create command
         let mut args = vec![
@@ -138,7 +148,8 @@ impl GitHubService {
         }
 
         // Get PR details
-        Self::get_pr_by_url(worktree_path, &url)
+        let pr = Self::get_pr_by_url(worktree_path, &url)?;
+        Ok((pr, renamed_branch))
     }
 
     /// Open PR in browser
@@ -276,9 +287,47 @@ impl GitHubService {
         Ok((false, None))
     }
 
+    /// Check if a branch name contains a human ID (temporary task branch)
+    pub fn is_human_id_branch(branch: &str) -> bool {
+        // Human ID branches start with "task/" and contain random words
+        branch.starts_with("task/")
+    }
+
     /// Push branch to remote
-    fn push_branch(worktree_path: &str) -> Result<()> {
+    /// If new_branch_name is provided and different from current, renames before pushing
+    /// Returns the new branch name if it was renamed
+    fn push_branch(worktree_path: &str, new_branch_name: Option<&str>) -> Result<Option<String>> {
         eprintln!("Pushing branch from worktree: {}", worktree_path);
+
+        // Get current branch name
+        let current_branch = Self::get_current_branch(worktree_path)?;
+        eprintln!("Current branch: {}", current_branch);
+
+        let mut renamed_to: Option<String> = None;
+
+        // If a new branch name is provided and different, rename the branch
+        if let Some(new_name) = new_branch_name {
+            if new_name != current_branch {
+                eprintln!("Renaming branch from '{}' to '{}'", current_branch, new_name);
+
+                let rename_output = Command::new("git")
+                    .args(["branch", "-m", &current_branch, new_name])
+                    .current_dir(worktree_path)
+                    .output()
+                    .map_err(|e| AppError::Git(format!("Failed to rename branch: {}", e)))?;
+
+                if !rename_output.status.success() {
+                    let stderr = String::from_utf8_lossy(&rename_output.stderr);
+                    return Err(AppError::Git(format!(
+                        "Failed to rename branch from '{}' to '{}': {}",
+                        current_branch, new_name, stderr.trim()
+                    )));
+                }
+
+                eprintln!("Branch renamed successfully to '{}'", new_name);
+                renamed_to = Some(new_name.to_string());
+            }
+        }
 
         // First check if origin remote exists
         let remote_check = Command::new("git")
@@ -333,7 +382,7 @@ impl GitHubService {
             }
         }
 
-        Ok(())
+        Ok(renamed_to)
     }
 
     /// Get PR details by URL

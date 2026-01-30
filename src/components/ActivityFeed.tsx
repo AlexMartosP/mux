@@ -140,7 +140,7 @@ function getToolColor(toolName?: string): string {
     case "Edit":
       return "var(--accent-yellow)";
     case "Bash":
-      return "var(--accent-magenta)";
+      return "var(--accent-cyan)";
     case "Glob":
     case "Grep":
       return "var(--accent-cyan)";
@@ -148,7 +148,7 @@ function getToolColor(toolName?: string): string {
       return "var(--accent-yellow)";
     case "WebFetch":
     case "WebSearch":
-      return "var(--accent-magenta)";
+      return "var(--accent-cyan)";
     default:
       return "var(--text-secondary)";
   }
