@@ -385,7 +385,6 @@ pub fn restart_task(
             &id,
             "user_message",
             follow_up_prompt,
-            &timestamp,
             None,
             None,
         )?;
