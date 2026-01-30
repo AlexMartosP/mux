@@ -117,9 +117,11 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
 
   return (
     <div
-      className="w-full p-4"
+      className="w-full p-3"
       style={{
-        backgroundColor: "var(--bg-elevated)",
+        backgroundColor: "var(--bg-surface)",
+        border: "1px solid var(--border-default)",
+        borderRadius: "var(--border-radius)",
       }}
     >
       <div className="flex items-start gap-3">

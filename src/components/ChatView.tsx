@@ -1357,26 +1357,28 @@ export function ChatView({
             )}
           </div>
 
-          {/* Permission request popover */}
-          {permissionRequest && (
-            <PermissionPopover
-              key={permissionRequest.request_id}
-              request={permissionRequest}
-              onDismiss={() => dismissRequest(permissionRequest.request_id)}
-            />
-          )}
-
           {/* Follow-up input - floating box */}
-          <div className="p-4 relative">
-            {/* Slash command suggestions */}
-            {showSlashCommands && filteredCommands.length > 0 && (
+          <div className="p-4 space-y-3">
+            {/* Permission request popover */}
+            {permissionRequest && (
+              <PermissionPopover
+                key={permissionRequest.request_id}
+                request={permissionRequest}
+                onDismiss={() => dismissRequest(permissionRequest.request_id)}
+              />
+            )}
+
+            {/* Input container with slash commands */}
+            <div className="relative">
+              {/* Slash command suggestions */}
+              {showSlashCommands && filteredCommands.length > 0 && (
               <div
                 ref={slashCommandsRef}
                 style={{
                   position: 'absolute',
                   bottom: '100%',
-                  left: 'var(--space-4)',
-                  right: 'var(--space-4)',
+                  left: 0,
+                  right: 0,
                   marginBottom: 'var(--space-1)',
                   backgroundColor: 'var(--bg-elevated)',
                   border: '1px solid var(--border-active)',
@@ -1551,6 +1553,7 @@ export function ChatView({
                   </Button>
                 )}
               </div>
+            </div>
             </div>
           </div>
         </div>
