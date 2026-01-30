@@ -1280,68 +1280,65 @@ export function ChatView({
 
             {/* Output interleaved with follow-up messages */}
             {(() => {
-              // Build segments: output sliced at follow-up boundaries
-              const segments: { type: 'output' | 'followup'; outputSlice?: typeof output; message?: FollowUpMessage; isLast?: boolean }[] = [];
+              // Build interleaved segments of output and follow-up messages
+              type Segment =
+                | { type: 'output'; outputSlice: typeof output; isLast: boolean }
+                | { type: 'followup'; message: FollowUpMessage };
+
+              const segments: Segment[] = [];
 
               if (followUpMessages.length === 0) {
                 // No follow-ups: render all output as one segment
-                if (output.length > 0 || isRunning) {
-                  segments.push({ type: 'output', outputSlice: output, isLast: true });
-                }
+                segments.push({ type: 'output', outputSlice: output, isLast: true });
               } else {
                 // Sort follow-ups by outputIndex to ensure correct ordering
                 const sorted = [...followUpMessages].sort((a, b) => a.outputIndex - b.outputIndex);
 
                 let lastIndex = 0;
                 for (const msg of sorted) {
-                  // Always add output segment before follow-up (even if empty for first segment)
+                  // Add output segment for content before this follow-up
                   const slice = output.slice(lastIndex, msg.outputIndex);
-                  if (slice.length > 0 || lastIndex === 0) {
-                    segments.push({ type: 'output', outputSlice: slice });
-                  }
-                  // The follow-up message itself
+                  segments.push({ type: 'output', outputSlice: slice, isLast: false });
+                  // Add the follow-up message
                   segments.push({ type: 'followup', message: msg });
                   lastIndex = msg.outputIndex;
                 }
 
                 // Remaining output after the last follow-up
                 const remainingOutput = output.slice(lastIndex);
-                if (remainingOutput.length > 0 || isRunning) {
-                  segments.push({ type: 'output', outputSlice: remainingOutput, isLast: true });
-                }
+                segments.push({ type: 'output', outputSlice: remainingOutput, isLast: true });
               }
 
               return segments.map((segment, idx) => {
-                if (segment.type === 'output' && segment.outputSlice) {
+                if (segment.type === 'output') {
+                  // Always render output segment - OutputRenderer handles empty arrays gracefully
                   return (
                     <div key={`output-${idx}`} className="overflow-x-auto">
                       <OutputRenderer
                         output={segment.outputSlice}
-                        isRunning={segment.isLast ? isRunning : false}
+                        isRunning={segment.isLast && isRunning}
                         repositoryPath={task.repository_path}
                       />
                     </div>
                   );
                 }
-                if (segment.type === 'followup' && segment.message) {
-                  const msg = segment.message;
-                  return (
-                    <div key={msg.id} className="mt-6">
-                      <div
-                        className="p-3 inline-block max-w-[85%]"
-                        style={{
-                          backgroundColor: 'var(--bg-elevated)',
-                          borderRadius: 'var(--border-radius)',
-                        }}
-                      >
-                        <div className="whitespace-pre-wrap text-xs" style={{ color: 'var(--text-primary)' }}>
-                          {msg.content}
-                        </div>
+                // Follow-up message
+                const msg = segment.message;
+                return (
+                  <div key={msg.id} className="my-6">
+                    <div
+                      className="p-3 inline-block max-w-[85%]"
+                      style={{
+                        backgroundColor: 'var(--bg-elevated)',
+                        borderRadius: 'var(--border-radius)',
+                      }}
+                    >
+                      <div className="whitespace-pre-wrap text-xs" style={{ color: 'var(--text-primary)' }}>
+                        {msg.content}
                       </div>
                     </div>
-                  );
-                }
-                return null;
+                  </div>
+                );
               });
             })()}
 
