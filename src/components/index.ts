@@ -8,6 +8,7 @@ export { ActivityFeed } from "./ActivityFeed";
 export { OutputRenderer } from "./OutputRenderer";
 export { CreatePRModal } from "./CreatePRModal";
 export { SetupScreen } from "./SetupScreen";
+export { TopNavBar } from "./TopNavBar";
 export { WorkspaceSelector } from "./WorkspaceSelector";
 export { WorkspaceSettings } from "./WorkspaceSettings";
 export { TerminalView } from "./TerminalView";

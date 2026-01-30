@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { listen } from "@tauri-apps/api/event";
 import { Sidebar } from "./components/Sidebar";
+import { TopNavBar } from "./components/TopNavBar";
 import { ChatView } from "./components/ChatView";
 import { SetupScreen } from "./components/SetupScreen";
 import { Settings } from "./components/Settings";
@@ -18,9 +19,11 @@ import type { SetupStage, SetupProgressEvent, Workspace } from "./types/agent";
 const SIDEBAR_COLLAPSED_KEY = "mux-sidebar-collapsed";
 
 type View = "chat" | "settings";
+type AppMode = "agents" | "prs" | "dashboard";
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<View>("chat");
+  const [appMode, setAppMode] = useState<AppMode>("agents");
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
@@ -248,62 +251,73 @@ function AppContent() {
 
   return (
     <div
-      className="h-screen flex"
+      className="h-screen flex flex-col"
       style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
     >
-      <Sidebar
-        agents={agents}
-        selectedAgentId={selectedAgentId}
-        onSelectAgent={(id) => {
-          setSelectedAgentId(id);
-          setCurrentView("chat");
-        }}
-        onNewAgent={handleNewChat}
-        onOpenSettings={handleOpenSettings}
-        onArchiveAgents={async (agentIds) => {
-          // Close terminal sessions for archived agents
-          for (const agentId of agentIds) {
-            tauri.closeTerminal(agentId).catch(() => {}); // Ignore errors
-          }
-          await tauri.deleteAgents(agentIds);
-          // If the currently selected agent was archived, clear selection
-          if (selectedAgentId && agentIds.includes(selectedAgentId)) {
-            setSelectedAgentId(null);
-          }
-          // Refresh agent list
-          await refreshAgents();
-        }}
-        searchInputRef={searchInputRef}
-        collapsed={sidebarCollapsed}
-        onToggleCollapse={handleToggleSidebar}
+      {/* Top Navigation Bar */}
+      <TopNavBar
+        currentMode={appMode}
+        onModeChange={setAppMode}
         workspaces={workspaces}
         selectedWorkspaceId={selectedWorkspaceId}
         onSelectWorkspace={setSelectedWorkspaceId}
+        onOpenSettings={handleOpenSettings}
+        agentCount={agents.length}
       />
 
-      {currentView === "settings" ? (
-        <Settings
-          onClose={handleCloseSettings}
-          onRestartOnboarding={() => setShowOnboarding(true)}
-          onWorkspacesChange={loadWorkspaces}
+      {/* Main content area with sidebar */}
+      <div className="flex-1 flex overflow-hidden">
+        <Sidebar
+          agents={agents}
+          selectedAgentId={selectedAgentId}
+          onSelectAgent={(id) => {
+            setSelectedAgentId(id);
+            setCurrentView("chat");
+          }}
+          onNewAgent={handleNewChat}
+          onOpenSettings={handleOpenSettings}
+          onArchiveAgents={async (agentIds) => {
+            // Close terminal sessions for archived agents
+            for (const agentId of agentIds) {
+              tauri.closeTerminal(agentId).catch(() => {}); // Ignore errors
+            }
+            await tauri.deleteAgents(agentIds);
+            // If the currently selected agent was archived, clear selection
+            if (selectedAgentId && agentIds.includes(selectedAgentId)) {
+              setSelectedAgentId(null);
+            }
+            // Refresh agent list
+            await refreshAgents();
+          }}
+          searchInputRef={searchInputRef}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={handleToggleSidebar}
         />
-      ) : selectedAgent?.status === "setting_up" ? (
-        <div className="flex-1 flex flex-col">
-          <SetupScreen
-            agentName={selectedAgent.name}
-            currentStage={setupProgress[selectedAgent.id] || "initializing"}
+
+        {currentView === "settings" ? (
+          <Settings
+            onClose={handleCloseSettings}
+            onRestartOnboarding={() => setShowOnboarding(true)}
+            onWorkspacesChange={loadWorkspaces}
           />
-        </div>
-      ) : (
-        <ChatView
-          agent={selectedAgent}
-          onSpawnAgent={handleSpawnAgent}
-          onStop={stopAgent}
-          onRestart={restartAgent}
-          onDelete={deleteAgent}
-          onUpdateAgent={updateAgent}
-        />
-      )}
+        ) : selectedAgent?.status === "setting_up" ? (
+          <div className="flex-1 flex flex-col">
+            <SetupScreen
+              agentName={selectedAgent.name}
+              currentStage={setupProgress[selectedAgent.id] || "initializing"}
+            />
+          </div>
+        ) : (
+          <ChatView
+            agent={selectedAgent}
+            onSpawnAgent={handleSpawnAgent}
+            onStop={stopAgent}
+            onRestart={restartAgent}
+            onDelete={deleteAgent}
+            onUpdateAgent={updateAgent}
+          />
+        )}
+      </div>
       <ToastContainer />
     </div>
   );

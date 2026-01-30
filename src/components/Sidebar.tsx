@@ -1,13 +1,11 @@
 import { useState, useMemo, useRef, useEffect, RefObject } from "react";
 import { Bell, Settings, Pencil, Plus, ChevronsLeft, ChevronsRight, X } from "lucide-react";
-import type { Agent, Workspace } from "../types/agent";
+import type { Agent } from "../types/agent";
 import { AgentList } from "./AgentList";
-import { WorkspaceSelector } from "./WorkspaceSelector";
 import { Button } from "./Button";
 import { usePermissions } from "../hooks/usePermissions";
 import { formatShortcut, SHORTCUTS } from "../hooks/useKeyboardShortcuts";
 import { useNotifications } from "../hooks/useNotifications";
-import Logo from "../assets/logo.svg?react";
 
 interface SidebarProps {
   agents: Agent[];
@@ -19,9 +17,6 @@ interface SidebarProps {
   searchInputRef?: RefObject<HTMLInputElement | null>;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
-  workspaces?: Workspace[];
-  selectedWorkspaceId?: string | null;
-  onSelectWorkspace?: (workspaceId: string | null) => void;
 }
 
 export function Sidebar({
@@ -34,9 +29,6 @@ export function Sidebar({
   searchInputRef,
   collapsed = false,
   onToggleCollapse,
-  workspaces = [],
-  selectedWorkspaceId = null,
-  onSelectWorkspace,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
@@ -274,8 +266,7 @@ export function Sidebar({
       borderRight: '1px solid var(--border-default)'
     }}>
       {/* Header */}
-      <div className="p-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-default)', color: 'var(--text-primary)' }}>
-        <Logo className="h-5 w-auto" />
+      <div className="p-3 flex items-center justify-end" style={{ borderBottom: '1px solid var(--border-default)' }}>
         <Button
           variant="ghost"
           size="icon"
@@ -288,16 +279,6 @@ export function Sidebar({
 
       {/* Controls */}
       <div className="p-3 space-y-2">
-        {/* Workspace Selector */}
-        {workspaces.length > 0 && onSelectWorkspace && (
-          <WorkspaceSelector
-            workspaces={workspaces}
-            selectedWorkspaceId={selectedWorkspaceId}
-            onSelectWorkspace={onSelectWorkspace}
-            onOpenSettings={onOpenSettings}
-          />
-        )}
-
         {/* New Agent Button */}
         <Button
           variant="ghost"
