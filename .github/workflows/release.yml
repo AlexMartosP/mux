@@ -96,11 +96,17 @@ jobs:
             echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Download all artifacts
+      - name: Download aarch64 artifacts
         uses: actions/download-artifact@v4
         with:
-          path: artifacts
-          merge-multiple: true
+          name: artifacts-aarch64-apple-darwin
+          path: artifacts/aarch64
+
+      - name: Download x86_64 artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-x86_64-apple-darwin
+          path: artifacts/x64
 
       - name: List artifacts
         run: |
@@ -113,9 +119,9 @@ jobs:
         run: |
           VERSION="${{ steps.get_version.outputs.VERSION }}"
 
-          # Find signature files by searching recursively
-          AARCH64_SIG_FILE=$(find artifacts -name "*.sig" -type f | grep -i aarch64 | head -1)
-          X64_SIG_FILE=$(find artifacts -name "*.sig" -type f | grep -i x86_64 | head -1)
+          # Find signature files in architecture-specific directories
+          AARCH64_SIG_FILE=$(find artifacts/aarch64 -name "*.sig" -type f | head -1)
+          X64_SIG_FILE=$(find artifacts/x64 -name "*.sig" -type f | head -1)
 
           echo "Found aarch64 sig file: $AARCH64_SIG_FILE"
           echo "Found x64 sig file: $X64_SIG_FILE"
@@ -162,14 +168,15 @@ jobs:
         run: |
           mkdir -p release-files
 
-          # Copy and rename files for clarity
-          find artifacts -name "*.dmg" -path "*aarch64*" -exec cp {} release-files/Mux_aarch64.dmg \; 2>/dev/null || true
-          find artifacts -name "*.dmg" -path "*x86_64*" -exec cp {} release-files/Mux_x64.dmg \; 2>/dev/null || true
-          find artifacts -name "*.tar.gz" -not -name "*.sig" -path "*aarch64*" -exec cp {} release-files/Mux.app.tar.gz \; 2>/dev/null || true
-          find artifacts -name "*.tar.gz" -not -name "*.sig" -path "*x86_64*" -exec cp {} release-files/Mux_x64.app.tar.gz \; 2>/dev/null || true
+          # Copy and rename files for clarity (from architecture-specific directories)
+          find artifacts/aarch64 -name "*.dmg" -exec cp {} release-files/Mux_aarch64.dmg \; 2>/dev/null || true
+          find artifacts/x64 -name "*.dmg" -exec cp {} release-files/Mux_x64.dmg \; 2>/dev/null || true
+          find artifacts/aarch64 -name "*.tar.gz" -not -name "*.sig" -exec cp {} release-files/Mux.app.tar.gz \; 2>/dev/null || true
+          find artifacts/x64 -name "*.tar.gz" -not -name "*.sig" -exec cp {} release-files/Mux_x64.app.tar.gz \; 2>/dev/null || true
 
           cp latest.json release-files/
 
+          echo "=== Release files ==="
           ls -la release-files/
 
       - name: Create release in public repo
