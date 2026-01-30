@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import type { PRPreview } from "../types/task";
+import type { PRPreview } from "../types/agent";
 import * as tauri from "../lib/tauri";
 
 interface CreatePRModalProps {

@@ -194,8 +194,8 @@ export const SHORTCUTS = {
   previousTask: "Cmd+↑",
   nextTask: "Cmd+↓",
   selectTask: "Cmd+1-9",
-  stopTask: "Cmd+.",
-  restartTask: "Cmd+R",
+  stopAgent: "Cmd+.",
+  restartAgent: "Cmd+R",
   copyBranch: "Cmd+Shift+C",
   createPR: "Cmd+P",
 } as const;

@@ -5,7 +5,8 @@ mod ipc_server;
 pub mod output;
 mod output_batch;
 pub mod shell;
-pub mod task_generator;
+pub mod agent_generator;
+mod terminal;
 mod worktree;
 
 pub use claude_process::ClaudeProcessService;
@@ -14,5 +15,6 @@ pub use github::{GitHubService, PRCreateInput, PRPreview, PullRequest};
 pub use ipc_server::{get_ipc_port, respond_to_permission, IPCServer, PermissionDecision, PermissionResponseResult, TimedOutRequest};
 pub use output::ParsedOutput;
 pub use output_batch::init_db_writer;
-pub use task_generator::{generate_task_info, GeneratedTaskInfo};
+pub use agent_generator::{generate_agent_info, GeneratedAgentInfo};
+pub use terminal::TerminalService;
 pub use worktree::WorktreeService;

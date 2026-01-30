@@ -6,7 +6,7 @@ use std::process::Command;
 use std::sync::Arc;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct GeneratedTaskInfo {
+pub struct GeneratedAgentInfo {
     pub title: String,
     pub description: String,
     pub branch_name: String,
@@ -108,12 +108,12 @@ fn get_unique_branch_name(repo_path: &str, base_name: &str) -> String {
     format!("{}-{}", base_name, chrono::Utc::now().timestamp())
 }
 
-/// Generate task info using Claude
-pub fn generate_task_info(
+/// Generate agent info using Claude
+pub fn generate_agent_info(
     db: &Arc<Database>,
     prompt: &str,
     repo_path: &str,
-) -> Result<GeneratedTaskInfo> {
+) -> Result<GeneratedAgentInfo> {
     // Get settings
     let branch_prefix = db.get_setting("branch_prefix").ok().flatten();
 
@@ -122,7 +122,7 @@ pub fn generate_task_info(
 
     // Build the prompt for Claude to generate title, description, and branch name
     let generation_prompt = format!(
-        r#"You are a helpful assistant that generates concise task metadata.
+        r#"You are a helpful assistant that generates concise agent metadata.
 
 Given this task prompt:
 "{}"
@@ -130,7 +130,7 @@ Given this task prompt:
 Generate a JSON response with exactly this format (no markdown, just JSON):
 {{
   "title": "A short title (max 50 chars)",
-  "description": "A one-line description of what the task will accomplish (max 100 chars)",
+  "description": "A one-line description of what the agent will accomplish (max 100 chars)",
   "branch_name": "a-short-kebab-case-name"
 }}
 
@@ -161,7 +161,7 @@ Rules:
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&response.trim()) {
         let title = parsed["title"]
             .as_str()
-            .unwrap_or("New Task")
+            .unwrap_or("New Agent")
             .to_string();
         let description = parsed["description"]
             .as_str()
@@ -169,7 +169,7 @@ Rules:
             .to_string();
         let generated_branch = parsed["branch_name"]
             .as_str()
-            .unwrap_or("task")
+            .unwrap_or("agent")
             .to_string();
 
         // Build the full branch name
@@ -180,7 +180,7 @@ Rules:
         );
         let branch_name = get_unique_branch_name(repo_path, &branch_base);
 
-        return Ok(GeneratedTaskInfo {
+        return Ok(GeneratedAgentInfo {
             title,
             description,
             branch_name,
@@ -198,7 +198,7 @@ fn generate_fallback_info(
     branch_prefix: &Option<String>,
     ticket_id: Option<&str>,
     repo_path: &str,
-) -> GeneratedTaskInfo {
+) -> GeneratedAgentInfo {
     // Generate title from first 50 chars of prompt
     let title = prompt
         .chars()
@@ -226,7 +226,7 @@ fn generate_fallback_info(
     );
     let branch_name = get_unique_branch_name(repo_path, &branch_base);
 
-    GeneratedTaskInfo {
+    GeneratedAgentInfo {
         title,
         description,
         branch_name,

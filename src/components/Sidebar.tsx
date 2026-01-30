@@ -1,7 +1,8 @@
 import { useState, useMemo, useRef, useEffect, RefObject } from "react";
 import { Bell, Settings, Pencil, Plus, ChevronsLeft, ChevronsRight, X } from "lucide-react";
-import type { Task } from "../types/task";
-import { TaskList } from "./TaskList";
+import type { Agent, Workspace } from "../types/agent";
+import { AgentList } from "./AgentList";
+import { WorkspaceSelector } from "./WorkspaceSelector";
 import { Button } from "./Button";
 import { usePermissions } from "../hooks/usePermissions";
 import { formatShortcut, SHORTCUTS } from "../hooks/useKeyboardShortcuts";
@@ -9,27 +10,33 @@ import { useNotifications } from "../hooks/useNotifications";
 import Logo from "../assets/logo.svg?react";
 
 interface SidebarProps {
-  tasks: Task[];
-  selectedTaskId: string | null;
-  onSelectTask: (taskId: string) => void;
-  onNewTask: () => void;
+  agents: Agent[];
+  selectedAgentId: string | null;
+  onSelectAgent: (agentId: string) => void;
+  onNewAgent: () => void;
   onOpenSettings: () => void;
-  onArchiveTasks: (taskIds: string[]) => Promise<void>;
+  onArchiveAgents: (agentIds: string[]) => Promise<void>;
   searchInputRef?: RefObject<HTMLInputElement | null>;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  workspaces?: Workspace[];
+  selectedWorkspaceId?: string | null;
+  onSelectWorkspace?: (workspaceId: string | null) => void;
 }
 
 export function Sidebar({
-  tasks,
-  selectedTaskId,
-  onSelectTask,
-  onNewTask,
+  agents,
+  selectedAgentId,
+  onSelectAgent,
+  onNewAgent,
   onOpenSettings,
-  onArchiveTasks,
+  onArchiveAgents,
   searchInputRef,
   collapsed = false,
   onToggleCollapse,
+  workspaces = [],
+  selectedWorkspaceId = null,
+  onSelectWorkspace,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
@@ -38,24 +45,24 @@ export function Sidebar({
 
   // Multi-select state
   const [selectMode, setSelectMode] = useState(false);
-  const [selectedTaskIds, setSelectedTaskIds] = useState<Set<string>>(new Set());
+  const [selectedAgentIds, setSelectedAgentIds] = useState<Set<string>>(new Set());
   const [isArchiving, setIsArchiving] = useState(false);
 
-  // Get all pending permissions to show indicators on tasks
-  const { pendingTaskIds } = usePermissions();
+  // Get all pending permissions to show indicators on agents
+  const { pendingAgentIds } = usePermissions();
 
   // Get notifications for badge count
   const { unreadCount } = useNotifications();
 
-  // Get unique repos from tasks
+  // Get unique repos from agents
   const repos = useMemo(() => {
     const repoSet = new Set<string>();
-    tasks.forEach(task => {
-      const repoName = task.repository_path.split('/').pop() || task.repository_path;
+    agents.forEach(agent => {
+      const repoName = agent.repository_path.split('/').pop() || agent.repository_path;
       repoSet.add(repoName);
     });
     return Array.from(repoSet).sort();
-  }, [tasks]);
+  }, [agents]);
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -68,30 +75,30 @@ export function Sidebar({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const filteredTasks = useMemo(() => {
-    let result = tasks;
+  const filteredAgents = useMemo(() => {
+    let result = agents;
 
     // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
-      result = result.filter(task =>
-        task.name.toLowerCase().includes(query) ||
-        task.description?.toLowerCase().includes(query) ||
-        task.prompt.toLowerCase().includes(query) ||
-        task.branch.toLowerCase().includes(query)
+      result = result.filter(agent =>
+        agent.name.toLowerCase().includes(query) ||
+        agent.description?.toLowerCase().includes(query) ||
+        agent.prompt.toLowerCase().includes(query) ||
+        agent.branch.toLowerCase().includes(query)
       );
     }
 
     // Filter by repository
     if (selectedRepos.size > 0) {
-      result = result.filter(task => {
-        const repoName = task.repository_path.split('/').pop() || task.repository_path;
+      result = result.filter(agent => {
+        const repoName = agent.repository_path.split('/').pop() || agent.repository_path;
         return selectedRepos.has(repoName);
       });
     }
 
     return result;
-  }, [tasks, searchQuery, selectedRepos]);
+  }, [agents, searchQuery, selectedRepos]);
 
   const toggleRepo = (repo: string) => {
     setSelectedRepos(prev => {
@@ -112,41 +119,41 @@ export function Sidebar({
 
   const hasActiveFilters = searchQuery.trim() || selectedRepos.size > 0;
 
-  const toggleTaskSelection = (taskId: string) => {
-    setSelectedTaskIds(prev => {
+  const toggleAgentSelection = (agentId: string) => {
+    setSelectedAgentIds(prev => {
       const next = new Set(prev);
-      if (next.has(taskId)) {
-        next.delete(taskId);
+      if (next.has(agentId)) {
+        next.delete(agentId);
       } else {
-        next.add(taskId);
+        next.add(agentId);
       }
       return next;
     });
   };
 
-  const selectAllTasks = () => {
-    setSelectedTaskIds(new Set(filteredTasks.map(t => t.id)));
+  const selectAllAgents = () => {
+    setSelectedAgentIds(new Set(filteredAgents.map(a => a.id)));
   };
 
   const clearSelection = () => {
-    setSelectedTaskIds(new Set());
+    setSelectedAgentIds(new Set());
   };
 
   const exitSelectMode = () => {
     setSelectMode(false);
-    setSelectedTaskIds(new Set());
+    setSelectedAgentIds(new Set());
   };
 
   const handleArchiveSelected = async () => {
-    if (selectedTaskIds.size === 0) return;
+    if (selectedAgentIds.size === 0) return;
     const confirmed = window.confirm(
-      `Archive ${selectedTaskIds.size} task${selectedTaskIds.size > 1 ? 's' : ''}?\n\nThis will remove the associated worktrees and cannot be undone.`
+      `Archive ${selectedAgentIds.size} agent${selectedAgentIds.size > 1 ? 's' : ''}?\n\nThis will remove the associated worktrees and cannot be undone.`
     );
     if (!confirmed) return;
 
     setIsArchiving(true);
     try {
-      await onArchiveTasks(Array.from(selectedTaskIds));
+      await onArchiveAgents(Array.from(selectedAgentIds));
       exitSelectMode();
     } finally {
       setIsArchiving(false);
@@ -154,15 +161,15 @@ export function Sidebar({
   };
 
   const handleArchiveAll = async () => {
-    if (filteredTasks.length === 0) return;
+    if (filteredAgents.length === 0) return;
     const confirmed = window.confirm(
-      `Archive all ${filteredTasks.length} task${filteredTasks.length > 1 ? 's' : ''}${selectedRepos.size > 0 ? ' in selected repos' : ''}?\n\nThis will remove the associated worktrees and cannot be undone.`
+      `Archive all ${filteredAgents.length} agent${filteredAgents.length > 1 ? 's' : ''}${selectedRepos.size > 0 ? ' in selected repos' : ''}?\n\nThis will remove the associated worktrees and cannot be undone.`
     );
     if (!confirmed) return;
 
     setIsArchiving(true);
     try {
-      await onArchiveTasks(filteredTasks.map(t => t.id));
+      await onArchiveAgents(filteredAgents.map(a => a.id));
       exitSelectMode();
     } finally {
       setIsArchiving(false);
@@ -191,26 +198,26 @@ export function Sidebar({
           </Button>
         </div>
 
-        {/* New task button */}
+        {/* New agent button */}
         <div className="p-2 flex justify-center">
           <Button
             variant="ghost"
             size="icon"
-            onClick={onNewTask}
-            title={`New task (${formatShortcut(SHORTCUTS.newTask)})`}
+            onClick={onNewAgent}
+            title={`New agent (${formatShortcut(SHORTCUTS.newTask)})`}
           >
             <Plus size={16} strokeWidth={1.5} />
           </Button>
         </div>
 
-        {/* Task status indicators */}
+        {/* Agent status indicators */}
         <div className="flex-1 overflow-y-auto py-1">
-          {filteredTasks.map((task) => {
-            const isSelected = task.id === selectedTaskId;
-            const hasPendingPermission = pendingTaskIds.has(task.id);
+          {filteredAgents.map((agent) => {
+            const isSelected = agent.id === selectedAgentId;
+            const hasPendingPermission = pendingAgentIds.has(agent.id);
             const statusColor = (() => {
               if (hasPendingPermission) return 'var(--accent-yellow)';
-              switch (task.status) {
+              switch (agent.status) {
                 case 'running': return 'var(--accent-green)';
                 case 'waiting_input': return 'var(--accent-yellow)';
                 case 'completed': return 'var(--text-secondary)';
@@ -223,8 +230,8 @@ export function Sidebar({
 
             return (
               <button
-                key={task.id}
-                onClick={() => onSelectTask(task.id)}
+                key={agent.id}
+                onClick={() => onSelectAgent(agent.id)}
                 className="w-full p-2 flex justify-center transition-colors"
                 style={{
                   backgroundColor: isSelected ? 'var(--bg-accent-subtle)' : 'transparent',
@@ -235,7 +242,7 @@ export function Sidebar({
                 onMouseLeave={(e) => {
                   if (!isSelected) e.currentTarget.style.backgroundColor = 'transparent';
                 }}
-                title={task.name}
+                title={agent.name}
               >
                 <span
                   className="w-2 h-2 rounded-full"
@@ -281,15 +288,25 @@ export function Sidebar({
 
       {/* Controls */}
       <div className="p-3 space-y-2">
-        {/* New Task Button */}
+        {/* Workspace Selector */}
+        {workspaces.length > 0 && onSelectWorkspace && (
+          <WorkspaceSelector
+            workspaces={workspaces}
+            selectedWorkspaceId={selectedWorkspaceId}
+            onSelectWorkspace={onSelectWorkspace}
+            onOpenSettings={onOpenSettings}
+          />
+        )}
+
+        {/* New Agent Button */}
         <Button
           variant="ghost"
-          onClick={onNewTask}
+          onClick={onNewAgent}
           className="w-full"
-          title={`New task (${formatShortcut(SHORTCUTS.newTask)})`}
+          title={`Spawn agent (${formatShortcut(SHORTCUTS.newTask)})`}
           startIcon={<Plus size={14} strokeWidth={1.5} style={{ color: 'var(--accent-cyan)' }} />}
         >
-          New task
+          Spawn agent
         </Button>
 
         {/* Search Input */}
@@ -391,13 +408,13 @@ export function Sidebar({
         )}
       </div>
 
-      {/* Task count */}
+      {/* Agent count */}
       {hasActiveFilters && (
         <div
           className="px-3 pb-2 text-xs"
           style={{ color: 'var(--text-dim)' }}
         >
-          {filteredTasks.length} of {tasks.length} tasks
+          {filteredAgents.length} of {agents.length} agents
         </div>
       )}
 
@@ -408,7 +425,7 @@ export function Sidebar({
           style={{ borderBottom: '1px solid var(--border-default)', backgroundColor: 'var(--bg-elevated)' }}
         >
           <button
-            onClick={selectAllTasks}
+            onClick={selectAllAgents}
             className="text-xs transition-colors"
             style={{ color: 'var(--text-secondary)' }}
             onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
@@ -438,30 +455,30 @@ export function Sidebar({
           </button>
           <div className="flex-1" />
           <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
-            {selectedTaskIds.size} selected
+            {selectedAgentIds.size} selected
           </span>
         </div>
       )}
 
-      {/* Task List */}
+      {/* Agent List */}
       <div className="flex-1 overflow-y-auto">
-        <TaskList
-          tasks={filteredTasks}
-          selectedTaskId={selectedTaskId}
-          onSelectTask={onSelectTask}
-          pendingPermissionTaskIds={pendingTaskIds}
-          onArchiveTask={async (taskId) => {
-            const task = tasks.find(t => t.id === taskId);
+        <AgentList
+          agents={filteredAgents}
+          selectedAgentId={selectedAgentId}
+          onSelectAgent={onSelectAgent}
+          pendingPermissionAgentIds={pendingAgentIds}
+          onArchiveAgent={async (agentId) => {
+            const agent = agents.find(a => a.id === agentId);
             const confirmed = window.confirm(
-              `Archive "${task?.name || 'this task'}"?\n\nThis will remove the associated worktree and cannot be undone.`
+              `Archive "${agent?.name || 'this agent'}"?\n\nThis will remove the associated worktree and cannot be undone.`
             );
             if (confirmed) {
-              await onArchiveTasks([taskId]);
+              await onArchiveAgents([agentId]);
             }
           }}
           selectMode={selectMode}
-          selectedTaskIds={selectedTaskIds}
-          onToggleTaskSelection={toggleTaskSelection}
+          selectedAgentIds={selectedAgentIds}
+          onToggleAgentSelection={toggleAgentSelection}
         />
       </div>
 
@@ -475,18 +492,18 @@ export function Sidebar({
             variant="secondary"
             color="red"
             onClick={handleArchiveSelected}
-            disabled={selectedTaskIds.size === 0 || isArchiving}
+            disabled={selectedAgentIds.size === 0 || isArchiving}
             className="w-full"
           >
-            {isArchiving ? 'Archiving...' : `Archive selected (${selectedTaskIds.size})`}
+            {isArchiving ? 'Archiving...' : `Archive selected (${selectedAgentIds.size})`}
           </Button>
           <Button
             variant="ghost"
             onClick={handleArchiveAll}
-            disabled={filteredTasks.length === 0 || isArchiving}
+            disabled={filteredAgents.length === 0 || isArchiving}
             className="w-full"
           >
-            Archive all ({filteredTasks.length})
+            Archive all ({filteredAgents.length})
           </Button>
         </div>
       )}
@@ -514,12 +531,12 @@ export function Sidebar({
         </Button>
 
         {/* Edit/Select mode */}
-        {tasks.length > 0 && (
+        {agents.length > 0 && (
           <Button
             variant={selectMode ? "primary" : "ghost"}
             size="icon"
             onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
-            title={selectMode ? "Exit edit mode" : "Edit tasks"}
+            title={selectMode ? "Exit edit mode" : "Edit agents"}
           >
             <Pencil size={16} strokeWidth={1.5} />
           </Button>

@@ -1,16 +1,19 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { listen } from "@tauri-apps/api/event";
 import { Sidebar } from "./components/Sidebar";
 import { ChatView } from "./components/ChatView";
+import { SetupScreen } from "./components/SetupScreen";
 import { Settings } from "./components/Settings";
 import { Onboarding } from "./components/Onboarding";
 import { ToastContainer } from "./components/Toast";
-import { useTasks } from "./hooks/useTasks";
+import { useAgents } from "./hooks/useAgents";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useUpdateNotifications } from "./hooks/useUpdateNotifications";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import * as tauri from "./lib/tauri";
+import type { SetupStage, SetupProgressEvent, Workspace } from "./types/agent";
 
 const SIDEBAR_COLLAPSED_KEY = "mux-sidebar-collapsed";
 
@@ -22,60 +25,65 @@ function AppContent() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
   });
+  // Track setup progress for each agent
+  const [setupProgress, setSetupProgress] = useState<Record<string, SetupStage>>({});
+  // Workspaces
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<string | null>(null);
   const {
-    tasks,
-    selectedTask,
-    selectedTaskId,
+    agents,
+    selectedAgent,
+    selectedAgentId,
     isLoading,
     error,
-    setSelectedTaskId,
-    createTask,
-    deleteTask,
-    stopTask,
-    restartTask,
-    updateTask,
-    refresh: refreshTasks,
-  } = useTasks();
+    setSelectedAgentId,
+    spawnAgent,
+    deleteAgent,
+    stopAgent,
+    restartAgent,
+    updateAgent,
+    refresh: refreshAgents,
+  } = useAgents();
 
   // Ref for focusing search input in sidebar
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Keyboard shortcuts handlers
-  const handlePreviousTask = useCallback(() => {
-    if (tasks.length === 0) return;
-    const currentIndex = tasks.findIndex((t) => t.id === selectedTaskId);
+  const handlePreviousAgent = useCallback(() => {
+    if (agents.length === 0) return;
+    const currentIndex = agents.findIndex((a) => a.id === selectedAgentId);
     if (currentIndex > 0) {
-      setSelectedTaskId(tasks[currentIndex - 1].id);
+      setSelectedAgentId(agents[currentIndex - 1].id);
     } else if (currentIndex === -1) {
-      setSelectedTaskId(tasks[0].id);
+      setSelectedAgentId(agents[0].id);
     }
-  }, [tasks, selectedTaskId, setSelectedTaskId]);
+  }, [agents, selectedAgentId, setSelectedAgentId]);
 
-  const handleNextTask = useCallback(() => {
-    if (tasks.length === 0) return;
-    const currentIndex = tasks.findIndex((t) => t.id === selectedTaskId);
-    if (currentIndex < tasks.length - 1) {
-      setSelectedTaskId(tasks[currentIndex + 1].id);
+  const handleNextAgent = useCallback(() => {
+    if (agents.length === 0) return;
+    const currentIndex = agents.findIndex((a) => a.id === selectedAgentId);
+    if (currentIndex < agents.length - 1) {
+      setSelectedAgentId(agents[currentIndex + 1].id);
     } else if (currentIndex === -1) {
-      setSelectedTaskId(tasks[0].id);
+      setSelectedAgentId(agents[0].id);
     }
-  }, [tasks, selectedTaskId, setSelectedTaskId]);
+  }, [agents, selectedAgentId, setSelectedAgentId]);
 
-  const handleSelectTaskByIndex = useCallback(
+  const handleSelectAgentByIndex = useCallback(
     (index: number) => {
-      if (index < tasks.length) {
-        setSelectedTaskId(tasks[index].id);
+      if (index < agents.length) {
+        setSelectedAgentId(agents[index].id);
         setCurrentView("chat");
       }
     },
-    [tasks, setSelectedTaskId]
+    [agents, setSelectedAgentId]
   );
 
   const handleCopyBranch = useCallback(async () => {
-    if (selectedTask) {
-      await writeText(selectedTask.branch);
+    if (selectedAgent) {
+      await writeText(selectedAgent.branch);
     }
-  }, [selectedTask]);
+  }, [selectedAgent]);
 
   const handleCreatePR = useCallback(() => {
     // This will be handled by the ChatView component
@@ -88,9 +96,9 @@ function AppContent() {
   }, []);
 
   const handleNewChat = useCallback(() => {
-    setSelectedTaskId(null);
+    setSelectedAgentId(null);
     setCurrentView("chat");
-  }, [setSelectedTaskId]);
+  }, [setSelectedAgentId]);
 
   const handleOpenSettings = useCallback(() => {
     setCurrentView("settings");
@@ -123,12 +131,12 @@ function AppContent() {
     onFocusSearch: () => {
       searchInputRef.current?.focus();
     },
-    onPreviousTask: handlePreviousTask,
-    onNextTask: handleNextTask,
-    onSelectTaskByIndex: handleSelectTaskByIndex,
-    selectedTaskId,
-    onStopTask: selectedTaskId ? () => stopTask(selectedTaskId) : undefined,
-    onRestartTask: selectedTaskId ? () => restartTask(selectedTaskId) : undefined,
+    onPreviousTask: handlePreviousAgent,
+    onNextTask: handleNextAgent,
+    onSelectTaskByIndex: handleSelectAgentByIndex,
+    selectedTaskId: selectedAgentId,
+    onStopTask: selectedAgentId ? () => stopAgent(selectedAgentId) : undefined,
+    onRestartTask: selectedAgentId ? () => restartAgent(selectedAgentId) : undefined,
     onCopyBranch: handleCopyBranch,
     onCreatePR: handleCreatePR,
     isSettingsOpen: currentView === "settings",
@@ -149,8 +157,44 @@ function AppContent() {
     checkOnboarding();
   }, []);
 
-  const handleCreateTask = async (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string) => {
-    await createTask({ repository_path: repositoryPath, prompt, existing_branch: existingBranch, base_branch: baseBranch });
+  // Load workspaces
+  const loadWorkspaces = useCallback(async () => {
+    try {
+      const ws = await tauri.getWorkspaces();
+      setWorkspaces(ws);
+      // Set default workspace if not already selected
+      if (!selectedWorkspaceId && ws.length > 0) {
+        const defaultWs = ws.find((w) => w.is_default);
+        if (defaultWs) {
+          setSelectedWorkspaceId(defaultWs.id);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load workspaces:", err);
+    }
+  }, [selectedWorkspaceId]);
+
+  useEffect(() => {
+    loadWorkspaces();
+  }, [loadWorkspaces]);
+
+  // Listen for agent setup progress events
+  useEffect(() => {
+    const unlisten = listen<SetupProgressEvent>("agent-setup-progress", (event) => {
+      const { agent_id, stage } = event.payload;
+      setSetupProgress((prev) => ({
+        ...prev,
+        [agent_id]: stage,
+      }));
+    });
+
+    return () => {
+      unlisten.then((fn) => fn());
+    };
+  }, []);
+
+  const handleSpawnAgent = async (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string) => {
+    await spawnAgent({ repository_path: repositoryPath, prompt, existing_branch: existingBranch, base_branch: baseBranch });
   };
 
   // Show loading while checking onboarding status
@@ -208,41 +252,56 @@ function AppContent() {
       style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
     >
       <Sidebar
-        tasks={tasks}
-        selectedTaskId={selectedTaskId}
-        onSelectTask={(id) => {
-          setSelectedTaskId(id);
+        agents={agents}
+        selectedAgentId={selectedAgentId}
+        onSelectAgent={(id) => {
+          setSelectedAgentId(id);
           setCurrentView("chat");
         }}
-        onNewTask={handleNewChat}
+        onNewAgent={handleNewChat}
         onOpenSettings={handleOpenSettings}
-        onArchiveTasks={async (taskIds) => {
-          await tauri.deleteTasks(taskIds);
-          // If the currently selected task was archived, clear selection
-          if (selectedTaskId && taskIds.includes(selectedTaskId)) {
-            setSelectedTaskId(null);
+        onArchiveAgents={async (agentIds) => {
+          // Close terminal sessions for archived agents
+          for (const agentId of agentIds) {
+            tauri.closeTerminal(agentId).catch(() => {}); // Ignore errors
           }
-          // Refresh task list
-          await refreshTasks();
+          await tauri.deleteAgents(agentIds);
+          // If the currently selected agent was archived, clear selection
+          if (selectedAgentId && agentIds.includes(selectedAgentId)) {
+            setSelectedAgentId(null);
+          }
+          // Refresh agent list
+          await refreshAgents();
         }}
         searchInputRef={searchInputRef}
         collapsed={sidebarCollapsed}
         onToggleCollapse={handleToggleSidebar}
+        workspaces={workspaces}
+        selectedWorkspaceId={selectedWorkspaceId}
+        onSelectWorkspace={setSelectedWorkspaceId}
       />
 
       {currentView === "settings" ? (
         <Settings
           onClose={handleCloseSettings}
           onRestartOnboarding={() => setShowOnboarding(true)}
+          onWorkspacesChange={loadWorkspaces}
         />
+      ) : selectedAgent?.status === "setting_up" ? (
+        <div className="flex-1 flex flex-col">
+          <SetupScreen
+            agentName={selectedAgent.name}
+            currentStage={setupProgress[selectedAgent.id] || "initializing"}
+          />
+        </div>
       ) : (
         <ChatView
-          task={selectedTask}
-          onCreateTask={handleCreateTask}
-          onStop={stopTask}
-          onRestart={restartTask}
-          onDelete={deleteTask}
-          onUpdateTask={updateTask}
+          agent={selectedAgent}
+          onSpawnAgent={handleSpawnAgent}
+          onStop={stopAgent}
+          onRestart={restartAgent}
+          onDelete={deleteAgent}
+          onUpdateAgent={updateAgent}
         />
       )}
       <ToastContainer />

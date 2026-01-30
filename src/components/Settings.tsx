@@ -6,13 +6,15 @@ import type { AppSettings, ExportOptions } from "../lib/tauri";
 import { useUpdater } from "../hooks/useUpdater";
 import { useTheme } from "../contexts/ThemeContext";
 import { Button } from "./Button";
+import { WorkspaceSettings } from "./WorkspaceSettings";
 
 interface SettingsProps {
   onClose: () => void;
   onRestartOnboarding?: () => void;
+  onWorkspacesChange?: () => void;
 }
 
-export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
+export function Settings({ onClose, onRestartOnboarding, onWorkspacesChange }: SettingsProps) {
   const [settings, setSettings] = useState<AppSettings>({
     base_repo_directory: null,
     branch_prefix: null,
@@ -20,7 +22,7 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
     notify_on_error: true,
     prompt_for_permissions: false,
     theme: "terminal",
-    max_concurrent_tasks: 0,
+    max_concurrent_agents: 0,
     send_with_enter: false,
     font_size: 1.0,
   });
@@ -110,11 +112,11 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
     try {
       const options: ExportOptions = {
         format: exportFormat,
-        task_ids: [], // Export all tasks
+        agent_ids: [], // Export all tasks
         include_output: includeOutput,
       };
 
-      const content = await tauri.exportTasks(options);
+      const content = await tauri.exportAgents(options);
 
       // Get file extension based on format
       const extensions: Record<string, string[]> = {
@@ -170,13 +172,24 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-xl space-y-6">
-          {/* Base Repository Directory */}
+          {/* Workspaces */}
           <div>
             <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
-              BASE REPOSITORY DIRECTORY
+              WORKSPACES
             </label>
             <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
-              Folders in this directory will be shown as quick-select options when creating a new task.
+              Organize tasks into workspaces, each with its own repository folder.
+            </p>
+            <WorkspaceSettings onWorkspacesChange={onWorkspacesChange} />
+          </div>
+
+          {/* Base Repository Directory (fallback when no workspace selected) */}
+          <div>
+            <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
+              DEFAULT REPOSITORY DIRECTORY
+            </label>
+            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
+              Fallback directory when no workspace is selected. Folders here will be shown as quick-select options.
             </p>
             <div className="flex gap-2">
               <input
@@ -410,9 +423,9 @@ export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
               type="number"
               min={0}
               max={20}
-              value={settings.max_concurrent_tasks}
+              value={settings.max_concurrent_agents}
               onChange={(e) =>
-                setSettings((prev) => ({ ...prev, max_concurrent_tasks: parseInt(e.target.value) || 0 }))
+                setSettings((prev) => ({ ...prev, max_concurrent_agents: parseInt(e.target.value) || 0 }))
               }
               className="w-24 px-4 py-2 text-xs"
               style={inputStyle}

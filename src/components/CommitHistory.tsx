@@ -1,4 +1,4 @@
-import type { CommitInfo } from "../types/task";
+import type { CommitInfo } from "../types/agent";
 
 interface CommitHistoryProps {
   commits: CommitInfo[];

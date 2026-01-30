@@ -4,11 +4,11 @@ import { Maximize2, Minimize2, RefreshCw, RotateCcw, X, FilePlus, FileEdit, File
 import { SimpleDiffViewer } from "./SimpleDiffViewer";
 import { Button } from "./Button";
 import { ReviewActionsBar, type ReviewComment } from "./ReviewComment";
-import { getTaskChanges, getFileDiff, getFileDiffWithContext, revertFileChanges, refreshTaskGitStats } from "../lib/tauri";
-import type { FileChange, FileDiff } from "../types/task";
+import { getAgentChanges, getFileDiff, getFileDiffWithContext, revertFileChanges, refreshAgentGitStats } from "../lib/tauri";
+import type { FileChange, FileDiff } from "../types/agent";
 
 interface ChangesPanelProps {
-  taskId: string;
+  agentId: string;
   onSendReview?: (prompt: string) => void;
   isFullScreen?: boolean;
   onExitFullScreen?: () => void;
@@ -25,7 +25,7 @@ interface DiffCacheEntry {
 const CACHE_TTL = 30000;
 
 export function ChangesPanel({
-  taskId,
+  agentId,
   onSendReview,
   isFullScreen = false,
   onExitFullScreen,
@@ -43,7 +43,7 @@ export function ChangesPanel({
   // Diff cache - persists across file switches within a task
   const diffCacheRef = useRef<Map<string, DiffCacheEntry>>(new Map());
   // Track current task to clear cache on task switch
-  const currentTaskRef = useRef<string>(taskId);
+  const currentTaskRef = useRef<string>(agentId);
 
   // Review comments state
   const [comments, setComments] = useState<ReviewComment[]>([]);
@@ -110,11 +110,11 @@ export function ChangesPanel({
 
   // Clear cache when task changes
   useEffect(() => {
-    if (taskId !== currentTaskRef.current) {
+    if (agentId !== currentTaskRef.current) {
       diffCacheRef.current.clear();
-      currentTaskRef.current = taskId;
+      currentTaskRef.current = agentId;
     }
-  }, [taskId]);
+  }, [agentId]);
 
   // Get diff from cache or fetch it
   const getDiffForFile = useCallback(async (path: string, requestedContextLines: number): Promise<FileDiff | null> => {
@@ -131,8 +131,8 @@ export function ChangesPanel({
     // Fetch from backend
     try {
       const diff = requestedContextLines > 3
-        ? await getFileDiffWithContext(taskId, path, requestedContextLines)
-        : await getFileDiff(taskId, path);
+        ? await getFileDiffWithContext(agentId, path, requestedContextLines)
+        : await getFileDiff(agentId, path);
 
       // Store in cache
       cache.set(cacheKey, { diff, timestamp: now, contextLines: requestedContextLines });
@@ -141,7 +141,7 @@ export function ChangesPanel({
       console.error("Failed to load diff:", err);
       return null;
     }
-  }, [taskId]);
+  }, [agentId]);
 
   // Pre-fetch adjacent files for faster switching
   const prefetchAdjacentDiffs = useCallback((currentPath: string, fileList: FileChange[]) => {
@@ -206,11 +206,11 @@ export function ChangesPanel({
         diffCacheRef.current.clear();
       }
 
-      const changedFiles = await getTaskChanges(taskId);
+      const changedFiles = await getAgentChanges(agentId);
       setFiles(changedFiles);
 
       // Refresh git stats in the background (updates sidebar display)
-      refreshTaskGitStats(taskId).catch(console.error);
+      refreshAgentGitStats(agentId).catch(console.error);
 
       if (changedFiles.length > 0 && !selectedFile) {
         selectFileAndLoadDiff(changedFiles[0].path, changedFiles);
@@ -234,7 +234,7 @@ export function ChangesPanel({
     } finally {
       setLoading(false);
     }
-  }, [taskId, selectedFile, contextLines, selectFileAndLoadDiff, getDiffForFile]);
+  }, [agentId, selectedFile, contextLines, selectFileAndLoadDiff, getDiffForFile]);
 
   useEffect(() => {
     loadChanges();
@@ -285,7 +285,7 @@ export function ChangesPanel({
     const confirmed = window.confirm(`Revert all changes to ${selectedFile}?`);
     if (!confirmed) return;
     try {
-      await revertFileChanges(taskId, selectedFile);
+      await revertFileChanges(agentId, selectedFile);
       // Clear cache for this file since it was reverted
       for (const key of diffCacheRef.current.keys()) {
         if (key.startsWith(`${selectedFile}:`)) {

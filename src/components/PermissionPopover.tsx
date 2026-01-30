@@ -55,7 +55,7 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
     try {
       // Add the permission rule to Claude settings
       await tauri.addPermissionRule(
-        request.task_id,
+        request.agent_id,
         request.tool_name,
         request.tool_input,
         scope

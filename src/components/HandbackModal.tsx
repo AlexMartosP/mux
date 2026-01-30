@@ -1,16 +1,16 @@
 import { useState, useEffect } from "react";
-import type { Task, FileChange } from "../types/task";
+import type { Agent, FileChange } from "../types/agent";
 import * as tauri from "../lib/tauri";
 import { Button } from "./Button";
 
 interface HandbackModalProps {
-  task: Task;
+  agent: Agent;
   isOpen: boolean;
   onClose: () => void;
   onHandback: (commitMessage: string, promptForClaude?: string) => Promise<void>;
 }
 
-export function HandbackModal({ task, isOpen, onClose, onHandback }: HandbackModalProps) {
+export function HandbackModal({ agent, isOpen, onClose, onHandback }: HandbackModalProps) {
   const [commitMessage, setCommitMessage] = useState("");
   const [promptForClaude, setPromptForClaude] = useState("");
   const [changes, setChanges] = useState<FileChange[]>([]);
@@ -25,13 +25,13 @@ export function HandbackModal({ task, isOpen, onClose, onHandback }: HandbackMod
       setPromptForClaude("");
       setError(null);
     }
-  }, [isOpen, task.id]);
+  }, [isOpen, agent.id]);
 
   const loadChanges = async () => {
     setIsLoading(true);
     try {
-      // Get changes from the repo root (which is now on the task branch)
-      const fileChanges = await tauri.getTaskChanges(task.id);
+      // Get changes from the repo root (which is now on the agent branch)
+      const fileChanges = await tauri.getAgentChanges(agent.id);
       setChanges(fileChanges);
     } catch (err) {
       console.error("Failed to load changes:", err);
@@ -53,7 +53,7 @@ export function HandbackModal({ task, isOpen, onClose, onHandback }: HandbackMod
       await onHandback(commitMessage.trim(), promptForClaude.trim() || undefined);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to hand back task");
+      setError(err instanceof Error ? err.message : "Failed to hand back to agent");
     } finally {
       setIsSubmitting(false);
     }

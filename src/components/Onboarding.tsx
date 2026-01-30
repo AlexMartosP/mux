@@ -91,7 +91,7 @@ export function Onboarding({ onComplete }: OnboardingProps) {
         notify_on_error: settings.notify_on_error,
         prompt_for_permissions: settings.prompt_for_permissions,
         theme: null, // Default theme will be loaded from context
-        max_concurrent_tasks: 0,
+        max_concurrent_agents: 0,
         send_with_enter: false,
         font_size: 1.0,
       });

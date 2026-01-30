@@ -1,7 +1,7 @@
 use crate::commands::AppState;
 use crate::error::{AppError, Result};
 use crate::services::github::{GitHubService, PRCreateInput, PRPreview, PullRequest};
-use crate::services::task_generator;
+use crate::services::agent_generator;
 use std::sync::Arc;
 use tauri::State;
 
@@ -11,37 +11,37 @@ pub fn check_github_auth() -> Result<bool> {
 }
 
 #[tauri::command]
-pub fn get_pr_preview(state: State<Arc<AppState>>, task_id: String) -> Result<PRPreview> {
-    let task = state
+pub fn get_pr_preview(state: State<Arc<AppState>>, agent_id: String) -> Result<PRPreview> {
+    let agent = state
         .db
-        .get_task(&task_id)?
-        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
 
-    GitHubService::get_pr_preview(&task.worktree_path, &task.prompt)
+    GitHubService::get_pr_preview(&agent.worktree_path, &agent.prompt)
 }
 
 #[tauri::command]
 pub fn create_pull_request(
     state: State<Arc<AppState>>,
-    task_id: String,
+    agent_id: String,
     title: String,
     body: String,
     draft: bool,
 ) -> Result<PullRequest> {
-    let task = state
+    let agent = state
         .db
-        .get_task(&task_id)?
-        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
 
     // Check if the branch has a human ID that needs to be renamed
-    let new_branch_name = if GitHubService::is_human_id_branch(&task.branch) {
+    let new_branch_name = if GitHubService::is_human_id_branch(&agent.branch) {
         eprintln!(
             "Branch '{}' has human ID, generating proper name with Claude...",
-            task.branch
+            agent.branch
         );
 
         // Generate a proper branch name using Claude
-        match task_generator::generate_task_info(&state.db, &task.prompt, &task.repository_path) {
+        match agent_generator::generate_agent_info(&state.db, &agent.prompt, &agent.repository_path) {
             Ok(info) => {
                 eprintln!("Generated branch name: {}", info.branch_name);
                 Some(info.branch_name)
@@ -68,18 +68,23 @@ pub fn create_pull_request(
     };
 
     let (pr, renamed_branch) = GitHubService::create_pr(
-        &task.worktree_path,
+        &agent.worktree_path,
         input,
         new_branch_name.as_deref(),
     )?;
 
-    // Update task with PR URL
-    state.db.update_task_pr_url(&task_id, &pr.url)?;
+    // Update agent with PR URL
+    state.db.update_agent_pr_url(&agent_id, &pr.url)?;
 
-    // If branch was renamed, update the task
+    // Update agent status to InReview
+    state
+        .db
+        .update_agent_status(&agent_id, crate::models::AgentStatus::InReview)?;
+
+    // If branch was renamed, update the agent
     if let Some(new_branch) = renamed_branch {
-        eprintln!("Updating task branch from '{}' to '{}'", task.branch, new_branch);
-        state.db.update_task_branch(&task_id, &new_branch)?;
+        eprintln!("Updating agent branch from '{}' to '{}'", agent.branch, new_branch);
+        state.db.update_agent_branch(&agent_id, &new_branch)?;
     }
 
     Ok(pr)

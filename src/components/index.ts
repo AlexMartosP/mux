@@ -1,9 +1,13 @@
 export { Sidebar } from "./Sidebar";
-export { TaskList } from "./TaskList";
-export { ChatView } from "./ChatView";
+export { AgentList } from "./AgentList";
+export { ChatView as AgentView } from "./ChatView";
 export { ChangesPanel } from "./ChangesPanel";
 export { DiffViewer } from "./DiffViewer";
 export { CommitHistory } from "./CommitHistory";
 export { ActivityFeed } from "./ActivityFeed";
 export { OutputRenderer } from "./OutputRenderer";
 export { CreatePRModal } from "./CreatePRModal";
+export { SetupScreen } from "./SetupScreen";
+export { WorkspaceSelector } from "./WorkspaceSelector";
+export { WorkspaceSettings } from "./WorkspaceSettings";
+export { TerminalView } from "./TerminalView";

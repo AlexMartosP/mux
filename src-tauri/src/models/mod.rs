@@ -1,3 +1,3 @@
-mod task;
+mod agent;
 
-pub use task::{CreateTaskInput, Task, TaskStatus};
+pub use agent::{Agent, AgentStatus, SpawnAgentInput};

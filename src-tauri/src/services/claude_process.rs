@@ -1,6 +1,6 @@
 use crate::db::Database;
 use crate::error::{AppError, Result};
-use crate::models::TaskStatus;
+use crate::models::AgentStatus;
 use crate::services::output::ParsedOutput;
 use crate::services::output_batch::BatchedOutputEmitter;
 use crate::services::shell;
@@ -17,14 +17,14 @@ use tauri::{AppHandle, Emitter};
 
 #[derive(Clone, Serialize)]
 pub struct StatusEvent {
-    pub task_id: String,
+    pub agent_id: String,
     pub status: String,
 }
 
 /// Description update event
 #[derive(Clone, Serialize)]
 pub struct DescriptionEvent {
-    pub task_id: String,
+    pub agent_id: String,
     pub description: String,
 }
 
@@ -67,8 +67,8 @@ enum ContentBlock {
 }
 
 pub struct ClaudeProcessService {
-    processes: Arc<Mutex<HashMap<String, u32>>>, // task_id -> pid
-    /// Tasks that were intentionally stopped (so monitor thread doesn't set Error status)
+    processes: Arc<Mutex<HashMap<String, u32>>>, // agent_id -> pid
+    /// Agents that were intentionally stopped (so monitor thread doesn't set Error status)
     intentionally_stopped: Arc<Mutex<std::collections::HashSet<String>>>,
 }
 
@@ -86,21 +86,21 @@ impl ClaudeProcessService {
         &self,
         app_handle: AppHandle,
         db: Arc<Database>,
-        task_id: &str,
+        agent_id: &str,
         worktree_path: &str,
         prompt: &str,
         continue_conversation: bool,
     ) -> Result<u32> {
         let start_time = Instant::now();
-        info!("[{}] Starting Claude process in {}", task_id, worktree_path);
+        info!("[{}] Starting Claude process in {}", agent_id, worktree_path);
 
         // Check if already running
         {
             let processes = self.processes.lock().unwrap();
-            if processes.contains_key(task_id) {
+            if processes.contains_key(agent_id) {
                 return Err(AppError::Process(format!(
-                    "Process already running for task {}",
-                    task_id
+                    "Process already running for agent {}",
+                    agent_id
                 )));
             }
         }
@@ -109,12 +109,12 @@ impl ClaudeProcessService {
         // process correctly reports completion/error status
         {
             let mut stopped = self.intentionally_stopped.lock().unwrap();
-            stopped.remove(task_id);
+            stopped.remove(agent_id);
         }
 
         // Only clear output if starting fresh (not continuing)
         if !continue_conversation {
-            let _ = db.clear_task_output(task_id);
+            let _ = db.clear_agent_output(agent_id);
         }
 
         // Check if we should prompt for permissions or auto-approve
@@ -129,7 +129,7 @@ impl ClaudeProcessService {
         // We wrap Claude in a shell script to ensure:
         // 1. nvm is sourced
         // 2. If .nvmrc exists in the worktree, `nvm use` is run to use the correct Node version
-        debug!("[{}] Building Claude command with nvm support...", task_id);
+        debug!("[{}] Building Claude command with nvm support...", agent_id);
 
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         let home = std::env::var("HOME").unwrap_or_default();
@@ -177,7 +177,7 @@ impl ClaudeProcessService {
         cmd.args(["-c", &script])
             .current_dir(worktree_path)
             .env("HOME", &home)
-            .env("AGENT_COORDINATOR_TASK_ID", task_id)
+            .env("AGENT_COORDINATOR_TASK_ID", agent_id)
             .env("MUX_IPC_PORT", super::ipc_server::get_ipc_port().to_string())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -195,13 +195,13 @@ impl ClaudeProcessService {
 
         // Log the full command for debugging
         info!("[{}] Running: claude {} --output-format stream-json --verbose -p \"{}\"",
-              task_id,
+              agent_id,
               if continue_conversation { "-c" } else { "" },
               if prompt.len() > 100 { format!("{}...", &prompt[..100]) } else { prompt.to_string() });
-        info!("[{}] Working directory: {}", task_id, worktree_path);
+        info!("[{}] Working directory: {}", agent_id, worktree_path);
 
         // Spawn the process
-        debug!("[{}] Spawning Claude process...", task_id);
+        debug!("[{}] Spawning Claude process...", agent_id);
         let spawn_start = Instant::now();
         let mut child = cmd
             .spawn()
@@ -209,29 +209,29 @@ impl ClaudeProcessService {
 
         let pid = child.id();
         info!("[{}] Claude spawned (PID: {}) in {:?}, total setup: {:?}",
-              task_id, pid, spawn_start.elapsed(), start_time.elapsed());
+              agent_id, pid, spawn_start.elapsed(), start_time.elapsed());
 
         // Insert into processes map
         {
             let mut processes = self.processes.lock().unwrap();
-            processes.insert(task_id.to_string(), pid);
+            processes.insert(agent_id.to_string(), pid);
         }
 
         // Store PID in database for crash recovery
-        let _ = db.update_task_status_and_pid(task_id, TaskStatus::Running, Some(pid));
+        let _ = db.update_agent_status_and_pid(agent_id, AgentStatus::Running, Some(pid));
 
         // Take ownership of stdout and stderr
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
 
         // Clone for threads
-        let task_id_owned = task_id.to_string();
+        let agent_id_owned = agent_id.to_string();
 
         // Spawn stdout monitoring with decoupled reading and processing
         // This prevents backpressure on the pipe from slowing down Claude
         if let Some(stdout) = stdout {
-            let task_id = task_id_owned.clone();
-            let task_id_for_reader = task_id.clone();
+            let agent_id = agent_id_owned.clone();
+            let agent_id_for_reader = agent_id.clone();
             let app_handle = app_handle.clone();
             let db = Arc::clone(&db);
 
@@ -247,7 +247,7 @@ impl ClaudeProcessService {
 
             // Reader thread - ONLY reads from pipe, as fast as possible
             thread::spawn(move || {
-                info!("[{}] Stdout reader thread started", task_id_for_reader);
+                info!("[{}] Stdout reader thread started", agent_id_for_reader);
                 let start = Instant::now();
                 let reader = BufReader::new(stdout);
                 let mut count = 0u64;
@@ -261,21 +261,21 @@ impl ClaudeProcessService {
 
                     // Log every 100 lines
                     if count % 100 == 0 {
-                        debug!("[{}] Read {} lines from stdout", task_id_for_reader, count);
+                        debug!("[{}] Read {} lines from stdout", agent_id_for_reader, count);
                     }
                 }
 
                 lines_read_clone.store(count, Ordering::Relaxed);
                 info!("[{}] Stdout reader finished: {} lines in {:?}",
-                      task_id_for_reader, count, start.elapsed());
+                      agent_id_for_reader, count, start.elapsed());
             });
 
             // Processor thread - handles JSON parsing and event emission
             thread::spawn(move || {
-                info!("[{}] Stdout processor thread started", task_id);
+                info!("[{}] Stdout processor thread started", agent_id);
                 let start = Instant::now();
                 let mut processed = 0u64;
-                let emitter = BatchedOutputEmitter::new(app_handle.clone(), task_id.clone());
+                let emitter = BatchedOutputEmitter::new(app_handle.clone(), agent_id.clone());
 
                 while let Ok(line) = rx.recv() {
                     processed += 1;
@@ -293,19 +293,19 @@ impl ClaudeProcessService {
                                             emitter.emit(ParsedOutput::thinking(thinking));
                                         }
                                         ContentBlock::ToolUse { name, input } => {
-                                            debug!("[{}] Tool use: {}", task_id, name);
+                                            debug!("[{}] Tool use: {}", agent_id, name);
                                             let summary = format_tool_summary(&name, &input);
                                             emitter.emit(ParsedOutput::tool(summary, name.clone(), input.clone()));
 
                                             // Update description from TodoWrite
                                             if name == "TodoWrite" {
                                                 if let Some(description) = extract_description_from_todos(&input) {
-                                                    let _ = db.update_task_description(&task_id, &description);
+                                                    let _ = db.update_agent_description(&agent_id, &description);
                                                     let desc_event = DescriptionEvent {
-                                                        task_id: task_id.clone(),
+                                                        agent_id: agent_id.clone(),
                                                         description,
                                                     };
-                                                    let _ = emitter.app_handle().emit("task-description", desc_event);
+                                                    let _ = emitter.app_handle().emit("agent-description", desc_event);
                                                 }
                                             }
                                         }
@@ -323,11 +323,11 @@ impl ClaudeProcessService {
                                 let output_tok = output_tokens.unwrap_or(0);
 
                                 if cost > 0.0 || input_tok > 0 || output_tok > 0 {
-                                    info!("[{}] Result: ${:.4}, {}in/{}out tokens", task_id, cost, input_tok, output_tok);
-                                    let _ = db.add_task_cost(&task_id, cost, input_tok, output_tok);
+                                    info!("[{}] Result: ${:.4}, {}in/{}out tokens", agent_id, cost, input_tok, output_tok);
+                                    let _ = db.add_agent_cost(&agent_id, cost, input_tok, output_tok);
                                     // Emit cost event so frontend can update
-                                    let _ = app_handle.emit("task-cost", serde_json::json!({
-                                        "task_id": task_id,
+                                    let _ = app_handle.emit("agent-cost", serde_json::json!({
+                                        "agent_id": agent_id,
                                         "cost_usd": cost,
                                         "input_tokens": input_tok,
                                         "output_tokens": output_tok,
@@ -336,7 +336,7 @@ impl ClaudeProcessService {
                                 }
                             }
                             ClaudeMessage::System { message } => {
-                                debug!("[{}] System message: {}", task_id, message);
+                                debug!("[{}] System message: {}", agent_id, message);
                                 emitter.emit(ParsedOutput::system(message));
                             }
                         }
@@ -347,22 +347,22 @@ impl ClaudeProcessService {
 
                     // Log every 100 processed
                     if processed % 100 == 0 {
-                        debug!("[{}] Processed {} messages", task_id, processed);
+                        debug!("[{}] Processed {} messages", agent_id, processed);
                     }
                 }
 
                 let dropped = dropped_lines.load(Ordering::Relaxed);
                 if dropped > 0 {
-                    warn!("[{}] Dropped {} lines due to backpressure!", task_id, dropped);
+                    warn!("[{}] Dropped {} lines due to backpressure!", agent_id, dropped);
                 }
                 info!("[{}] Stdout processor finished: {} messages in {:?}",
-                      task_id, processed, start.elapsed());
+                      agent_id, processed, start.elapsed());
             });
         }
 
         // Spawn stderr monitoring with decoupled reading and processing
         if let Some(stderr) = stderr {
-            let task_id = task_id_owned.clone();
+            let agent_id = agent_id_owned.clone();
             let app_handle = app_handle.clone();
 
             let (tx, rx) = std::sync::mpsc::sync_channel::<String>(1000);
@@ -377,7 +377,7 @@ impl ClaudeProcessService {
 
             // Processor thread
             thread::spawn(move || {
-                let emitter = BatchedOutputEmitter::new(app_handle, task_id);
+                let emitter = BatchedOutputEmitter::new(app_handle, agent_id);
                 while let Ok(line) = rx.recv() {
                     emitter.emit(ParsedOutput::stderr(line));
                 }
@@ -385,68 +385,68 @@ impl ClaudeProcessService {
         }
 
         // Spawn a thread to monitor process completion
-        let task_id_for_monitor = task_id_owned;
+        let agent_id_for_monitor = agent_id_owned;
         let processes_ref = Arc::clone(&self.processes);
         let intentionally_stopped_ref = Arc::clone(&self.intentionally_stopped);
         let process_start = start_time;
 
         thread::spawn(move || {
-            info!("[{}] Waiting for Claude process to complete...", task_id_for_monitor);
+            info!("[{}] Waiting for Claude process to complete...", agent_id_for_monitor);
             let exit_status = child.wait();
 
             let total_time = process_start.elapsed();
             info!("[{}] Claude process exited: {:?}, total time: {:?}",
-                  task_id_for_monitor, exit_status, total_time);
+                  agent_id_for_monitor, exit_status, total_time);
 
             // Remove from active processes
             {
                 let mut procs = processes_ref.lock().unwrap();
-                procs.remove(&task_id_for_monitor);
+                procs.remove(&agent_id_for_monitor);
             }
 
             // Check if this was an intentional stop (follow-up, manual stop, etc.)
             let was_intentional = {
                 let mut stopped = intentionally_stopped_ref.lock().unwrap();
-                stopped.remove(&task_id_for_monitor)
+                stopped.remove(&agent_id_for_monitor)
             };
 
             if was_intentional {
-                info!("[{}] Process was intentionally stopped, skipping status update", task_id_for_monitor);
+                info!("[{}] Process was intentionally stopped, skipping status update", agent_id_for_monitor);
                 return;
             }
 
             // Determine final status
             let status = match exit_status {
-                Ok(s) if s.success() => TaskStatus::Completed,
-                _ => TaskStatus::Error,
+                Ok(s) if s.success() => AgentStatus::Completed,
+                _ => AgentStatus::Error,
             };
 
             // Update database - clear PID since process is done
-            let _ = db.update_task_status_and_pid(&task_id_for_monitor, status.clone(), None);
+            let _ = db.update_agent_status_and_pid(&agent_id_for_monitor, status.clone(), None);
 
             // Emit status change event
             let event = StatusEvent {
-                task_id: task_id_for_monitor.clone(),
+                agent_id: agent_id_for_monitor.clone(),
                 status: status.as_str().to_string(),
             };
-            let _ = app_handle.emit("task-status", event);
+            let _ = app_handle.emit("agent-status", event);
 
             // Save notification to DB and emit event
-            let title = if status == TaskStatus::Completed { "Task Completed" } else { "Task Failed" };
-            let body = format!("Task has {}", if status == TaskStatus::Completed { "completed successfully" } else { "encountered an error" });
-            let notif_type = if status == TaskStatus::Completed { "completed" } else { "error" };
-            let _ = db.insert_notification(Some(&task_id_for_monitor), title, &body, notif_type);
+            let title = if status == AgentStatus::Completed { "Agent Completed" } else { "Agent Failed" };
+            let body = format!("Agent has {}", if status == AgentStatus::Completed { "completed successfully" } else { "encountered an error" });
+            let notif_type = if status == AgentStatus::Completed { "completed" } else { "error" };
+            let _ = db.insert_notification(Some(&agent_id_for_monitor), title, &body, notif_type);
             let _ = app_handle.emit(
-                "task-notification",
+                "agent-notification",
                 serde_json::json!({
-                    "task_id": task_id_for_monitor,
+                    "agent_id": agent_id_for_monitor,
                     "title": title,
                     "body": body,
                     "notification_type": notif_type,
                 }),
             );
 
-            // Check queue: start next queued task if there's capacity
+            // Check queue: start next queued agent if there's capacity
             Self::drain_queue(Arc::clone(&db), app_handle, processes_ref);
         });
 
@@ -454,16 +454,16 @@ impl ClaudeProcessService {
     }
 
     /// Stop a running Claude process
-    pub fn stop(&self, task_id: &str) -> Result<()> {
+    pub fn stop(&self, agent_id: &str) -> Result<()> {
         // Mark as intentionally stopped so monitor thread doesn't set Error status
         {
             let mut stopped = self.intentionally_stopped.lock().unwrap();
-            stopped.insert(task_id.to_string());
+            stopped.insert(agent_id.to_string());
         }
 
         let pid = {
             let mut processes = self.processes.lock().unwrap();
-            processes.remove(task_id)
+            processes.remove(agent_id)
         };
 
         if let Some(pid) = pid {
@@ -485,15 +485,15 @@ impl ClaudeProcessService {
     }
 
     /// Check if a process is still running
-    pub fn is_running(&self, task_id: &str) -> bool {
+    pub fn is_running(&self, agent_id: &str) -> bool {
         let processes = self.processes.lock().unwrap();
-        processes.contains_key(task_id)
+        processes.contains_key(agent_id)
     }
 
     /// Get the PID of a running process
-    pub fn get_pid(&self, task_id: &str) -> Option<u32> {
+    pub fn get_pid(&self, agent_id: &str) -> Option<u32> {
         let processes = self.processes.lock().unwrap();
-        processes.get(task_id).copied()
+        processes.get(agent_id).copied()
     }
 
     /// Check if a PID is still running (static method for startup recovery)
@@ -526,12 +526,12 @@ impl ClaudeProcessService {
         // Mark all as intentionally stopped
         {
             let mut stopped = self.intentionally_stopped.lock().unwrap();
-            for (task_id, _) in &pids {
-                stopped.insert(task_id.clone());
+            for (agent_id, _) in &pids {
+                stopped.insert(agent_id.clone());
             }
         }
 
-        for (task_id, pid) in pids {
+        for (agent_id, pid) in pids {
             #[cfg(unix)]
             {
                 // Send SIGTERM first
@@ -542,7 +542,7 @@ impl ClaudeProcessService {
 
             // Remove from map
             let mut processes = self.processes.lock().unwrap();
-            processes.remove(&task_id);
+            processes.remove(&agent_id);
         }
 
         // Wait a bit for processes to terminate
@@ -551,14 +551,14 @@ impl ClaudeProcessService {
         // Force kill any remaining (would need to track which didn't exit)
     }
 
-    /// Check if there are queued tasks that should be started
+    /// Check if there are queued agents that should be started
     fn drain_queue(
         db: Arc<Database>,
         app_handle: AppHandle,
         processes: Arc<Mutex<HashMap<String, u32>>>,
     ) {
         let max_concurrent: u32 = db
-            .get_setting("max_concurrent_tasks")
+            .get_setting("max_concurrent_agents")
             .ok()
             .flatten()
             .and_then(|v| v.parse().ok())
@@ -577,15 +577,15 @@ impl ClaudeProcessService {
             return; // Still at capacity
         }
 
-        // Get next queued task
-        if let Ok(queued_tasks) = db.get_queued_tasks() {
-            if let Some(next_task) = queued_tasks.into_iter().next() {
-                info!("Draining queue: starting task {}", next_task.id);
-                // Emit event so frontend knows to start this task
+        // Get next queued agent
+        if let Ok(queued_agents) = db.get_queued_agents() {
+            if let Some(next_agent) = queued_agents.into_iter().next() {
+                info!("Draining queue: starting agent {}", next_agent.id);
+                // Emit event so frontend knows to start this agent
                 let _ = app_handle.emit(
                     "queue-drain",
                     serde_json::json!({
-                        "task_id": next_task.id,
+                        "agent_id": next_agent.id,
                     }),
                 );
             }

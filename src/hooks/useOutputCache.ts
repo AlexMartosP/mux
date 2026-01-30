@@ -1,4 +1,4 @@
-import type { OutputLine } from "../types/task";
+import type { OutputLine } from "../types/agent";
 
 interface CachedOutput {
   output: OutputLine[];

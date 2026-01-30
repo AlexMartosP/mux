@@ -8,7 +8,7 @@ import type { PermissionRequest } from "../lib/tauri";
 import * as tauri from "../lib/tauri";
 
 interface PermissionTimeoutEvent {
-  task_id: string;
+  agent_id: string;
   request_id: string;
   tool_name: string;
   message: string;
@@ -51,15 +51,15 @@ async function sendTimeoutNotification(event: PermissionTimeoutEvent) {
     if (!granted) return;
 
     sendNotification({
-      title: "Task Paused - Approval Needed",
-      body: `${event.tool_name} is waiting for your approval. Task will resume when approved.`,
+      title: "Agent Paused - Approval Needed",
+      body: `${event.tool_name} is waiting for your approval. Agent will resume when approved.`,
     });
   } catch {
     // Silently fail if notification can't be sent
   }
 }
 
-export function usePermissions(taskId?: string | null) {
+export function usePermissions(agentId?: string | null) {
   const [pendingRequests, setPendingRequests] = useState<PermissionRequest[]>(globalRequests);
 
   // Set global setter on mount
@@ -124,20 +124,20 @@ export function usePermissions(taskId?: string | null) {
     }
   }, []);
 
-  // Filter by task_id if provided
+  // Filter by agent_id if provided
   const filteredRequests = useMemo(() => {
-    if (!taskId) return pendingRequests;
-    return pendingRequests.filter((r) => r.task_id === taskId);
-  }, [pendingRequests, taskId]);
+    if (!agentId) return pendingRequests;
+    return pendingRequests.filter((r) => r.agent_id === agentId);
+  }, [pendingRequests, agentId]);
 
-  // Get the first pending request for this task (FIFO)
+  // Get the first pending request for this agent (FIFO)
   const currentRequest = filteredRequests.length > 0 ? filteredRequests[0] : null;
 
-  // Get all task IDs with pending permissions
-  const pendingTaskIds = useMemo(() => {
+  // Get all agent IDs with pending permissions
+  const pendingAgentIds = useMemo(() => {
     const ids = new Set<string>();
     for (const req of pendingRequests) {
-      ids.add(req.task_id);
+      ids.add(req.agent_id);
     }
     return ids;
   }, [pendingRequests]);
@@ -146,7 +146,7 @@ export function usePermissions(taskId?: string | null) {
     currentRequest,
     pendingCount: filteredRequests.length,
     totalPendingCount: pendingRequests.length,
-    pendingTaskIds,
+    pendingAgentIds,
     dismissRequest,
   };
 }

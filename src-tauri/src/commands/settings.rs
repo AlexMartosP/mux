@@ -1,4 +1,4 @@
-use crate::commands::task::AppState;
+use crate::commands::agent::AppState;
 use crate::error::{AppError, Result};
 use directories::BaseDirs;
 use serde::{Deserialize, Serialize};
@@ -18,8 +18,8 @@ pub struct AppSettings {
     pub prompt_for_permissions: bool,
     /// Theme ID (e.g., "terminal", "clean", "clean-light")
     pub theme: Option<String>,
-    /// Maximum number of concurrently running tasks (0 = unlimited)
-    pub max_concurrent_tasks: u32,
+    /// Maximum number of concurrently running agents (0 = unlimited)
+    pub max_concurrent_agents: u32,
     /// If true, send messages with Enter. If false (default), send with Cmd/Ctrl+Enter.
     pub send_with_enter: bool,
     /// Font size multiplier (0.8 = small, 1.0 = default, 1.2 = large, 1.4 = extra large)
@@ -35,7 +35,7 @@ impl Default for AppSettings {
             notify_on_error: true,
             prompt_for_permissions: false, // Default to auto-approve for backward compatibility
             theme: Some("terminal".to_string()),
-            max_concurrent_tasks: 0, // 0 = unlimited
+            max_concurrent_agents: 0, // 0 = unlimited
             send_with_enter: false, // Default to Cmd/Ctrl+Enter
             font_size: 1.0, // Default font size multiplier
         }
@@ -63,9 +63,9 @@ pub fn get_settings(state: State<Arc<AppState>>) -> Result<AppSettings> {
             .map(|v| v == "true")
             .unwrap_or(false),
         theme: settings_map.get("theme").cloned(),
-        max_concurrent_tasks: settings_map
-            .get("max_concurrent_tasks")
-            .and_then(|v| v.parse().ok())
+        max_concurrent_agents: settings_map
+            .get("max_concurrent_agents")
+            .and_then(|v: &String| v.parse().ok())
             .unwrap_or(0),
         send_with_enter: settings_map
             .get("send_with_enter")
@@ -73,7 +73,7 @@ pub fn get_settings(state: State<Arc<AppState>>) -> Result<AppSettings> {
             .unwrap_or(false),
         font_size: settings_map
             .get("font_size")
-            .and_then(|v| v.parse().ok())
+            .and_then(|v: &String| v.parse().ok())
             .unwrap_or(1.0),
     })
 }
@@ -98,7 +98,7 @@ pub fn update_settings(state: State<Arc<AppState>>, settings: AppSettings) -> Re
         .set_setting("prompt_for_permissions", &settings.prompt_for_permissions.to_string())?;
     state
         .db
-        .set_setting("max_concurrent_tasks", &settings.max_concurrent_tasks.to_string())?;
+        .set_setting("max_concurrent_agents", &settings.max_concurrent_agents.to_string())?;
     state
         .db
         .set_setting("send_with_enter", &settings.send_with_enter.to_string())?;
@@ -377,7 +377,7 @@ pub fn uninstall_claude_hook() -> Result<()> {
 #[tauri::command]
 pub fn add_permission_rule(
     state: State<Arc<AppState>>,
-    task_id: String,
+    agent_id: String,
     tool_name: String,
     tool_input: Value,
     scope: String,
@@ -386,12 +386,12 @@ pub fn add_permission_rule(
     let rule = generate_permission_rule(&tool_name, &tool_input);
 
     let settings_path = if scope == "project" {
-        // Get the worktree path from the task
-        let task = state.db.get_task(&task_id)?
-            .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+        // Get the worktree path from the agent
+        let agent = state.db.get_agent(&agent_id)?
+            .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
 
         // Find or create .claude/settings.local.json in worktree
-        let worktree_path = PathBuf::from(&task.worktree_path);
+        let worktree_path = PathBuf::from(&agent.worktree_path);
         let claude_dir = worktree_path.join(".claude");
         fs::create_dir_all(&claude_dir)?;
         claude_dir.join("settings.local.json")

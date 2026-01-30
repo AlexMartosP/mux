@@ -1,6 +1,6 @@
 use crate::db::Database;
 use crate::error::Result;
-use crate::models::TaskStatus;
+use crate::models::AgentStatus;
 use crate::services::ClaudeProcessService;
 use log::{info, warn};
 use serde::{Deserialize, Serialize};
@@ -23,19 +23,19 @@ pub enum IPCCommand {
     #[serde(rename = "list")]
     List,
     #[serde(rename = "status")]
-    Status { task_id: String },
+    Status { agent_id: String },
     #[serde(rename = "takeover")]
-    Takeover { task_id: String },
+    Takeover { agent_id: String },
     #[serde(rename = "handback")]
     Handback {
-        task_id: String,
+        agent_id: String,
         prompt: Option<String>,
     },
     /// Permission request from Claude Code hook
     #[serde(rename = "permission_request")]
     PermissionRequest {
         request_id: String,
-        task_id: String,
+        agent_id: String,
         tool_name: String,
         tool_input: serde_json::Value,
     },
@@ -45,7 +45,7 @@ pub enum IPCCommand {
 #[derive(Debug, Clone, Serialize)]
 pub struct PermissionRequestEvent {
     pub request_id: String,
-    pub task_id: String,
+    pub agent_id: String,
     pub tool_name: String,
     pub tool_input: serde_json::Value,
 }
@@ -92,7 +92,7 @@ impl IPCResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub struct TaskInfo {
+pub struct AgentInfo {
     pub id: String,
     pub name: String,
     pub status: String,
@@ -111,7 +111,7 @@ fn get_pending_permissions() -> &'static PendingPermissions {
 /// Info about a permission request that timed out while waiting for user response
 #[derive(Debug, Clone, Serialize)]
 pub struct TimedOutRequest {
-    pub task_id: String,
+    pub agent_id: String,
     pub tool_name: String,
     pub tool_input: serde_json::Value,
 }
@@ -128,7 +128,7 @@ fn get_timed_out_requests() -> &'static TimedOutRequests {
 /// Pre-approved permission (approved after timeout, waiting for Claude to re-request)
 #[derive(Debug, Clone)]
 pub struct PreApprovedPermission {
-    pub task_id: String,
+    pub agent_id: String,
     pub tool_name: String,
     pub approved_at: std::time::Instant,
 }
@@ -143,7 +143,7 @@ fn get_pre_approved_permissions() -> &'static PreApprovedPermissions {
 }
 
 /// Check if a permission was pre-approved (after a timeout)
-pub fn check_pre_approved(task_id: &str, tool_name: &str) -> Option<String> {
+pub fn check_pre_approved(agent_id: &str, tool_name: &str) -> Option<String> {
     let pre_approved = get_pre_approved_permissions();
     let mut list = pre_approved.lock().unwrap();
 
@@ -152,7 +152,7 @@ pub fn check_pre_approved(task_id: &str, tool_name: &str) -> Option<String> {
     list.retain(|p| now.duration_since(p.approved_at).as_secs() < 300);
 
     // Find and remove matching pre-approval
-    if let Some(pos) = list.iter().position(|p| p.task_id == task_id && p.tool_name == tool_name) {
+    if let Some(pos) = list.iter().position(|p| p.agent_id == agent_id && p.tool_name == tool_name) {
         let approval = list.remove(pos);
         return Some(format!("Pre-approved after timeout: {}", approval.tool_name));
     }
@@ -160,11 +160,11 @@ pub fn check_pre_approved(task_id: &str, tool_name: &str) -> Option<String> {
 }
 
 /// Add a pre-approved permission
-pub fn add_pre_approved(task_id: &str, tool_name: &str) {
+pub fn add_pre_approved(agent_id: &str, tool_name: &str) {
     let pre_approved = get_pre_approved_permissions();
     let mut list = pre_approved.lock().unwrap();
     list.push(PreApprovedPermission {
-        task_id: task_id.to_string(),
+        agent_id: agent_id.to_string(),
         tool_name: tool_name.to_string(),
         approved_at: std::time::Instant::now(),
     });
@@ -182,7 +182,7 @@ pub fn take_timed_out_request(request_id: &str) -> Option<TimedOutRequest> {
 pub struct PermissionResponseResult {
     /// Whether the response was successfully sent
     pub sent: bool,
-    /// If this was a timed-out request that was approved, contains task info for restart
+    /// If this was a timed-out request that was approved, contains agent info for restart
     pub restart_task: Option<TimedOutRequest>,
 }
 
@@ -207,18 +207,18 @@ pub fn respond_to_permission(request_id: &str, decision: PermissionDecision) -> 
             // User approved after timeout - add pre-approval for when Claude restarts
             info!(
                 "[{}] User approved timed-out permission for {}. Will auto-approve on restart.",
-                timed_out_req.task_id, timed_out_req.tool_name
+                timed_out_req.agent_id, timed_out_req.tool_name
             );
-            add_pre_approved(&timed_out_req.task_id, &timed_out_req.tool_name);
+            add_pre_approved(&timed_out_req.agent_id, &timed_out_req.tool_name);
             return PermissionResponseResult {
                 sent: true,
                 restart_task: Some(timed_out_req),
             };
         } else {
-            // User denied after timeout - just dismiss, task stays stopped
+            // User denied after timeout - just dismiss, agent stays stopped
             info!(
-                "[{}] User denied timed-out permission for {}. Task remains stopped.",
-                timed_out_req.task_id, timed_out_req.tool_name
+                "[{}] User denied timed-out permission for {}. Agent remains stopped.",
+                timed_out_req.agent_id, timed_out_req.tool_name
             );
             return PermissionResponseResult { sent: true, restart_task: None };
         }
@@ -330,7 +330,7 @@ fn handle_client(
     // Handle permission requests specially - they need to block until user responds
     if let IPCCommand::PermissionRequest {
         request_id,
-        task_id,
+        agent_id,
         tool_name,
         tool_input,
     } = command
@@ -341,7 +341,7 @@ fn handle_client(
             &claude,
             &app_handle,
             request_id,
-            task_id,
+            agent_id,
             tool_name,
             tool_input,
         );
@@ -371,19 +371,19 @@ fn handle_permission_request(
     claude: &Arc<ClaudeProcessService>,
     app_handle: &AppHandle,
     request_id: String,
-    task_id: String,
+    agent_id: String,
     tool_name: String,
     tool_input: serde_json::Value,
 ) -> Result<()> {
-    // Clone values needed after the event emission (which moves task_id, tool_input)
-    let task_id_for_timeout = task_id.clone();
+    // Clone values needed after the event emission (which moves agent_id, tool_input)
+    let agent_id_for_timeout = agent_id.clone();
     let request_id_for_timeout = request_id.clone();
     let tool_name_for_timeout = tool_name.clone();
     let tool_input_for_timeout = tool_input.clone();
 
     // Check for pre-approved permission (approved after a previous timeout)
-    if let Some(reason) = check_pre_approved(&task_id, &tool_name) {
-        info!("[{}] Auto-approving pre-approved permission: {} - {}", task_id, tool_name, reason);
+    if let Some(reason) = check_pre_approved(&agent_id, &tool_name) {
+        info!("[{}] Auto-approving pre-approved permission: {} - {}", agent_id, tool_name, reason);
         let hook_response = serde_json::json!({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -426,7 +426,7 @@ fn handle_permission_request(
 
     // Check if this is a read-only operation that can be auto-approved
     if let Some(reason) = is_safe_read_only_operation(&tool_name, &tool_input) {
-        info!("[{}] Auto-approving read-only operation: {} - {}", task_id, tool_name, reason);
+        info!("[{}] Auto-approving read-only operation: {} - {}", agent_id, tool_name, reason);
         let hook_response = serde_json::json!({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -442,12 +442,12 @@ fn handle_permission_request(
         return Ok(());
     }
 
-    // Check if auto_accept_edits is enabled for this task (Write/Edit auto-approve)
+    // Check if auto_accept_edits is enabled for this agent (Write/Edit auto-approve)
     {
-        let task = db.get_task(&task_id).ok().flatten();
-        if let Some(ref t) = task {
-            if t.auto_accept_edits && (tool_name == "Write" || tool_name == "Edit" || tool_name == "NotebookEdit") {
-                info!("[{}] Auto-approving edit (auto_accept_edits enabled): {}", task_id, tool_name);
+        let agent = db.get_agent(&agent_id).ok().flatten();
+        if let Some(ref a) = agent {
+            if a.auto_accept_edits && (tool_name == "Write" || tool_name == "Edit" || tool_name == "NotebookEdit") {
+                info!("[{}] Auto-approving edit (auto_accept_edits enabled): {}", agent_id, tool_name);
                 let hook_response = serde_json::json!({
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",
@@ -464,9 +464,9 @@ fn handle_permission_request(
             }
         }
 
-        let working_dir = task.map(|t| t.worktree_path.clone());
+        let working_dir = agent.map(|a| a.worktree_path.clone());
         if let Some(reason) = is_allowed_by_claude_settings(&tool_name, &tool_input, working_dir.as_deref()) {
-            info!("[{}] Auto-approving via Claude settings: {} - {}", task_id, tool_name, reason);
+            info!("[{}] Auto-approving via Claude settings: {} - {}", agent_id, tool_name, reason);
             let hook_response = serde_json::json!({
                 "hookSpecificOutput": {
                     "hookEventName": "PreToolUse",
@@ -496,7 +496,7 @@ fn handle_permission_request(
     // Emit event to frontend
     let event = PermissionRequestEvent {
         request_id: request_id.clone(),
-        task_id,
+        agent_id,
         tool_name,
         tool_input,
     };
@@ -519,7 +519,7 @@ fn handle_permission_request(
                 let timed_out = get_timed_out_requests();
                 let mut map = timed_out.lock().unwrap();
                 map.insert(request_id_for_timeout.clone(), TimedOutRequest {
-                    task_id: task_id_for_timeout.clone(),
+                    agent_id: agent_id_for_timeout.clone(),
                     tool_name: tool_name_for_timeout.clone(),
                     tool_input: tool_input_for_timeout,
                 });
@@ -529,38 +529,38 @@ fn handle_permission_request(
             // without approval. Claude Code has a 60s timeout and may continue
             // executing if we don't respond in time.
             warn!(
-                "[{}] Permission request timed out after {}s, stopping task. User can still approve and task will resume.",
-                task_id_for_timeout, PERMISSION_TIMEOUT_SECS
+                "[{}] Permission request timed out after {}s, stopping agent. User can still approve and agent will resume.",
+                agent_id_for_timeout, PERMISSION_TIMEOUT_SECS
             );
 
-            if let Err(e) = claude.stop(&task_id_for_timeout) {
-                warn!("[{}] Failed to stop task after permission timeout: {}", task_id_for_timeout, e);
+            if let Err(e) = claude.stop(&agent_id_for_timeout) {
+                warn!("[{}] Failed to stop agent after permission timeout: {}", agent_id_for_timeout, e);
             }
 
-            // Update task status to idle (paused, waiting for user)
-            if let Err(e) = db.update_task_status(&task_id_for_timeout, TaskStatus::Idle) {
-                warn!("[{}] Failed to update task status after permission timeout: {}", task_id_for_timeout, e);
+            // Update agent status to idle (paused, waiting for user)
+            if let Err(e) = db.update_agent_status(&agent_id_for_timeout, AgentStatus::Idle) {
+                warn!("[{}] Failed to update agent status after permission timeout: {}", agent_id_for_timeout, e);
             }
 
             // Emit events to notify frontend (permission request stays visible)
-            let _ = app_handle.emit("task-status", serde_json::json!({
-                "task_id": task_id_for_timeout,
+            let _ = app_handle.emit("agent-status", serde_json::json!({
+                "agent_id": agent_id_for_timeout,
                 "status": "idle"
             }));
 
             let _ = app_handle.emit("permission-timeout", serde_json::json!({
-                "task_id": task_id_for_timeout,
+                "agent_id": agent_id_for_timeout,
                 "request_id": request_id_for_timeout,
                 "tool_name": tool_name_for_timeout,
                 "timed_out": true,
-                "message": format!("Task paused after {}s. Approve to continue.", PERMISSION_TIMEOUT_SECS)
+                "message": format!("Agent paused after {}s. Approve to continue.", PERMISSION_TIMEOUT_SECS)
             }));
 
             // Return deny to close the IPC connection gracefully
             // The permission request stays visible in UI for user to respond later
             PermissionDecision {
                 behavior: "deny".to_string(),
-                reason: Some("Timed out - task paused, awaiting user response".to_string()),
+                reason: Some("Timed out - agent paused, awaiting user response".to_string()),
             }
         }
     };
@@ -590,10 +590,10 @@ fn process_command(
 ) -> IPCResponse {
     match command {
         IPCCommand::List => handle_list(db),
-        IPCCommand::Status { task_id } => handle_status(db, &task_id),
-        IPCCommand::Takeover { task_id } => handle_takeover(db, claude, app_handle, &task_id),
-        IPCCommand::Handback { task_id, prompt } => {
-            handle_handback(db, claude, app_handle, &task_id, prompt)
+        IPCCommand::Status { agent_id } => handle_status(db, &agent_id),
+        IPCCommand::Takeover { agent_id } => handle_takeover(db, claude, app_handle, &agent_id),
+        IPCCommand::Handback { agent_id, prompt } => {
+            handle_handback(db, claude, app_handle, &agent_id, prompt)
         }
         // Permission requests are handled separately in handle_client
         IPCCommand::PermissionRequest { .. } => {
@@ -603,37 +603,37 @@ fn process_command(
 }
 
 fn handle_list(db: &Arc<Database>) -> IPCResponse {
-    match db.get_all_tasks() {
-        Ok(tasks) => {
-            let task_infos: Vec<TaskInfo> = tasks
+    match db.get_all_agents() {
+        Ok(agents) => {
+            let agent_infos: Vec<AgentInfo> = agents
                 .into_iter()
-                .map(|t| TaskInfo {
-                    id: t.id,
-                    name: t.name,
-                    status: t.status.as_str().to_string(),
-                    worktree_path: t.worktree_path,
-                    branch: t.branch,
-                    repository: t.repository_path,
+                .map(|a| AgentInfo {
+                    id: a.id,
+                    name: a.name,
+                    status: a.status.as_str().to_string(),
+                    worktree_path: a.worktree_path,
+                    branch: a.branch,
+                    repository: a.repository_path,
                 })
                 .collect();
-            IPCResponse::success(task_infos)
+            IPCResponse::success(agent_infos)
         }
-        Err(e) => IPCResponse::error(format!("Failed to list tasks: {}", e)),
+        Err(e) => IPCResponse::error(format!("Failed to list agents: {}", e)),
     }
 }
 
-fn handle_status(db: &Arc<Database>, task_id: &str) -> IPCResponse {
-    match db.get_task(task_id) {
-        Ok(Some(task)) => IPCResponse::success(TaskInfo {
-            id: task.id,
-            name: task.name,
-            status: task.status.as_str().to_string(),
-            worktree_path: task.worktree_path,
-            branch: task.branch,
-            repository: task.repository_path,
+fn handle_status(db: &Arc<Database>, agent_id: &str) -> IPCResponse {
+    match db.get_agent(agent_id) {
+        Ok(Some(agent)) => IPCResponse::success(AgentInfo {
+            id: agent.id,
+            name: agent.name,
+            status: agent.status.as_str().to_string(),
+            worktree_path: agent.worktree_path,
+            branch: agent.branch,
+            repository: agent.repository_path,
         }),
-        Ok(None) => IPCResponse::error(format!("Task not found: {}", task_id)),
-        Err(e) => IPCResponse::error(format!("Failed to get task: {}", e)),
+        Ok(None) => IPCResponse::error(format!("Agent not found: {}", agent_id)),
+        Err(e) => IPCResponse::error(format!("Failed to get agent: {}", e)),
     }
 }
 
@@ -641,41 +641,41 @@ fn handle_takeover(
     db: &Arc<Database>,
     claude: &Arc<ClaudeProcessService>,
     app_handle: &AppHandle,
-    task_id: &str,
+    agent_id: &str,
 ) -> IPCResponse {
-    // Get the task
-    let task = match db.get_task(task_id) {
-        Ok(Some(t)) => t,
-        Ok(None) => return IPCResponse::error(format!("Task not found: {}", task_id)),
-        Err(e) => return IPCResponse::error(format!("Failed to get task: {}", e)),
+    // Get the agent
+    let agent = match db.get_agent(agent_id) {
+        Ok(Some(a)) => a,
+        Ok(None) => return IPCResponse::error(format!("Agent not found: {}", agent_id)),
+        Err(e) => return IPCResponse::error(format!("Failed to get agent: {}", e)),
     };
 
     // Stop the Claude process if running
-    if task.status == TaskStatus::Running {
-        if let Err(e) = claude.stop(task_id) {
+    if agent.status == AgentStatus::Running {
+        if let Err(e) = claude.stop(agent_id) {
             return IPCResponse::error(format!("Failed to stop process: {}", e));
         }
     }
 
     // Update status to manual_control
-    if let Err(e) = db.update_task_status(task_id, TaskStatus::ManualControl) {
+    if let Err(e) = db.update_agent_status(agent_id, AgentStatus::ManualControl) {
         return IPCResponse::error(format!("Failed to update status: {}", e));
     }
 
     // Emit status change event
     let _ = app_handle.emit(
-        "task-status",
+        "agent-status",
         serde_json::json!({
-            "task_id": task_id,
+            "agent_id": agent_id,
             "status": "manual_control"
         }),
     );
 
     IPCResponse::success(serde_json::json!({
-        "message": format!("Task '{}' is now in manual control mode", task.name),
-        "worktree_path": task.worktree_path,
-        "branch": task.branch,
-        "hint": format!("cd {}", task.worktree_path)
+        "message": format!("Agent '{}' is now in manual control mode", agent.name),
+        "worktree_path": agent.worktree_path,
+        "branch": agent.branch,
+        "hint": format!("cd {}", agent.worktree_path)
     }))
 }
 
@@ -683,21 +683,21 @@ fn handle_handback(
     db: &Arc<Database>,
     claude: &Arc<ClaudeProcessService>,
     app_handle: &AppHandle,
-    task_id: &str,
+    agent_id: &str,
     prompt: Option<String>,
 ) -> IPCResponse {
-    // Get the task
-    let task = match db.get_task(task_id) {
-        Ok(Some(t)) => t,
-        Ok(None) => return IPCResponse::error(format!("Task not found: {}", task_id)),
-        Err(e) => return IPCResponse::error(format!("Failed to get task: {}", e)),
+    // Get the agent
+    let agent = match db.get_agent(agent_id) {
+        Ok(Some(a)) => a,
+        Ok(None) => return IPCResponse::error(format!("Agent not found: {}", agent_id)),
+        Err(e) => return IPCResponse::error(format!("Failed to get agent: {}", e)),
     };
 
-    // Check if task is in manual control mode
-    if task.status != TaskStatus::ManualControl {
+    // Check if agent is in manual control mode
+    if agent.status != AgentStatus::ManualControl {
         return IPCResponse::error(format!(
-            "Task is not in manual control mode (current status: {})",
-            task.status.as_str()
+            "Agent is not in manual control mode (current status: {})",
+            agent.status.as_str()
         ));
     }
 
@@ -710,27 +710,27 @@ fn handle_handback(
     match claude.start(
         app_handle.clone(),
         Arc::clone(db),
-        task_id,
-        &task.worktree_path,
+        agent_id,
+        &agent.worktree_path,
         &resume_prompt,
         true, // Continue conversation for handback
     ) {
         Ok(_) => {
             // Update status to running
-            let _ = db.update_task_status(task_id, TaskStatus::Running);
+            let _ = db.update_agent_status(agent_id, AgentStatus::Running);
 
             // Emit status change event
             let _ = app_handle.emit(
-                "task-status",
+                "agent-status",
                 serde_json::json!({
-                    "task_id": task_id,
+                    "agent_id": agent_id,
                     "status": "running"
                 }),
             );
 
             IPCResponse::ok(format!(
-                "Task '{}' has been handed back to Claude",
-                task.name
+                "Agent '{}' has been handed back to Claude",
+                agent.name
             ))
         }
         Err(e) => IPCResponse::error(format!("Failed to restart Claude: {}", e)),

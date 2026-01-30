@@ -1,4 +1,5 @@
-export type TaskStatus =
+export type AgentStatus =
+  | "setting_up"
   | "idle"
   | "running"
   | "waiting_input"
@@ -6,16 +7,17 @@ export type TaskStatus =
   | "error"
   | "manual_control"
   | "interrupted"
-  | "queued";
+  | "queued"
+  | "in_review";
 
-export interface Task {
+export interface Agent {
   id: string;
   name: string;
   description: string;
   repository_path: string;
   branch: string;
   worktree_path: string;
-  status: TaskStatus;
+  status: AgentStatus;
   prompt: string;
   created_at: string;
   pr_url?: string;
@@ -28,11 +30,25 @@ export interface Task {
   base_branch?: string;
   total_additions?: number;
   total_deletions?: number;
+  workspace_id?: string;
+}
+
+export interface Workspace {
+  id: string;
+  name: string;
+  repos_folder_path: string;
+  created_at: string;
+  is_default: boolean;
+}
+
+export interface RepositoryInfo {
+  name: string;
+  path: string;
 }
 
 export interface NotificationEntry {
   id: number;
-  task_id?: string;
+  agent_id?: string;
   title: string;
   body: string;
   notification_type: string;
@@ -44,7 +60,7 @@ export interface CostSummary {
   total_cost_usd: number;
   total_input_tokens: number;
   total_output_tokens: number;
-  task_count: number;
+  agent_count: number;
 }
 
 export interface BranchInfo {
@@ -54,8 +70,8 @@ export interface BranchInfo {
   last_commit_date: string;
 }
 
-export interface TaskMetadataEvent {
-  task_id: string;
+export interface AgentMetadataEvent {
+  agent_id: string;
   name: string;
   description: string;
   branch: string;
@@ -63,11 +79,11 @@ export interface TaskMetadataEvent {
 }
 
 export interface DescriptionEvent {
-  task_id: string;
+  agent_id: string;
   description: string;
 }
 
-export interface CreateTaskInput {
+export interface SpawnAgentInput {
   repository_path: string;
   prompt: string;
   existing_branch?: string;
@@ -83,19 +99,27 @@ export interface OutputLine {
 }
 
 export interface OutputEvent {
-  task_id: string;
+  agent_id: string;
   output_type: string;
   content: string;
   timestamp: string;
 }
 
 export interface StatusEvent {
-  task_id: string;
+  agent_id: string;
   status: string;
 }
 
+export type SetupStage = "initializing" | "creating_worktree" | "generating_metadata" | "starting_agent";
+
+export interface SetupProgressEvent {
+  agent_id: string;
+  stage: SetupStage;
+  message: string;
+}
+
 export interface ActivityEvent {
-  task_id: string;
+  agent_id: string;
   activity_type: "tool_use" | "tool_result" | "thinking" | "text";
   tool_name?: string;
   tool_input?: Record<string, unknown>;
@@ -154,3 +178,9 @@ export interface PRPreview {
   has_existing_pr: boolean;
   existing_pr_url?: string;
 }
+
+// Re-export old names as aliases for backwards compatibility during transition
+export type TaskStatus = AgentStatus;
+export type Task = Agent;
+export type TaskMetadataEvent = AgentMetadataEvent;
+export type CreateTaskInput = SpawnAgentInput;

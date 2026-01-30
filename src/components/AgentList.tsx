@@ -1,39 +1,41 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import { GitPullRequest } from "lucide-react";
-import type { Task, TaskStatus } from "../types/task";
+import type { Agent, AgentStatus } from "../types/agent";
 import * as tauri from "../lib/tauri";
 
 interface ContextMenuState {
   visible: boolean;
   x: number;
   y: number;
-  taskId: string | null;
+  agentId: string | null;
 }
 
-interface TaskListProps {
-  tasks: Task[];
-  selectedTaskId: string | null;
-  onSelectTask: (taskId: string) => void;
-  pendingPermissionTaskIds?: Set<string>;
-  onArchiveTask?: (taskId: string) => void;
+interface AgentListProps {
+  agents: Agent[];
+  selectedAgentId: string | null;
+  onSelectAgent: (agentId: string) => void;
+  pendingPermissionAgentIds?: Set<string>;
+  onArchiveAgent?: (agentId: string) => void;
   selectMode?: boolean;
-  selectedTaskIds?: Set<string>;
-  onToggleTaskSelection?: (taskId: string) => void;
+  selectedAgentIds?: Set<string>;
+  onToggleAgentSelection?: (agentId: string) => void;
 }
 
-type StatusCategory = "waiting" | "working" | "idle";
+type StatusCategory = "waiting" | "working" | "in_review" | "idle";
 
 const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
-function getStatusCategory(status: TaskStatus, hasPendingPermission: boolean): StatusCategory {
+function getStatusCategory(status: AgentStatus, hasPendingPermission: boolean): StatusCategory {
   if (hasPendingPermission || status === "waiting_input") return "waiting";
-  if (status === "running" || status === "queued") return "working";
+  if (status === "running" || status === "queued" || status === "setting_up") return "working";
+  if (status === "in_review") return "in_review";
   return "idle";
 }
 
 const categoryConfig: Record<StatusCategory, { label: string; color: string }> = {
   waiting: { label: "Waiting for answer", color: "var(--accent-yellow)" },
   working: { label: "Working", color: "var(--accent-green)" },
+  in_review: { label: "In Review", color: "var(--accent-purple)" },
   idle: { label: "Idle", color: "var(--text-dim)" },
 };
 
@@ -89,35 +91,36 @@ function SlidingText({ text, className, style }: { text: string; className?: str
   );
 }
 
-interface TaskGroup {
+interface AgentGroup {
   category: StatusCategory;
-  repos: Map<string, Task[]>;
+  repos: Map<string, Agent[]>;
 }
 
-function groupTasksByStatusAndRepo(
-  tasks: Task[],
-  pendingPermissionTaskIds: Set<string>
-): TaskGroup[] {
-  const groups: Record<StatusCategory, Map<string, Task[]>> = {
+function groupAgentsByStatusAndRepo(
+  agents: Agent[],
+  pendingPermissionAgentIds: Set<string>
+): AgentGroup[] {
+  const groups: Record<StatusCategory, Map<string, Agent[]>> = {
     waiting: new Map(),
     working: new Map(),
+    in_review: new Map(),
     idle: new Map(),
   };
 
-  for (const task of tasks) {
-    const hasPendingPermission = pendingPermissionTaskIds.has(task.id);
-    const category = getStatusCategory(task.status, hasPendingPermission);
-    const repoName = task.repository_path.split("/").pop() || task.repository_path;
+  for (const agent of agents) {
+    const hasPendingPermission = pendingPermissionAgentIds.has(agent.id);
+    const category = getStatusCategory(agent.status, hasPendingPermission);
+    const repoName = agent.repository_path.split("/").pop() || agent.repository_path;
 
     if (!groups[category].has(repoName)) {
       groups[category].set(repoName, []);
     }
-    groups[category].get(repoName)!.push(task);
+    groups[category].get(repoName)!.push(agent);
   }
 
-  // Return in order: waiting, working, idle (only non-empty)
-  const result: TaskGroup[] = [];
-  for (const category of ["waiting", "working", "idle"] as StatusCategory[]) {
+  // Return in order: waiting, working, in_review, idle (only non-empty)
+  const result: AgentGroup[] = [];
+  for (const category of ["waiting", "working", "in_review", "idle"] as StatusCategory[]) {
     if (groups[category].size > 0) {
       result.push({ category, repos: groups[category] });
     }
@@ -125,28 +128,28 @@ function groupTasksByStatusAndRepo(
   return result;
 }
 
-export function TaskList({
-  tasks,
-  selectedTaskId,
-  onSelectTask,
-  pendingPermissionTaskIds = new Set(),
-  onArchiveTask,
+export function AgentList({
+  agents,
+  selectedAgentId,
+  onSelectAgent,
+  pendingPermissionAgentIds = new Set(),
+  onArchiveAgent,
   selectMode = false,
-  selectedTaskIds = new Set(),
-  onToggleTaskSelection,
-}: TaskListProps) {
+  selectedAgentIds = new Set(),
+  onToggleAgentSelection,
+}: AgentListProps) {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<StatusCategory>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
     visible: false,
     x: 0,
     y: 0,
-    taskId: null,
+    agentId: null,
   });
   const contextMenuRef = useRef<HTMLDivElement>(null);
 
   const groups = useMemo(
-    () => groupTasksByStatusAndRepo(tasks, pendingPermissionTaskIds),
-    [tasks, pendingPermissionTaskIds]
+    () => groupAgentsByStatusAndRepo(agents, pendingPermissionAgentIds),
+    [agents, pendingPermissionAgentIds]
   );
 
   // Close context menu when clicking outside
@@ -163,19 +166,19 @@ export function TaskList({
     }
   }, [contextMenu.visible]);
 
-  const handleContextMenu = (e: React.MouseEvent, taskId: string) => {
+  const handleContextMenu = (e: React.MouseEvent, agentId: string) => {
     e.preventDefault();
     setContextMenu({
       visible: true,
       x: e.clientX,
       y: e.clientY,
-      taskId,
+      agentId,
     });
   };
 
   const handleArchive = () => {
-    if (contextMenu.taskId && onArchiveTask) {
-      onArchiveTask(contextMenu.taskId);
+    if (contextMenu.agentId && onArchiveAgent) {
+      onArchiveAgent(contextMenu.agentId);
     }
     setContextMenu((prev) => ({ ...prev, visible: false }));
   };
@@ -192,11 +195,11 @@ export function TaskList({
     });
   };
 
-  if (tasks.length === 0) {
+  if (agents.length === 0) {
     return (
       <div className="p-4 text-center" style={{ color: "var(--text-dim)" }}>
-        <p>No tasks yet</p>
-        <p className="text-xs mt-1">Create a new task to get started</p>
+        <p>No agents yet</p>
+        <p className="text-xs mt-1">Spawn a new agent to get started</p>
       </div>
     );
   }
@@ -207,7 +210,7 @@ export function TaskList({
         {groups.map((group) => {
           const config = categoryConfig[group.category];
           const isCollapsed = collapsedCategories.has(group.category);
-          const taskCount = Array.from(group.repos.values()).reduce((sum, t) => sum + t.length, 0);
+          const agentCount = Array.from(group.repos.values()).reduce((sum, a) => sum + a.length, 0);
 
           return (
             <div key={group.category}>
@@ -236,14 +239,14 @@ export function TaskList({
                   {config.label}
                 </span>
                 <span className="text-xs" style={{ color: "var(--text-dim)" }}>
-                  {taskCount}
+                  {agentCount}
                 </span>
               </button>
 
-              {/* Tasks grouped by repo */}
+              {/* Agents grouped by repo */}
               {!isCollapsed && (
                 <div>
-                  {Array.from(group.repos.entries()).map(([repoName, repoTasks]) => (
+                  {Array.from(group.repos.entries()).map(([repoName, repoAgents]) => (
                     <div key={repoName}>
                       {/* Repo subheader */}
                       <div
@@ -257,15 +260,15 @@ export function TaskList({
                         {repoName}
                       </div>
 
-                      {/* Tasks */}
-                      {repoTasks.map((task) => {
-                        const isSelected = selectedTaskId === task.id;
-                        const isChecked = selectedTaskIds.has(task.id);
-                        const isRunning = task.status === "running";
+                      {/* Agents */}
+                      {repoAgents.map((agent) => {
+                        const isSelected = selectedAgentId === agent.id;
+                        const isChecked = selectedAgentIds.has(agent.id);
+                        const isRunning = agent.status === "running";
 
                         return (
                           <div
-                            key={task.id}
+                            key={agent.id}
                             className="group px-3 py-2 flex items-center gap-2 transition-colors cursor-pointer"
                             style={{
                               backgroundColor: isSelected
@@ -277,10 +280,10 @@ export function TaskList({
                             }}
                             onClick={() =>
                               selectMode
-                                ? onToggleTaskSelection?.(task.id)
-                                : onSelectTask(task.id)
+                                ? onToggleAgentSelection?.(agent.id)
+                                : onSelectAgent(agent.id)
                             }
-                            onContextMenu={(e) => handleContextMenu(e, task.id)}
+                            onContextMenu={(e) => handleContextMenu(e, agent.id)}
                             onMouseEnter={(e) => {
                               if (!isSelected && !selectMode) {
                                 e.currentTarget.style.backgroundColor = "var(--bg-hover)";
@@ -298,7 +301,7 @@ export function TaskList({
                               <input
                                 type="checkbox"
                                 checked={isChecked}
-                                onChange={() => onToggleTaskSelection?.(task.id)}
+                                onChange={() => onToggleAgentSelection?.(agent.id)}
                                 className="accent-cyan-400"
                                 onClick={(e) => e.stopPropagation()}
                               />
@@ -312,7 +315,7 @@ export function TaskList({
 
                             <div className="flex-1 min-w-0">
                               <SlidingText
-                                text={task.name}
+                                text={agent.name}
                                 className="text-xs font-medium"
                                 style={{
                                   color: isSelected
@@ -322,19 +325,19 @@ export function TaskList({
                               />
                               <div className="flex items-center gap-2 mt-0.5">
                                 <SlidingText
-                                  text={task.branch}
+                                  text={agent.branch}
                                   className="text-xs"
                                   style={{ color: "var(--text-dim)" }}
                                 />
                                 {/* Git stats */}
-                                {(task.total_additions || task.total_deletions) ? (
+                                {(agent.total_additions || agent.total_deletions) ? (
                                   <span className="text-xs flex-shrink-0">
                                     <span style={{ color: "var(--accent-green)" }}>
-                                      +{task.total_additions || 0}
+                                      +{agent.total_additions || 0}
                                     </span>
                                     <span style={{ color: "var(--text-dim)" }}> </span>
                                     <span style={{ color: "var(--accent-red)" }}>
-                                      -{task.total_deletions || 0}
+                                      -{agent.total_deletions || 0}
                                     </span>
                                   </span>
                                 ) : null}
@@ -342,11 +345,11 @@ export function TaskList({
                             </div>
 
                             {/* PR icon */}
-                            {task.pr_url && (
+                            {agent.pr_url && (
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
-                                  tauri.openPRInBrowser(task.pr_url!);
+                                  tauri.openPRInBrowser(agent.pr_url!);
                                 }}
                                 className="flex-shrink-0 p-1 rounded transition-colors"
                                 style={{ color: "var(--accent-cyan)" }}

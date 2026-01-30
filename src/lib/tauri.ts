@@ -1,32 +1,32 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Task, CreateTaskInput, OutputLine, FileChange, FileDiff, CommitInfo, PRPreview, PullRequest, NotificationEntry, BranchInfo, CostSummary } from "../types/task";
+import type { Agent, SpawnAgentInput, OutputLine, FileChange, FileDiff, CommitInfo, PRPreview, PullRequest, NotificationEntry, BranchInfo, CostSummary, Workspace, RepositoryInfo } from "../types/agent";
 
-export async function getTasks(): Promise<Task[]> {
-  return invoke("get_tasks");
+export async function getAgents(): Promise<Agent[]> {
+  return invoke("get_agents");
 }
 
-export async function getTask(id: string): Promise<Task | null> {
-  return invoke("get_task", { id });
+export async function getAgent(id: string): Promise<Agent | null> {
+  return invoke("get_agent", { id });
 }
 
-export async function createTask(input: CreateTaskInput): Promise<Task> {
-  return invoke("create_task", { input });
+export async function spawnAgent(input: SpawnAgentInput): Promise<Agent> {
+  return invoke("spawn_agent", { input });
 }
 
-export async function deleteTask(id: string): Promise<void> {
-  return invoke("delete_task", { id });
+export async function deleteAgent(id: string): Promise<void> {
+  return invoke("delete_agent", { id });
 }
 
-export async function deleteTasks(ids: string[]): Promise<number> {
-  return invoke("delete_tasks", { ids });
+export async function deleteAgents(ids: string[]): Promise<number> {
+  return invoke("delete_agents", { ids });
 }
 
-export async function stopTask(id: string): Promise<void> {
-  return invoke("stop_task", { id });
+export async function stopAgent(id: string): Promise<void> {
+  return invoke("stop_agent", { id });
 }
 
-export async function restartTask(id: string, prompt?: string): Promise<void> {
-  return invoke("restart_task", { id, prompt });
+export async function restartAgent(id: string, prompt?: string): Promise<void> {
+  return invoke("restart_agent", { id, prompt });
 }
 
 export interface TakeoverResult {
@@ -37,53 +37,53 @@ export interface TakeoverResult {
   branch: string;
 }
 
-export async function takeoverTask(id: string): Promise<TakeoverResult> {
-  return invoke("takeover_task", { id });
+export async function takeoverAgent(id: string): Promise<TakeoverResult> {
+  return invoke("takeover_agent", { id });
 }
 
-export async function handbackTask(
+export async function handbackAgent(
   id: string,
   commitMessage?: string,
   prompt?: string
 ): Promise<void> {
-  return invoke("handback_task", { id, commitMessage, prompt });
+  return invoke("handback_agent", { id, commitMessage, prompt });
 }
 
-export async function getTaskOutput(
-  taskId: string,
+export async function getAgentOutput(
+  agentId: string,
   limit?: number,
   offset?: number
 ): Promise<OutputLine[]> {
-  return invoke("get_task_output", { taskId, limit, offset });
+  return invoke("get_agent_output", { agentId, limit, offset });
 }
 
-export async function getTaskOutputCount(taskId: string): Promise<number> {
-  return invoke("get_task_output_count", { taskId });
+export async function getAgentOutputCount(agentId: string): Promise<number> {
+  return invoke("get_agent_output_count", { agentId });
 }
 
 // Git functions
-export async function getTaskChanges(taskId: string): Promise<FileChange[]> {
-  return invoke("get_task_changes", { taskId });
+export async function getAgentChanges(agentId: string): Promise<FileChange[]> {
+  return invoke("get_agent_changes", { agentId });
 }
 
-export async function getFileDiff(taskId: string, filePath: string): Promise<FileDiff> {
-  return invoke("get_file_diff", { taskId, filePath });
+export async function getFileDiff(agentId: string, filePath: string): Promise<FileDiff> {
+  return invoke("get_file_diff", { agentId, filePath });
 }
 
 export async function getFileDiffWithContext(
-  taskId: string,
+  agentId: string,
   filePath: string,
   contextLines: number
 ): Promise<FileDiff> {
-  return invoke("get_file_diff_with_context", { taskId, filePath, contextLines });
+  return invoke("get_file_diff_with_context", { agentId, filePath, contextLines });
 }
 
-export async function getFullDiff(taskId: string): Promise<string> {
-  return invoke("get_full_diff", { taskId });
+export async function getFullDiff(agentId: string): Promise<string> {
+  return invoke("get_full_diff", { agentId });
 }
 
-export async function getTaskCommits(taskId: string, limit?: number): Promise<CommitInfo[]> {
-  return invoke("get_task_commits", { taskId, limit });
+export async function getAgentCommits(agentId: string, limit?: number): Promise<CommitInfo[]> {
+  return invoke("get_agent_commits", { agentId, limit });
 }
 
 // GitHub/PR functions
@@ -91,25 +91,25 @@ export async function checkGitHubAuth(): Promise<boolean> {
   return invoke("check_github_auth");
 }
 
-export async function getPRPreview(taskId: string): Promise<PRPreview> {
-  return invoke("get_pr_preview", { taskId });
+export async function getPRPreview(agentId: string): Promise<PRPreview> {
+  return invoke("get_pr_preview", { agentId });
 }
 
 export async function createPullRequest(
-  taskId: string,
+  agentId: string,
   title: string,
   body: string,
   draft: boolean
 ): Promise<PullRequest> {
-  return invoke("create_pull_request", { taskId, title, body, draft });
+  return invoke("create_pull_request", { agentId, title, body, draft });
 }
 
 export async function openPRInBrowser(url: string): Promise<void> {
   return invoke("open_pr_in_browser", { url });
 }
 
-export async function refreshTaskGitStats(taskId: string): Promise<[number, number]> {
-  return invoke("refresh_task_git_stats", { taskId });
+export async function refreshAgentGitStats(agentId: string): Promise<[number, number]> {
+  return invoke("refresh_agent_git_stats", { agentId });
 }
 
 // Slash commands
@@ -132,7 +132,7 @@ export interface AppSettings {
   notify_on_error: boolean;
   prompt_for_permissions: boolean;
   theme: string | null;
-  max_concurrent_tasks: number;
+  max_concurrent_agents: number;
   send_with_enter: boolean;
   font_size: number;
 }
@@ -159,35 +159,35 @@ export async function listRepositories(): Promise<RepoInfo[]> {
   return invoke("list_repositories");
 }
 
-// Task metadata generation
-export interface GeneratedTaskInfo {
+// Agent metadata generation
+export interface GeneratedAgentInfo {
   title: string;
   description: string;
   branch_name: string;
   ticket_id: string | null;
 }
 
-export async function generateTaskMetadata(
+export async function generateAgentMetadata(
   prompt: string,
   repositoryPath: string
-): Promise<GeneratedTaskInfo> {
-  return invoke("generate_task_metadata", { prompt, repositoryPath });
+): Promise<GeneratedAgentInfo> {
+  return invoke("generate_agent_metadata", { prompt, repositoryPath });
 }
 
-export async function updateTaskName(id: string, name: string): Promise<void> {
-  return invoke("update_task_name", { id, name });
+export async function updateAgentName(id: string, name: string): Promise<void> {
+  return invoke("update_agent_name", { id, name });
 }
 
-export async function updateTaskDescription(id: string, description: string): Promise<void> {
-  return invoke("update_task_description", { id, description });
+export async function updateAgentDescription(id: string, description: string): Promise<void> {
+  return invoke("update_agent_description", { id, description });
 }
 
-export async function setTaskAutoAcceptEdits(id: string, enabled: boolean): Promise<void> {
-  return invoke("set_task_auto_accept_edits", { id, enabled });
+export async function setAgentAutoAcceptEdits(id: string, enabled: boolean): Promise<void> {
+  return invoke("set_agent_auto_accept_edits", { id, enabled });
 }
 
-export async function setTaskPinned(id: string, pinned: boolean): Promise<void> {
-  return invoke("set_task_pinned", { id, pinned });
+export async function setAgentPinned(id: string, pinned: boolean): Promise<void> {
+  return invoke("set_agent_pinned", { id, pinned });
 }
 
 // Notifications
@@ -212,8 +212,8 @@ export async function clearNotifications(): Promise<void> {
 }
 
 // File change management
-export async function revertFileChanges(taskId: string, filePath: string): Promise<void> {
-  return invoke("revert_file_changes", { taskId, filePath });
+export async function revertFileChanges(agentId: string, filePath: string): Promise<void> {
+  return invoke("revert_file_changes", { agentId, filePath });
 }
 
 // Branch listing
@@ -221,20 +221,20 @@ export async function listBranches(repositoryPath: string): Promise<BranchInfo[]
   return invoke("list_branches", { repositoryPath });
 }
 
-// Get the base branch for a task (queries git for merge-base)
-export async function getBranchBase(taskId: string): Promise<string | null> {
-  return invoke("get_branch_base", { taskId });
+// Get the base branch for an agent (queries git for merge-base)
+export async function getBranchBase(agentId: string): Promise<string | null> {
+  return invoke("get_branch_base", { agentId });
 }
 
-// Update the base branch for a task (called after rebase)
-export async function updateTaskBaseBranch(taskId: string, baseBranch: string): Promise<void> {
-  return invoke("update_task_base_branch", { taskId, baseBranch });
+// Update the base branch for an agent (called after rebase)
+export async function updateAgentBaseBranch(agentId: string, baseBranch: string): Promise<void> {
+  return invoke("update_agent_base_branch", { agentId, baseBranch });
 }
 
 // Permission handling
 export interface PermissionRequest {
   request_id: string;
-  task_id: string;
+  agent_id: string;
   tool_name: string;
   tool_input: Record<string, unknown>;
 }
@@ -249,12 +249,12 @@ export async function respondPermission(
 
 // Add permission rule to Claude settings (for "always allow")
 export async function addPermissionRule(
-  taskId: string,
+  agentId: string,
   toolName: string,
   toolInput: Record<string, unknown>,
   scope: "global" | "project"
 ): Promise<string> {
-  return invoke("add_permission_rule", { taskId, toolName, toolInput, scope });
+  return invoke("add_permission_rule", { agentId, toolName, toolInput, scope });
 }
 
 export async function openInEditor(path: string, editor: string): Promise<void> {
@@ -313,15 +313,65 @@ export async function installCLI(): Promise<string> {
 // Export
 export interface ExportOptions {
   format: "json" | "csv" | "markdown";
-  task_ids: string[];
+  agent_ids: string[];
   include_output: boolean;
 }
 
-export async function exportTasks(options: ExportOptions): Promise<string> {
-  return invoke("export_tasks", { options });
+export async function exportAgents(options: ExportOptions): Promise<string> {
+  return invoke("export_agents", { options });
 }
 
 // Cost tracking
 export async function getCostSummary(): Promise<CostSummary> {
   return invoke("get_cost_summary");
+}
+
+// Workspaces
+export async function getWorkspaces(): Promise<Workspace[]> {
+  return invoke("get_workspaces");
+}
+
+export async function getWorkspace(id: string): Promise<Workspace | null> {
+  return invoke("get_workspace", { id });
+}
+
+export async function getDefaultWorkspace(): Promise<Workspace | null> {
+  return invoke("get_default_workspace");
+}
+
+export async function createWorkspace(name: string, reposFolderPath: string): Promise<Workspace> {
+  return invoke("create_workspace", { name, reposFolderPath });
+}
+
+export async function updateWorkspace(id: string, name: string, reposFolderPath: string): Promise<void> {
+  return invoke("update_workspace", { id, name, reposFolderPath });
+}
+
+export async function deleteWorkspace(id: string): Promise<void> {
+  return invoke("delete_workspace", { id });
+}
+
+export async function setDefaultWorkspace(id: string): Promise<void> {
+  return invoke("set_default_workspace", { id });
+}
+
+export async function listWorkspaceRepositories(reposFolderPath: string): Promise<RepositoryInfo[]> {
+  return invoke("list_workspace_repositories", { reposFolderPath });
+}
+
+// Terminal
+export async function openTerminal(agentId: string): Promise<void> {
+  return invoke("open_terminal", { agentId });
+}
+
+export async function terminalInput(agentId: string, data: string): Promise<void> {
+  return invoke("terminal_input", { agentId, data });
+}
+
+export async function terminalResize(agentId: string, cols: number, rows: number): Promise<void> {
+  return invoke("terminal_resize", { agentId, cols, rows });
+}
+
+export async function closeTerminal(agentId: string): Promise<void> {
+  return invoke("close_terminal", { agentId });
 }

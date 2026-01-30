@@ -1,6 +1,6 @@
-use crate::commands::task::AppState;
+use crate::commands::agent::AppState;
 use crate::error::Result;
-use crate::models::TaskStatus;
+use crate::models::AgentStatus;
 use crate::services::{respond_to_permission, PermissionDecision};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -34,35 +34,35 @@ pub fn respond_permission(
         if behavior == "allow" {
             log::info!(
                 "[{}] Restarting Claude after timed-out permission was approved",
-                timed_out_req.task_id
+                timed_out_req.agent_id
             );
 
-            // Get task info for restart
-            if let Ok(Some(task)) = state.db.get_task(&timed_out_req.task_id) {
+            // Get agent info for restart
+            if let Ok(Some(agent)) = state.db.get_agent(&timed_out_req.agent_id) {
                 // Restart Claude with --continue to pick up where it left off
                 match state.claude.start(
                     app_handle.clone(),
                     Arc::clone(&state.db),
-                    &timed_out_req.task_id,
-                    &task.worktree_path,
+                    &timed_out_req.agent_id,
+                    &agent.worktree_path,
                     "Continue from where you left off. The user has approved the pending permission.",
                     true, // continue conversation
                 ) {
                     Ok(_) => {
-                        let _ = state.db.update_task_status(&timed_out_req.task_id, TaskStatus::Running);
-                        let _ = app_handle.emit("task-status", serde_json::json!({
-                            "task_id": timed_out_req.task_id,
+                        let _ = state.db.update_agent_status(&timed_out_req.agent_id, AgentStatus::Running);
+                        let _ = app_handle.emit("agent-status", serde_json::json!({
+                            "agent_id": timed_out_req.agent_id,
                             "status": "running"
                         }));
                     }
                     Err(e) => {
                         log::error!(
                             "[{}] Failed to restart Claude after permission approval: {}",
-                            timed_out_req.task_id, e
+                            timed_out_req.agent_id, e
                         );
-                        let _ = state.db.update_task_status(&timed_out_req.task_id, TaskStatus::Error);
-                        let _ = app_handle.emit("task-status", serde_json::json!({
-                            "task_id": timed_out_req.task_id,
+                        let _ = state.db.update_agent_status(&timed_out_req.agent_id, AgentStatus::Error);
+                        let _ = app_handle.emit("agent-status", serde_json::json!({
+                            "agent_id": timed_out_req.agent_id,
                             "status": "error"
                         }));
                     }

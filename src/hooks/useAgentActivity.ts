@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { ActivityEvent } from "../types/task";
+import type { ActivityEvent } from "../types/agent";
 
 const MAX_ACTIVITIES = 50;
 
@@ -9,7 +9,7 @@ export interface ActiveAgent {
   startedAt: string;
 }
 
-export function useTaskActivity(taskId: string | null) {
+export function useTaskActivity(agentId: string | null) {
   const [activities, setActivities] = useState<ActivityEvent[]>([]);
   const [currentActivity, setCurrentActivity] = useState<ActivityEvent | null>(null);
   const [activeAgent, setActiveAgent] = useState<ActiveAgent | null>(null);
@@ -25,7 +25,7 @@ export function useTaskActivity(taskId: string | null) {
   }, []);
 
   useEffect(() => {
-    if (!taskId) {
+    if (!agentId) {
       clearActivities();
       return;
     }
@@ -34,7 +34,7 @@ export function useTaskActivity(taskId: string | null) {
     clearActivities();
 
     const unlistenPromise = listen<ActivityEvent>("task-activity", (event) => {
-      if (event.payload.task_id === taskId) {
+      if (event.payload.agent_id === agentId) {
         const activity = event.payload;
 
         if (activity.activity_type === "tool_use") {
@@ -70,7 +70,7 @@ export function useTaskActivity(taskId: string | null) {
     return () => {
       unlistenPromise.then((unlisten) => unlisten());
     };
-  }, [taskId, clearActivities]);
+  }, [agentId, clearActivities]);
 
   return { activities, currentActivity, activeAgent, clearActivities };
 }

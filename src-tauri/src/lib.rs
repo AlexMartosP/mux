@@ -6,21 +6,23 @@ mod services;
 
 use commands::{
     add_permission_rule, check_claude_hook_status, check_cli_status, check_github_auth,
-    clear_notifications, complete_onboarding, create_pull_request, create_task, delete_task,
-    delete_tasks, export_tasks, generate_task_metadata, get_branch_base, get_cost_summary,
-    get_file_diff, get_file_diff_with_context, get_full_diff, get_notifications, get_pr_preview,
-    get_settings, get_slash_commands, get_task, get_task_changes, get_task_commits, get_task_output,
-    get_task_output_count, get_tasks, get_unread_notification_count, handback_task,
-    install_claude_hook, install_cli, is_onboarding_completed, list_branches, list_repositories,
-    mark_all_notifications_read, mark_notification_read, open_in_editor, open_pr_in_browser,
-    refresh_task_git_stats, reset_onboarding, respond_permission, restart_task, revert_file_changes,
-    set_setting, set_task_auto_accept_edits, set_task_pinned, stop_task, takeover_task,
-    uninstall_claude_hook, update_settings, update_task_base_branch, update_task_description,
-    update_task_name, AppState,
+    clear_notifications, close_terminal, complete_onboarding, create_pull_request,
+    create_workspace, delete_agent, delete_agents, delete_workspace, export_agents,
+    generate_agent_metadata, get_branch_base, get_cost_summary, get_default_workspace, get_file_diff,
+    get_file_diff_with_context, get_full_diff, get_notifications, get_pr_preview, get_settings,
+    get_slash_commands, get_agent, get_agent_changes, get_agent_commits, get_agent_output,
+    get_agent_output_count, get_agents, get_unread_notification_count, get_workspace, get_workspaces,
+    handback_agent, install_claude_hook, install_cli, is_onboarding_completed, list_branches,
+    list_repositories, list_workspace_repositories, mark_all_notifications_read,
+    mark_notification_read, open_in_editor, open_pr_in_browser, open_terminal, refresh_agent_git_stats,
+    reset_onboarding, respond_permission, restart_agent, revert_file_changes, set_default_workspace,
+    set_setting, set_agent_auto_accept_edits, set_agent_pinned, spawn_agent, stop_agent, takeover_agent,
+    terminal_input, terminal_resize, uninstall_claude_hook, update_settings, update_agent_base_branch,
+    update_agent_description, update_agent_name, update_workspace, AppState, TerminalState,
 };
 use db::Database;
-use models::TaskStatus;
-use services::{init_db_writer, ClaudeProcessService, IPCServer};
+use models::AgentStatus;
+use services::{init_db_writer, ClaudeProcessService, IPCServer, TerminalService};
 use std::sync::Arc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -45,6 +47,11 @@ pub fn run() {
         claude: Arc::clone(&claude),
     });
 
+    // Initialize terminal service
+    let terminal_state = TerminalState {
+        terminal: Arc::new(TerminalService::new()),
+    };
+
     // Clone for IPC server
     let db_for_ipc = Arc::clone(&db);
     let claude_for_ipc = Arc::clone(&claude);
@@ -65,21 +72,22 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_fs::init())
         .manage(state)
+        .manage(terminal_state)
         .setup(move |app| {
-            // Recover interrupted tasks on startup
-            // Tasks that were "running" but whose processes are dead should be marked "interrupted"
-            if let Ok(running_tasks) = db_for_recovery.get_running_tasks_with_pids() {
-                for (task_id, pid) in running_tasks {
+            // Recover interrupted agents on startup
+            // Agents that were "running" but whose processes are dead should be marked "interrupted"
+            if let Ok(running_agents) = db_for_recovery.get_running_agents_with_pids() {
+                for (agent_id, pid) in running_agents {
                     let is_alive = pid.map(|p| ClaudeProcessService::is_pid_alive(p)).unwrap_or(false);
 
                     if !is_alive {
-                        // Process is dead, mark task as interrupted
-                        let _ = db_for_recovery.update_task_status_and_pid(
-                            &task_id,
-                            TaskStatus::Interrupted,
+                        // Process is dead, mark agent as interrupted
+                        let _ = db_for_recovery.update_agent_status_and_pid(
+                            &agent_id,
+                            AgentStatus::Interrupted,
                             None
                         );
-                        eprintln!("Recovered interrupted task: {} (PID {:?} no longer running)", task_id, pid);
+                        eprintln!("Recovered interrupted agent: {} (PID {:?} no longer running)", agent_id, pid);
                     }
                 }
             }
@@ -92,22 +100,22 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            get_tasks,
-            get_task,
-            create_task,
-            delete_task,
-            delete_tasks,
-            stop_task,
-            restart_task,
-            takeover_task,
-            handback_task,
-            get_task_output,
-            get_task_output_count,
-            get_task_changes,
+            get_agents,
+            get_agent,
+            spawn_agent,
+            delete_agent,
+            delete_agents,
+            stop_agent,
+            restart_agent,
+            takeover_agent,
+            handback_agent,
+            get_agent_output,
+            get_agent_output_count,
+            get_agent_changes,
             get_file_diff,
             get_file_diff_with_context,
             get_full_diff,
-            get_task_commits,
+            get_agent_commits,
             check_github_auth,
             get_pr_preview,
             create_pull_request,
@@ -117,14 +125,14 @@ pub fn run() {
             update_settings,
             set_setting,
             list_repositories,
-            generate_task_metadata,
-            update_task_name,
-            update_task_description,
-            set_task_auto_accept_edits,
+            generate_agent_metadata,
+            update_agent_name,
+            update_agent_description,
+            set_agent_auto_accept_edits,
             respond_permission,
             open_in_editor,
             // Export commands
-            export_tasks,
+            export_agents,
             // Onboarding commands
             is_onboarding_completed,
             complete_onboarding,
@@ -135,8 +143,8 @@ pub fn run() {
             // CLI commands
             check_cli_status,
             install_cli,
-            // Task management
-            set_task_pinned,
+            // Agent management
+            set_agent_pinned,
             get_cost_summary,
             // Notifications
             get_notifications,
@@ -148,10 +156,24 @@ pub fn run() {
             list_branches,
             revert_file_changes,
             get_branch_base,
-            update_task_base_branch,
-            refresh_task_git_stats,
+            update_agent_base_branch,
+            refresh_agent_git_stats,
             // Permissions
             add_permission_rule,
+            // Workspaces
+            get_workspaces,
+            get_workspace,
+            get_default_workspace,
+            create_workspace,
+            update_workspace,
+            delete_workspace,
+            set_default_workspace,
+            list_workspace_repositories,
+            // Terminal
+            open_terminal,
+            terminal_input,
+            terminal_resize,
+            close_terminal,
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -160,12 +182,12 @@ pub fn run() {
                 // Graceful shutdown: stop all running Claude processes
                 eprintln!("App exiting, shutting down Claude processes...");
 
-                // Get all running tasks and mark them as interrupted
+                // Get all running agents and mark them as interrupted
                 let running_pids = claude_for_exit.get_all_running_pids();
-                for (task_id, _pid) in &running_pids {
-                    let _ = db_for_exit.update_task_status_and_pid(
-                        task_id,
-                        TaskStatus::Interrupted,
+                for (agent_id, _pid) in &running_pids {
+                    let _ = db_for_exit.update_agent_status_and_pid(
+                        agent_id,
+                        AgentStatus::Interrupted,
                         None
                     );
                 }

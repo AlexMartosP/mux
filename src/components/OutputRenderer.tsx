@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import Markdown from "react-markdown";
-import type { OutputLine } from "../types/task";
+import type { OutputLine } from "../types/agent";
 
 interface OutputRendererProps {
   output: OutputLine[];

@@ -2,19 +2,22 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Menu } from "@base-ui/react/menu";
-import { Send, Square, ArrowUp, ArrowDown, RefreshCw, Hand, Undo2, FolderOpen, GitPullRequest, MoreVertical } from "lucide-react";
+import { Send, Square, ArrowUp, ArrowDown, RefreshCw, Hand, Undo2, FolderOpen, GitPullRequest, MoreVertical, FileCode, Terminal } from "lucide-react";
 import { Button } from "./Button";
-import type { Task } from "../types/task";
-import { useTaskOutput } from "../hooks/useTaskOutput";
+import type { Agent } from "../types/agent";
+import { useAgentOutput } from "../hooks/useAgentOutput";
 import { usePermissions } from "../hooks/usePermissions";
 import { useSlashCommands } from "../hooks/useSlashCommands";
 import { ChangesPanel } from "./ChangesPanel";
+import { TerminalView } from "./TerminalView";
 import { OutputRenderer } from "./OutputRenderer";
 import { PermissionPopover } from "./PermissionPopover";
 import { HandbackModal } from "./HandbackModal";
 import { InlineError } from "./ErrorDisplay";
 import * as tauri from "../lib/tauri";
 import type { RepoInfo } from "../lib/tauri";
+
+type RightPanelTab = "changes" | "terminal";
 
 interface FollowUpMessage {
   id: string;
@@ -24,21 +27,21 @@ interface FollowUpMessage {
 }
 
 interface ChatViewProps {
-  task: Task | null;
-  onCreateTask: (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string) => Promise<void>;
+  agent: Agent | null;
+  onSpawnAgent: (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string) => Promise<void>;
   onStop: (id: string) => void;
   onRestart: (id: string, prompt?: string) => void;
   onDelete: (id: string) => void;
-  onUpdateTask?: (task: Task) => void;
+  onUpdateAgent?: (agent: Agent) => void;
 }
 
 export function ChatView({
-  task,
-  onCreateTask,
+  agent,
+  onSpawnAgent,
   onStop,
   onRestart,
   onDelete,
-  onUpdateTask,
+  onUpdateAgent,
 }: ChatViewProps) {
   const [repositoryPath, setRepositoryPath] = useState("");
   const [prompt, setPrompt] = useState("");
@@ -79,17 +82,18 @@ export function ChatView({
   }, []);
 
   // Use cached slash commands
-  const { commands: slashCommands, refresh: refreshSlashCommands } = useSlashCommands(task?.repository_path);
-  const { commands: newTaskSlashCommands, refresh: refreshNewTaskSlashCommands } = useSlashCommands(task ? undefined : repositoryPath || undefined);
+  const { commands: slashCommands, refresh: refreshSlashCommands } = useSlashCommands(agent?.repository_path);
+  const { commands: newTaskSlashCommands, refresh: refreshNewTaskSlashCommands } = useSlashCommands(agent ? undefined : repositoryPath || undefined);
   const [followUpMessages, setFollowUpMessages] = useState<FollowUpMessage[]>([]);
-  // Track which task we've reconstructed follow-ups for
-  const reconstructedTaskRef = useRef<string | null>(null);
+  // Track which agent we've reconstructed follow-ups for
+  const reconstructedAgentRef = useRef<string | null>(null);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editedTitle, setEditedTitle] = useState("");
   const [copiedBranch, setCopiedBranch] = useState(false);
   const [isHandbackModalOpen, setIsHandbackModalOpen] = useState(false);
   const [isTakingOver, setIsTakingOver] = useState(false);
   const [changesPanelWidth, setChangesPanelWidth] = useState(320);
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("changes");
   const [isResizing, setIsResizing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const followUpTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -167,12 +171,12 @@ export function ChatView({
     return branches.filter(b => b.name.toLowerCase().includes(q));
   }, [branches, baseBranchSearch]);
 
-  const { output, outputRef, isLoadingMore, hasMore, remainingCount, loadMore } = useTaskOutput(task?.id ?? null);
-  const { currentRequest: permissionRequest, dismissRequest } = usePermissions(task?.id);
+  const { output, outputRef, isLoadingMore, hasMore, remainingCount, loadMore } = useAgentOutput(agent?.id ?? null);
+  const { currentRequest: permissionRequest, dismissRequest } = usePermissions(agent?.id);
 
   // Fetch current base branch from git (real-time sync for rebases)
   useEffect(() => {
-    if (!task?.id) {
+    if (!agent?.id) {
       setCurrentBaseBranch(null);
       return;
     }
@@ -180,11 +184,11 @@ export function ChatView({
     // Initial fetch
     const fetchBaseBranch = async () => {
       try {
-        const base = await tauri.getBranchBase(task.id);
+        const base = await tauri.getBranchBase(agent.id);
         setCurrentBaseBranch(base);
       } catch {
         // Fall back to stored base_branch if git query fails
-        setCurrentBaseBranch(task.base_branch ?? null);
+        setCurrentBaseBranch(agent.base_branch ?? null);
       }
     };
     fetchBaseBranch();
@@ -192,7 +196,7 @@ export function ChatView({
     // Poll every 10 seconds to catch rebases
     const interval = setInterval(fetchBaseBranch, 10000);
     return () => clearInterval(interval);
-  }, [task?.id, task?.base_branch]);
+  }, [agent?.id, agent?.base_branch]);
 
   useEffect(() => {
     if (textareaRef.current) {
@@ -237,9 +241,9 @@ export function ChatView({
   };
 
   const openInEditor = async (editor: 'vscode' | 'cursor') => {
-    if (!task) return;
+    if (!agent) return;
     try {
-      await tauri.openInEditor(task.worktree_path, editor);
+      await tauri.openInEditor(agent.worktree_path, editor);
     } catch (err) {
       console.error(`Failed to open in ${editor}:`, err);
     }
@@ -270,11 +274,11 @@ export function ChatView({
     try {
       // Only pass baseBranch if we're creating a new branch (not using an existing one)
       const baseBranchToUse = selectedBranch ? undefined : (selectedBaseBranch || undefined);
-      await onCreateTask(repositoryPath.trim(), prompt.trim(), selectedBranch || undefined, baseBranchToUse);
+      await onSpawnAgent(repositoryPath.trim(), prompt.trim(), selectedBranch || undefined, baseBranchToUse);
       setPrompt("");
       setSelectedBaseBranch("");
     } catch (err) {
-      console.error("Failed to create task:", err);
+      console.error("Failed to spawn agent:", err);
       setError(err instanceof Error ? err.message : String(err));
     } finally {
       setIsSubmitting(false);
@@ -420,7 +424,7 @@ export function ChatView({
   };
 
   const handleFollowUpSubmit = () => {
-    if (!task || !followUpPrompt.trim()) return;
+    if (!agent || !followUpPrompt.trim()) return;
     // Add message to local state for display, recording current output index
     // so we can render the follow-up between the right output segments
     const newMessage: FollowUpMessage = {
@@ -430,7 +434,7 @@ export function ChatView({
       outputIndex: output.length, // Mark where in the output this follow-up was sent
     };
     setFollowUpMessages((prev) => [...prev, newMessage]);
-    onRestart(task.id, followUpPrompt.trim());
+    onRestart(agent.id, followUpPrompt.trim());
     setFollowUpPrompt("");
     setShowSlashCommands(false);
   };
@@ -445,8 +449,8 @@ export function ChatView({
 
   // Copy branch to clipboard
   const handleCopyBranch = async () => {
-    if (task) {
-      await writeText(task.branch);
+    if (agent) {
+      await writeText(agent.branch);
       setCopiedBranch(true);
       setTimeout(() => setCopiedBranch(false), 2000);
     }
@@ -454,32 +458,32 @@ export function ChatView({
 
   // Handle title edit
   const startEditingTitle = () => {
-    if (task) {
-      setEditedTitle(task.name);
+    if (agent) {
+      setEditedTitle(agent.name);
       setEditingTitle(true);
     }
   };
 
   const saveTitle = async () => {
-    if (task && editedTitle.trim() && onUpdateTask) {
-      await tauri.updateTaskName(task.id, editedTitle.trim());
-      onUpdateTask({ ...task, name: editedTitle.trim() });
+    if (agent && editedTitle.trim() && onUpdateAgent) {
+      await tauri.updateAgentName(agent.id, editedTitle.trim());
+      onUpdateAgent({ ...agent, name: editedTitle.trim() });
     }
     setEditingTitle(false);
   };
 
-  // Reconstruct follow-up messages from output when task changes
+  // Reconstruct follow-up messages from output when agent changes
   useEffect(() => {
-    // Reset when no task selected
-    if (!task?.id) {
-      reconstructedTaskRef.current = null;
+    // Reset when no agent selected
+    if (!agent?.id) {
+      reconstructedAgentRef.current = null;
       setFollowUpMessages([]);
       return;
     }
 
-    // Reconstruct once when task changes and output has data
-    if (task.id !== reconstructedTaskRef.current && output.length > 0) {
-      reconstructedTaskRef.current = task.id;
+    // Reconstruct once when agent changes and output has data
+    if (agent.id !== reconstructedAgentRef.current && output.length > 0) {
+      reconstructedAgentRef.current = agent.id;
 
       const reconstructed: FollowUpMessage[] = [];
       for (let i = 0; i < output.length; i++) {
@@ -495,14 +499,14 @@ export function ChatView({
       }
       setFollowUpMessages(reconstructed);
     }
-  }, [task?.id, output]);
+  }, [agent?.id, output]);
 
-  // New task view
-  if (!task) {
+  // New agent view
+  if (!agent) {
     return (
       <div className="flex-1 flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
         <header className="px-6 py-4" style={{ borderBottom: '1px solid var(--border-default)' }}>
-          <h2 style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>New task</h2>
+          <h2 style={{ fontSize: '14px', fontWeight: 500, color: 'var(--text-primary)' }}>Spawn agent</h2>
           <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
             Select a repository and describe what you want Claude to do
           </p>
@@ -926,8 +930,8 @@ export function ChatView({
   }
 
   // Existing task view
-  const isRunning = task.status === "running";
-  const isSettingUp = task.status === "idle" && output.length === 0;
+  const isRunning = agent.status === "running";
+  const isSettingUp = agent.status === "idle" && output.length === 0;
 
   return (
     <div className="flex-1 flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
@@ -974,7 +978,7 @@ export function ChatView({
               onClick={startEditingTitle}
               title="Click to edit"
             >
-              {task.name}
+              {agent.name}
             </h2>
           )}
 
@@ -986,7 +990,7 @@ export function ChatView({
             className="text-xs truncate"
             style={{ color: 'var(--text-secondary)' }}
           >
-            {task.repository_path.split("/").pop()}
+            {agent.repository_path.split("/").pop()}
           </span>
 
           {/* Separator */}
@@ -999,7 +1003,7 @@ export function ChatView({
             style={{ color: copiedBranch ? 'var(--accent-green)' : 'var(--text-secondary)' }}
             title="Click to copy branch name"
           >
-            {copiedBranch ? "Copied!" : task.branch}
+            {copiedBranch ? "Copied!" : agent.branch}
           </button>
 
           {/* Base branch */}
@@ -1020,7 +1024,7 @@ export function ChatView({
         {/* Right: Action buttons */}
         <div className="flex items-center" style={{ gap: 'var(--space-2)' }}>
           {/* Takeover/Handback */}
-          {task.status !== "manual_control" ? (
+          {agent.status !== "manual_control" ? (
             <Button
               variant="ghost"
               size="icon"
@@ -1030,17 +1034,17 @@ export function ChatView({
                 const confirmed = window.confirm(
                   `Take over this task?\n\n` +
                   `This will:\n` +
-                  `• ${task.status === "running" ? "Stop Claude" : "Pause the task"}\n` +
+                  `• ${agent.status === "running" ? "Stop Claude" : "Pause the task"}\n` +
                   `• Commit any uncommitted changes in the worktree\n` +
                   `• Stash any changes in your repo root\n` +
-                  `• Checkout the task branch (${task.branch}) in your repo root\n\n` +
+                  `• Checkout the task branch (${agent.branch}) in your repo root\n\n` +
                   `You can then work on the code directly and hand back when done.`
                 );
                 if (!confirmed) return;
 
                 setIsTakingOver(true);
                 try {
-                  const result = await tauri.takeoverTask(task.id);
+                  const result = await tauri.takeoverAgent(agent.id);
                   console.log("Takeover successful:", result);
                 } catch (err) {
                   console.error("Takeover failed:", err);
@@ -1131,11 +1135,11 @@ export function ChatView({
           </Menu.Root>
 
           {/* View PR - only show if PR exists */}
-          {task.pr_url && (
+          {agent.pr_url && (
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => tauri.openPRInBrowser(task.pr_url!)}
+              onClick={() => tauri.openPRInBrowser(agent.pr_url!)}
               title="View Pull Request"
               style={{ color: 'var(--accent-green)' }}
             >
@@ -1181,7 +1185,7 @@ export function ChatView({
                   }}
                 >
                   <Menu.Item
-                    onClick={() => onDelete(task.id)}
+                    onClick={() => onDelete(agent.id)}
                     className="w-full text-left transition-colors cursor-pointer outline-none data-[highlighted]:bg-[var(--bg-surface)]"
                     style={{
                       padding: 'var(--space-2) var(--space-3)',
@@ -1199,7 +1203,7 @@ export function ChatView({
       </header>
 
       {/* Manual Control Banner */}
-      {task.status === "manual_control" && (
+      {agent.status === "manual_control" && (
         <div
           className="px-6 py-3"
           style={{
@@ -1222,7 +1226,7 @@ export function ChatView({
       )}
 
       {/* Interrupted Banner */}
-      {task.status === "interrupted" && (
+      {agent.status === "interrupted" && (
         <div
           className="px-6 py-3"
           style={{
@@ -1245,7 +1249,7 @@ export function ChatView({
       )}
 
       {/* Error Banner */}
-      {task.status === "error" && (
+      {agent.status === "error" && (
         <div
           className="px-6 py-3"
           style={{
@@ -1263,7 +1267,7 @@ export function ChatView({
                 The task encountered an error. Review the output below for details, or try restarting.
               </p>
             </div>
-            <Button variant="secondary" color="red" onClick={() => onRestart(task.id)}>
+            <Button variant="secondary" color="red" onClick={() => onRestart(agent.id)}>
               RETRY
             </Button>
           </div>
@@ -1285,7 +1289,7 @@ export function ChatView({
                 }}
               >
                 <div className="whitespace-pre-wrap text-xs" style={{ color: 'var(--text-primary)' }}>
-                  {task.prompt}
+                  {agent.prompt}
                 </div>
               </div>
             </div>
@@ -1348,7 +1352,7 @@ export function ChatView({
                       <OutputRenderer
                         output={segment.outputSlice}
                         isRunning={segment.isLast && isRunning}
-                        repositoryPath={task.repository_path}
+                        repositoryPath={agent.repository_path}
                       />
                     </div>
                   );
@@ -1552,11 +1556,11 @@ export function ChatView({
                 {/* Accept edits toggle button on left */}
                 <Button
                   variant="ghost"
-                  active={task.auto_accept_edits ?? false}
+                  active={agent.auto_accept_edits ?? false}
                   onClick={async () => {
-                    const newValue = !(task.auto_accept_edits ?? false);
-                    await tauri.setTaskAutoAcceptEdits(task.id, newValue);
-                    if (onUpdateTask) onUpdateTask({ ...task, auto_accept_edits: newValue });
+                    const newValue = !(agent.auto_accept_edits ?? false);
+                    await tauri.setAgentAutoAcceptEdits(agent.id, newValue);
+                    if (onUpdateAgent) onUpdateAgent({ ...agent, auto_accept_edits: newValue });
                   }}
                 >
                   Accept edits
@@ -1567,7 +1571,7 @@ export function ChatView({
                     variant="secondary"
                     color="red"
                     size="icon"
-                    onClick={() => onStop(task.id)}
+                    onClick={() => onStop(agent.id)}
                     title="Stop task"
                   >
                     <Square size={16} strokeWidth={1.5} fill="currentColor" />
@@ -1589,9 +1593,9 @@ export function ChatView({
           </div>
         </div>
 
-        {/* Resizable Changes panel on the right */}
+        {/* Resizable right panel */}
         <div
-          className="flex-shrink-0 overflow-hidden relative"
+          className="flex-shrink-0 overflow-hidden relative flex flex-col"
           style={{
             width: changesPanelWidth,
             borderLeft: '1px solid var(--border-default)',
@@ -1627,30 +1631,88 @@ export function ChatView({
             style={{ transform: 'translateX(-50%)' }}
             onMouseDown={startResize}
           />
-          <ChangesPanel
-            taskId={task.id}
-            onSendReview={(reviewPrompt) => {
-              // Add as follow-up message for display
-              const newMessage: FollowUpMessage = {
-                id: crypto.randomUUID(),
-                content: reviewPrompt,
-                timestamp: new Date().toISOString(),
-                outputIndex: output.length,
-              };
-              setFollowUpMessages((prev) => [...prev, newMessage]);
-              onRestart(task.id, reviewPrompt);
-            }}
-          />
+
+          {/* Tab buttons */}
+          <div
+            className="flex items-center gap-1 px-3 py-2"
+            style={{ borderBottom: '1px solid var(--border-default)' }}
+          >
+            <button
+              onClick={() => setRightPanelTab("changes")}
+              className="flex items-center gap-1.5 px-2 py-1 text-xs transition-colors"
+              style={{
+                backgroundColor: rightPanelTab === "changes" ? 'var(--bg-accent-subtle)' : 'transparent',
+                color: rightPanelTab === "changes" ? 'var(--accent-cyan)' : 'var(--text-dim)',
+                borderRadius: 'var(--border-radius)',
+              }}
+              onMouseEnter={(e) => {
+                if (rightPanelTab !== "changes") e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+              }}
+              onMouseLeave={(e) => {
+                if (rightPanelTab !== "changes") e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <FileCode size={14} strokeWidth={1.5} />
+              <span>Changes</span>
+            </button>
+            <button
+              onClick={() => setRightPanelTab("terminal")}
+              className="flex items-center gap-1.5 px-2 py-1 text-xs transition-colors"
+              style={{
+                backgroundColor: rightPanelTab === "terminal" ? 'var(--bg-accent-subtle)' : 'transparent',
+                color: rightPanelTab === "terminal" ? 'var(--accent-cyan)' : 'var(--text-dim)',
+                borderRadius: 'var(--border-radius)',
+              }}
+              onMouseEnter={(e) => {
+                if (rightPanelTab !== "terminal") e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+              }}
+              onMouseLeave={(e) => {
+                if (rightPanelTab !== "terminal") e.currentTarget.style.backgroundColor = 'transparent';
+              }}
+            >
+              <Terminal size={14} strokeWidth={1.5} />
+              <span>Terminal</span>
+            </button>
+          </div>
+
+          {/* Tab content - both panels stay mounted, visibility controlled by CSS */}
+          <div className="flex-1 overflow-hidden relative">
+            <div
+              className="absolute inset-0"
+              style={{ display: rightPanelTab === "changes" ? "block" : "none" }}
+            >
+              <ChangesPanel
+                agentId={agent.id}
+                onSendReview={(reviewPrompt) => {
+                  // Add as follow-up message for display
+                  const newMessage: FollowUpMessage = {
+                    id: crypto.randomUUID(),
+                    content: reviewPrompt,
+                    timestamp: new Date().toISOString(),
+                    outputIndex: output.length,
+                  };
+                  setFollowUpMessages((prev) => [...prev, newMessage]);
+                  onRestart(agent.id, reviewPrompt);
+                }}
+              />
+            </div>
+            <div
+              className="absolute inset-0"
+              style={{ display: rightPanelTab === "terminal" ? "block" : "none" }}
+            >
+              <TerminalView agentId={agent.id} />
+            </div>
+          </div>
         </div>
       </div>
 
       {/* Handback Modal */}
       <HandbackModal
-        task={task}
+        agent={agent}
         isOpen={isHandbackModalOpen}
         onClose={() => setIsHandbackModalOpen(false)}
         onHandback={async (commitMessage, promptForClaude) => {
-          await tauri.handbackTask(task.id, commitMessage, promptForClaude);
+          await tauri.handbackAgent(agent.id, commitMessage, promptForClaude);
         }}
       />
     </div>

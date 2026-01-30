@@ -12,8 +12,8 @@ pub enum AppError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("Task not found: {0}")]
-    TaskNotFound(String),
+    #[error("Agent not found: {0}")]
+    AgentNotFound(String),
 
     #[error("Repository not found: {0}")]
     RepositoryNotFound(String),
@@ -41,7 +41,7 @@ impl AppError {
             AppError::Database(_) => "database",
             AppError::Io(_) => "io",
             AppError::Json(_) => "json",
-            AppError::TaskNotFound(_) => "not_found",
+            AppError::AgentNotFound(_) => "not_found",
             AppError::RepositoryNotFound(_) => "not_found",
             AppError::Git(_) => "git",
             AppError::GitHub(_) => "github",

@@ -4,66 +4,74 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum TaskStatus {
+pub enum AgentStatus {
+    /// Agent environment is being set up (worktree creation, etc.)
+    SettingUp,
     Idle,
     Running,
     WaitingInput,
     Completed,
     Error,
     ManualControl,
-    /// Task was running but process died unexpectedly (app restart, crash, etc.)
+    /// Agent was running but process died unexpectedly (app restart, crash, etc.)
     Interrupted,
-    /// Task is queued and waiting for a slot to run
+    /// Agent is queued and waiting for a slot to run
     Queued,
+    /// Agent has a PR and is awaiting review
+    InReview,
 }
 
-impl TaskStatus {
+impl AgentStatus {
     pub fn as_str(&self) -> &'static str {
         match self {
-            TaskStatus::Idle => "idle",
-            TaskStatus::Running => "running",
-            TaskStatus::WaitingInput => "waiting_input",
-            TaskStatus::Completed => "completed",
-            TaskStatus::Error => "error",
-            TaskStatus::ManualControl => "manual_control",
-            TaskStatus::Interrupted => "interrupted",
-            TaskStatus::Queued => "queued",
+            AgentStatus::SettingUp => "setting_up",
+            AgentStatus::Idle => "idle",
+            AgentStatus::Running => "running",
+            AgentStatus::WaitingInput => "waiting_input",
+            AgentStatus::Completed => "completed",
+            AgentStatus::Error => "error",
+            AgentStatus::ManualControl => "manual_control",
+            AgentStatus::Interrupted => "interrupted",
+            AgentStatus::Queued => "queued",
+            AgentStatus::InReview => "in_review",
         }
     }
 
     pub fn from_str(s: &str) -> Self {
         match s {
-            "running" => TaskStatus::Running,
-            "waiting_input" => TaskStatus::WaitingInput,
-            "completed" => TaskStatus::Completed,
-            "error" => TaskStatus::Error,
-            "manual_control" => TaskStatus::ManualControl,
-            "interrupted" => TaskStatus::Interrupted,
-            "queued" => TaskStatus::Queued,
-            _ => TaskStatus::Idle,
+            "setting_up" => AgentStatus::SettingUp,
+            "running" => AgentStatus::Running,
+            "waiting_input" => AgentStatus::WaitingInput,
+            "completed" => AgentStatus::Completed,
+            "error" => AgentStatus::Error,
+            "manual_control" => AgentStatus::ManualControl,
+            "interrupted" => AgentStatus::Interrupted,
+            "queued" => AgentStatus::Queued,
+            "in_review" => AgentStatus::InReview,
+            _ => AgentStatus::Idle,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Task {
+pub struct Agent {
     pub id: String,
     pub name: String,
     pub description: String,
     pub repository_path: String,
     pub branch: String,
     pub worktree_path: String,
-    pub status: TaskStatus,
+    pub status: AgentStatus,
     pub prompt: String,
     pub created_at: String,
     pub pr_url: Option<String>,
-    /// Whether the task is still loading metadata (title, description, branch name)
+    /// Whether the agent is still loading metadata (title, description, branch name)
     #[serde(default)]
     pub metadata_loading: bool,
     /// Whether to auto-accept edit/write tool calls without prompting
     #[serde(default)]
     pub auto_accept_edits: bool,
-    /// Whether this task is pinned to the top of the sidebar
+    /// Whether this agent is pinned to the top of the sidebar
     #[serde(default)]
     pub pinned: bool,
     #[serde(default)]
@@ -72,20 +80,22 @@ pub struct Task {
     pub total_input_tokens: i64,
     #[serde(default)]
     pub total_output_tokens: i64,
-    /// The branch this task was based on (for display, may be updated by rebases)
+    /// The branch this agent was based on (for display, may be updated by rebases)
     pub base_branch: Option<String>,
-    /// Total lines added in this task (computed from git diff)
+    /// Total lines added by this agent (computed from git diff)
     #[serde(default)]
     pub total_additions: i32,
-    /// Total lines deleted in this task (computed from git diff)
+    /// Total lines deleted by this agent (computed from git diff)
     #[serde(default)]
     pub total_deletions: i32,
     #[serde(skip)]
     pub pid: Option<u32>,
+    /// The workspace this agent belongs to
+    pub workspace_id: Option<String>,
 }
 
-impl Task {
-    /// Create a new task with AI-generated or provided metadata
+impl Agent {
+    /// Create a new agent with AI-generated or provided metadata
     pub fn new_with_metadata(
         repository_path: String,
         prompt: String,
@@ -133,7 +143,7 @@ impl Task {
             repository_path,
             branch,
             worktree_path,
-            status: TaskStatus::Idle,
+            status: AgentStatus::Idle,
             prompt,
             created_at: chrono::Utc::now().to_rfc3339(),
             pr_url: None,
@@ -147,15 +157,16 @@ impl Task {
             total_additions: 0,
             total_deletions: 0,
             pid: None,
+            workspace_id: None,
         }
     }
 
-    /// Create a new task with a quick temporary name (for instant UI feedback)
+    /// Create a new agent with a quick temporary name (for instant UI feedback)
     /// Metadata will be loaded in the background
     pub fn new_with_temp_name(repository_path: String, prompt: String, base_branch: Option<String>) -> Self {
         // Generate a human-readable temporary branch name
         let temp_id = human_ids::generate(None);
-        let branch = format!("task/{}", temp_id);
+        let branch = format!("agent/{}", temp_id);
 
         Self::new_with_metadata(
             repository_path,
@@ -168,9 +179,9 @@ impl Task {
         )
     }
 
-    /// Create a new task with auto-generated metadata (fallback)
+    /// Create a new agent with auto-generated metadata (fallback)
     pub fn new(repository_path: String, prompt: String, base_branch: Option<String>) -> Self {
-        // Auto-generate task name and description from prompt
+        // Auto-generate agent name and description from prompt
         let name = Self::generate_name_from_prompt(&prompt);
         let description = Self::generate_description_from_prompt(&prompt);
         let branch = format!("agent/{}", slug::slugify(&name));
@@ -178,7 +189,7 @@ impl Task {
         Self::new_with_metadata(repository_path, prompt, name, description, branch, false, base_branch)
     }
 
-    /// Generate a concise task name from the prompt
+    /// Generate a concise agent name from the prompt
     fn generate_name_from_prompt(prompt: &str) -> String {
         // Common action words to look for
         let action_words = ["add", "create", "implement", "fix", "update", "remove", "refactor", "build", "setup", "configure", "write", "make", "change", "improve", "optimize"];
@@ -221,7 +232,7 @@ impl Task {
         if name.len() > 50 {
             format!("{}...", &name[..47])
         } else if name.is_empty() {
-            "New task".to_string()
+            "New agent".to_string()
         } else {
             name
         }
@@ -251,7 +262,7 @@ impl Task {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct CreateTaskInput {
+pub struct SpawnAgentInput {
     pub repository_path: String,
     pub prompt: String,
     /// Optional: use an existing branch instead of creating a new one

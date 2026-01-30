@@ -1,5 +1,5 @@
 use crate::error::{AppError, Result};
-use crate::models::{Task, TaskStatus};
+use crate::models::{Agent, AgentStatus};
 use directories::ProjectDirs;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
@@ -148,6 +148,21 @@ impl Database {
             [],
         )?;
 
+        // Workspaces table
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS workspaces (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL UNIQUE,
+                repos_folder_path TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                is_default INTEGER NOT NULL DEFAULT 0
+            )",
+            [],
+        )?;
+
+        // Migration: Add workspace_id column to tasks
+        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN workspace_id TEXT REFERENCES workspaces(id) ON DELETE SET NULL", []);
+
         Ok(())
     }
 
@@ -184,23 +199,23 @@ impl Database {
         Ok(settings)
     }
 
-    pub fn get_all_tasks(&self) -> Result<Vec<Task>> {
+    pub fn get_all_agents(&self) -> Result<Vec<Agent>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions, workspace_id
              FROM tasks ORDER BY created_at DESC",
         )?;
 
-        let tasks = stmt
+        let agents = stmt
             .query_map([], |row| {
-                Ok(Task {
+                Ok(Agent {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     description: row.get(2)?,
                     repository_path: row.get(3)?,
                     branch: row.get(4)?,
                     worktree_path: row.get(5)?,
-                    status: TaskStatus::from_str(&row.get::<_, String>(6)?),
+                    status: AgentStatus::from_str(&row.get::<_, String>(6)?),
                     prompt: row.get(7)?,
                     created_at: row.get(8)?,
                     pr_url: row.get(9)?,
@@ -214,30 +229,31 @@ impl Database {
                     total_additions: row.get::<_, i32>(17).unwrap_or(0),
                     total_deletions: row.get::<_, i32>(18).unwrap_or(0),
                     pid: None,
+                    workspace_id: row.get::<_, Option<String>>(19).unwrap_or(None),
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
-        Ok(tasks)
+        Ok(agents)
     }
 
-    pub fn get_task(&self, id: &str) -> Result<Option<Task>> {
+    pub fn get_agent(&self, id: &str) -> Result<Option<Agent>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions, workspace_id
              FROM tasks WHERE id = ?",
         )?;
 
-        let task = stmt
+        let agent = stmt
             .query_row([id], |row| {
-                Ok(Task {
+                Ok(Agent {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     description: row.get(2)?,
                     repository_path: row.get(3)?,
                     branch: row.get(4)?,
                     worktree_path: row.get(5)?,
-                    status: TaskStatus::from_str(&row.get::<_, String>(6)?),
+                    status: AgentStatus::from_str(&row.get::<_, String>(6)?),
                     prompt: row.get(7)?,
                     created_at: row.get(8)?,
                     pr_url: row.get(9)?,
@@ -251,45 +267,47 @@ impl Database {
                     total_additions: row.get::<_, i32>(17).unwrap_or(0),
                     total_deletions: row.get::<_, i32>(18).unwrap_or(0),
                     pid: None,
+                    workspace_id: row.get::<_, Option<String>>(19).unwrap_or(None),
                 })
             })
             .optional()?;
 
-        Ok(task)
+        Ok(agent)
     }
 
-    pub fn insert_task(&self, task: &Task) -> Result<()> {
+    pub fn insert_agent(&self, agent: &Agent) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO tasks (id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tasks (id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions, workspace_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             params![
-                task.id,
-                task.name,
-                task.description,
-                task.repository_path,
-                task.branch,
-                task.worktree_path,
-                task.status.as_str(),
-                task.prompt,
-                task.created_at,
-                task.pr_url,
-                task.metadata_loading as i32,
-                task.auto_accept_edits as i32,
-                task.pinned as i32,
-                task.total_cost_usd,
-                task.total_input_tokens,
-                task.total_output_tokens,
-                task.base_branch,
-                task.total_additions,
-                task.total_deletions,
+                agent.id,
+                agent.name,
+                agent.description,
+                agent.repository_path,
+                agent.branch,
+                agent.worktree_path,
+                agent.status.as_str(),
+                agent.prompt,
+                agent.created_at,
+                agent.pr_url,
+                agent.metadata_loading as i32,
+                agent.auto_accept_edits as i32,
+                agent.pinned as i32,
+                agent.total_cost_usd,
+                agent.total_input_tokens,
+                agent.total_output_tokens,
+                agent.base_branch,
+                agent.total_additions,
+                agent.total_deletions,
+                agent.workspace_id,
             ],
         )?;
         Ok(())
     }
 
-    /// Update task metadata (name, description, branch) and clear loading flag
-    pub fn update_task_metadata(
+    /// Update agent metadata (name, description, branch) and clear loading flag
+    pub fn update_agent_metadata(
         &self,
         id: &str,
         name: &str,
@@ -305,7 +323,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn add_task_cost(&self, id: &str, cost_usd: f64, input_tokens: i64, output_tokens: i64) -> Result<()> {
+    pub fn add_agent_cost(&self, id: &str, cost_usd: f64, input_tokens: i64, output_tokens: i64) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET total_cost_usd = total_cost_usd + ?, total_input_tokens = total_input_tokens + ?, total_output_tokens = total_output_tokens + ? WHERE id = ?",
@@ -314,7 +332,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn update_task_base_branch(&self, id: &str, base_branch: &str) -> Result<()> {
+    pub fn update_agent_base_branch(&self, id: &str, base_branch: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET base_branch = ? WHERE id = ?",
@@ -323,7 +341,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn update_task_git_stats(&self, id: &str, total_additions: i32, total_deletions: i32) -> Result<()> {
+    pub fn update_agent_git_stats(&self, id: &str, total_additions: i32, total_deletions: i32) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET total_additions = ?, total_deletions = ? WHERE id = ?",
@@ -349,7 +367,7 @@ impl Database {
             [],
             |row| row.get(0),
         )?;
-        let task_count: i64 = conn.query_row(
+        let agent_count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM tasks WHERE total_cost_usd > 0",
             [],
             |row| row.get(0),
@@ -358,11 +376,11 @@ impl Database {
             total_cost_usd: total,
             total_input_tokens: total_input,
             total_output_tokens: total_output,
-            task_count,
+            agent_count,
         })
     }
 
-    pub fn set_task_pinned(&self, id: &str, pinned: bool) -> Result<()> {
+    pub fn set_agent_pinned(&self, id: &str, pinned: bool) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET pinned = ? WHERE id = ?",
@@ -371,7 +389,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_running_task_count(&self) -> Result<i64> {
+    pub fn get_running_agent_count(&self) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM tasks WHERE status = 'running'",
@@ -381,23 +399,23 @@ impl Database {
         Ok(count)
     }
 
-    pub fn get_queued_tasks(&self) -> Result<Vec<Task>> {
+    pub fn get_queued_agents(&self) -> Result<Vec<Agent>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions, workspace_id
              FROM tasks WHERE status = 'queued' ORDER BY created_at ASC",
         )?;
 
         let tasks = stmt
             .query_map([], |row| {
-                Ok(Task {
+                Ok(Agent {
                     id: row.get(0)?,
                     name: row.get(1)?,
                     description: row.get(2)?,
                     repository_path: row.get(3)?,
                     branch: row.get(4)?,
                     worktree_path: row.get(5)?,
-                    status: TaskStatus::from_str(&row.get::<_, String>(6)?),
+                    status: AgentStatus::from_str(&row.get::<_, String>(6)?),
                     prompt: row.get(7)?,
                     created_at: row.get(8)?,
                     pr_url: row.get(9)?,
@@ -411,6 +429,7 @@ impl Database {
                     total_additions: row.get::<_, i32>(17).unwrap_or(0),
                     total_deletions: row.get::<_, i32>(18).unwrap_or(0),
                     pid: None,
+                    workspace_id: row.get::<_, Option<String>>(19).unwrap_or(None),
                 })
             })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
@@ -448,7 +467,7 @@ impl Database {
             .query_map(params![limit], |row| {
                 Ok(NotificationEntry {
                     id: row.get(0)?,
-                    task_id: row.get(1)?,
+                    agent_id: row.get(1)?,
                     title: row.get(2)?,
                     body: row.get(3)?,
                     notification_type: row.get(4)?,
@@ -489,7 +508,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn set_task_auto_accept_edits(&self, id: &str, enabled: bool) -> Result<()> {
+    pub fn set_agent_auto_accept_edits(&self, id: &str, enabled: bool) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET auto_accept_edits = ? WHERE id = ?",
@@ -498,7 +517,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn update_task_status(&self, id: &str, status: TaskStatus) -> Result<()> {
+    pub fn update_agent_status(&self, id: &str, status: AgentStatus) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET status = ? WHERE id = ?",
@@ -508,7 +527,7 @@ impl Database {
     }
 
     /// Update task status and PID together
-    pub fn update_task_status_and_pid(&self, id: &str, status: TaskStatus, pid: Option<u32>) -> Result<()> {
+    pub fn update_agent_status_and_pid(&self, id: &str, status: AgentStatus, pid: Option<u32>) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET status = ?, last_pid = ? WHERE id = ?",
@@ -518,7 +537,7 @@ impl Database {
     }
 
     /// Get all tasks that have a "running" status (for startup recovery check)
-    pub fn get_running_tasks_with_pids(&self) -> Result<Vec<(String, Option<u32>)>> {
+    pub fn get_running_agents_with_pids(&self) -> Result<Vec<(String, Option<u32>)>> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, last_pid FROM tasks WHERE status = 'running'"
@@ -533,7 +552,7 @@ impl Database {
         Ok(tasks)
     }
 
-    pub fn update_task_pr_url(&self, id: &str, pr_url: &str) -> Result<()> {
+    pub fn update_agent_pr_url(&self, id: &str, pr_url: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET pr_url = ? WHERE id = ?",
@@ -542,7 +561,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn update_task_branch(&self, id: &str, branch: &str) -> Result<()> {
+    pub fn update_agent_branch(&self, id: &str, branch: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET branch = ? WHERE id = ?",
@@ -551,7 +570,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn update_task_description(&self, id: &str, description: &str) -> Result<()> {
+    pub fn update_agent_description(&self, id: &str, description: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET description = ? WHERE id = ?",
@@ -560,7 +579,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn update_task_name(&self, id: &str, name: &str) -> Result<()> {
+    pub fn update_agent_name(&self, id: &str, name: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "UPDATE tasks SET name = ? WHERE id = ?",
@@ -569,7 +588,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn delete_task(&self, id: &str) -> Result<()> {
+    pub fn delete_agent(&self, id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         // Delete output first due to foreign key
         conn.execute("DELETE FROM task_output WHERE task_id = ?", [id])?;
@@ -620,7 +639,7 @@ impl Database {
         Ok(())
     }
 
-    pub fn get_task_output(&self, task_id: &str, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<OutputLine>> {
+    pub fn get_agent_output(&self, task_id: &str, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<OutputLine>> {
         let conn = self.conn.lock().unwrap();
         let limit = limit.unwrap_or(200);
         let offset = offset.unwrap_or(0);
@@ -648,7 +667,7 @@ impl Database {
     }
 
     /// Get total count of output lines for a task
-    pub fn get_task_output_count(&self, task_id: &str) -> Result<i64> {
+    pub fn get_agent_output_count(&self, task_id: &str) -> Result<i64> {
         let conn = self.conn.lock().unwrap();
         let count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM task_output WHERE task_id = ?",
@@ -658,7 +677,7 @@ impl Database {
         Ok(count)
     }
 
-    pub fn clear_task_output(&self, task_id: &str) -> Result<()> {
+    pub fn clear_agent_output(&self, task_id: &str) -> Result<()> {
         let conn = self.conn.lock().unwrap();
         conn.execute("DELETE FROM task_output WHERE task_id = ?", [task_id])?;
         Ok(())
@@ -721,6 +740,220 @@ impl Database {
         )?;
         Ok(())
     }
+
+    // Workspace methods
+
+    /// Get all workspaces
+    pub fn get_workspaces(&self) -> Result<Vec<Workspace>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, repos_folder_path, created_at, is_default FROM workspaces ORDER BY name ASC",
+        )?;
+
+        let workspaces = stmt
+            .query_map([], |row| {
+                Ok(Workspace {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    repos_folder_path: row.get(2)?,
+                    created_at: row.get(3)?,
+                    is_default: row.get::<_, i32>(4)? != 0,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(workspaces)
+    }
+
+    /// Get a workspace by ID
+    pub fn get_workspace(&self, id: &str) -> Result<Option<Workspace>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, repos_folder_path, created_at, is_default FROM workspaces WHERE id = ?",
+        )?;
+
+        let workspace = stmt
+            .query_row([id], |row| {
+                Ok(Workspace {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    repos_folder_path: row.get(2)?,
+                    created_at: row.get(3)?,
+                    is_default: row.get::<_, i32>(4)? != 0,
+                })
+            })
+            .optional()?;
+
+        Ok(workspace)
+    }
+
+    /// Get the default workspace
+    pub fn get_default_workspace(&self) -> Result<Option<Workspace>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, repos_folder_path, created_at, is_default FROM workspaces WHERE is_default = 1",
+        )?;
+
+        let workspace = stmt
+            .query_row([], |row| {
+                Ok(Workspace {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    repos_folder_path: row.get(2)?,
+                    created_at: row.get(3)?,
+                    is_default: row.get::<_, i32>(4)? != 0,
+                })
+            })
+            .optional()?;
+
+        Ok(workspace)
+    }
+
+    /// Create a new workspace
+    pub fn create_workspace(&self, name: &str, repos_folder_path: &str) -> Result<Workspace> {
+        let conn = self.conn.lock().unwrap();
+        let id = uuid::Uuid::new_v4().to_string();
+        let created_at = chrono::Utc::now().to_rfc3339();
+
+        // Check if this is the first workspace (make it default)
+        let count: i64 = conn.query_row("SELECT COUNT(*) FROM workspaces", [], |row| row.get(0))?;
+        let is_default = count == 0;
+
+        conn.execute(
+            "INSERT INTO workspaces (id, name, repos_folder_path, created_at, is_default) VALUES (?, ?, ?, ?, ?)",
+            params![id, name, repos_folder_path, created_at, is_default as i32],
+        )?;
+
+        Ok(Workspace {
+            id,
+            name: name.to_string(),
+            repos_folder_path: repos_folder_path.to_string(),
+            created_at,
+            is_default,
+        })
+    }
+
+    /// Update a workspace
+    pub fn update_workspace(&self, id: &str, name: &str, repos_folder_path: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE workspaces SET name = ?, repos_folder_path = ? WHERE id = ?",
+            params![name, repos_folder_path, id],
+        )?;
+        Ok(())
+    }
+
+    /// Delete a workspace (fails if it has tasks)
+    pub fn delete_workspace(&self, id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+
+        // Check if workspace has tasks
+        let task_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM tasks WHERE workspace_id = ?",
+            [id],
+            |row| row.get(0),
+        )?;
+
+        if task_count > 0 {
+            return Err(AppError::Other(format!(
+                "Cannot delete workspace with {} tasks. Delete or move the tasks first.",
+                task_count
+            )));
+        }
+
+        conn.execute("DELETE FROM workspaces WHERE id = ?", [id])?;
+        Ok(())
+    }
+
+    /// Set a workspace as the default
+    pub fn set_default_workspace(&self, id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        // Clear existing default
+        conn.execute("UPDATE workspaces SET is_default = 0 WHERE is_default = 1", [])?;
+        // Set new default
+        conn.execute("UPDATE workspaces SET is_default = 1 WHERE id = ?", [id])?;
+        Ok(())
+    }
+
+    /// Update task's workspace_id
+    pub fn update_agent_workspace(&self, task_id: &str, workspace_id: Option<&str>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE tasks SET workspace_id = ? WHERE id = ?",
+            params![workspace_id, task_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get tasks by workspace
+    pub fn get_agents_by_workspace(&self, workspace_id: Option<&str>) -> Result<Vec<Agent>> {
+        let conn = self.conn.lock().unwrap();
+        let query = if workspace_id.is_some() {
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions, workspace_id
+             FROM tasks WHERE workspace_id = ? ORDER BY created_at DESC"
+        } else {
+            "SELECT id, name, description, repository_path, branch, worktree_path, status, prompt, created_at, pr_url, metadata_loading, auto_accept_edits, pinned, total_cost_usd, total_input_tokens, total_output_tokens, base_branch, total_additions, total_deletions, workspace_id
+             FROM tasks WHERE workspace_id IS NULL ORDER BY created_at DESC"
+        };
+
+        let mut stmt = conn.prepare(query)?;
+
+        let tasks = if let Some(ws_id) = workspace_id {
+            stmt.query_map([ws_id], |row| {
+                Ok(Agent {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    repository_path: row.get(3)?,
+                    branch: row.get(4)?,
+                    worktree_path: row.get(5)?,
+                    status: AgentStatus::from_str(&row.get::<_, String>(6)?),
+                    prompt: row.get(7)?,
+                    created_at: row.get(8)?,
+                    pr_url: row.get(9)?,
+                    metadata_loading: row.get::<_, i32>(10)? != 0,
+                    auto_accept_edits: row.get::<_, i32>(11).unwrap_or(0) != 0,
+                    pinned: row.get::<_, i32>(12).unwrap_or(0) != 0,
+                    total_cost_usd: row.get::<_, f64>(13).unwrap_or(0.0),
+                    total_input_tokens: row.get::<_, i64>(14).unwrap_or(0),
+                    total_output_tokens: row.get::<_, i64>(15).unwrap_or(0),
+                    base_branch: row.get::<_, Option<String>>(16).unwrap_or(None),
+                    total_additions: row.get::<_, i32>(17).unwrap_or(0),
+                    total_deletions: row.get::<_, i32>(18).unwrap_or(0),
+                    pid: None,
+                    workspace_id: row.get::<_, Option<String>>(19).unwrap_or(None),
+                })
+            })?.collect::<std::result::Result<Vec<_>, _>>()?
+        } else {
+            stmt.query_map([], |row| {
+                Ok(Agent {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    description: row.get(2)?,
+                    repository_path: row.get(3)?,
+                    branch: row.get(4)?,
+                    worktree_path: row.get(5)?,
+                    status: AgentStatus::from_str(&row.get::<_, String>(6)?),
+                    prompt: row.get(7)?,
+                    created_at: row.get(8)?,
+                    pr_url: row.get(9)?,
+                    metadata_loading: row.get::<_, i32>(10)? != 0,
+                    auto_accept_edits: row.get::<_, i32>(11).unwrap_or(0) != 0,
+                    pinned: row.get::<_, i32>(12).unwrap_or(0) != 0,
+                    total_cost_usd: row.get::<_, f64>(13).unwrap_or(0.0),
+                    total_input_tokens: row.get::<_, i64>(14).unwrap_or(0),
+                    total_output_tokens: row.get::<_, i64>(15).unwrap_or(0),
+                    base_branch: row.get::<_, Option<String>>(16).unwrap_or(None),
+                    total_additions: row.get::<_, i32>(17).unwrap_or(0),
+                    total_deletions: row.get::<_, i32>(18).unwrap_or(0),
+                    pid: None,
+                    workspace_id: row.get::<_, Option<String>>(19).unwrap_or(None),
+                })
+            })?.collect::<std::result::Result<Vec<_>, _>>()?
+        };
+
+        Ok(tasks)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -736,13 +969,13 @@ pub struct CostSummary {
     pub total_cost_usd: f64,
     pub total_input_tokens: i64,
     pub total_output_tokens: i64,
-    pub task_count: i64,
+    pub agent_count: i64,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NotificationEntry {
     pub id: i64,
-    pub task_id: Option<String>,
+    pub agent_id: Option<String>,
     pub title: String,
     pub body: String,
     pub notification_type: String,
@@ -759,4 +992,13 @@ pub struct OutputLine {
     pub tool_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_input: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct Workspace {
+    pub id: String,
+    pub name: String,
+    pub repos_folder_path: String,
+    pub created_at: String,
+    pub is_default: bool,
 }

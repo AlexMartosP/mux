@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { NotificationEntry } from "../types/task";
+import type { NotificationEntry } from "../types/agent";
 import * as tauri from "../lib/tauri";
 import { Button } from "./Button";
 
 interface NotificationCenterProps {
-  onNavigateToTask?: (taskId: string) => void;
+  onNavigateToTask?: (agentId: string) => void;
 }
 
 export function NotificationCenter({ onNavigateToTask }: NotificationCenterProps) {
@@ -71,8 +71,8 @@ export function NotificationCenter({ onNavigateToTask }: NotificationCenterProps
       );
       setUnreadCount((c) => Math.max(0, c - 1));
     }
-    if (notif.task_id && onNavigateToTask) {
-      onNavigateToTask(notif.task_id);
+    if (notif.agent_id && onNavigateToTask) {
+      onNavigateToTask(notif.agent_id);
       setIsOpen(false);
     }
   };

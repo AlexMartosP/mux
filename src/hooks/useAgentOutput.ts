@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
-import type { OutputLine, OutputEvent } from "../types/task";
+import type { OutputLine, OutputEvent } from "../types/agent";
 import * as tauri from "../lib/tauri";
 import {
   getCachedOutput,
@@ -12,7 +12,7 @@ import {
 const PAGE_SIZE = 200;
 const BATCH_INTERVAL_MS = 50; // Batch events every 50ms for smoother rendering
 
-export function useTaskOutput(taskId: string | null) {
+export function useAgentOutput(agentId: string | null) {
   const [output, setOutput] = useState<OutputLine[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -24,8 +24,8 @@ export function useTaskOutput(taskId: string | null) {
   const pendingOutputRef = useRef<OutputLine[]>([]);
   const flushTimeoutRef = useRef<number | null>(null);
   const scrollTimeoutRef = useRef<number | null>(null);
-  const taskIdRef = useRef<string | null>(null);
-  // Track which taskId the pending output belongs to (captured when batch starts)
+  const agentIdRef = useRef<string | null>(null);
+  // Track which agentId the pending output belongs to (captured when batch starts)
   const pendingTaskIdRef = useRef<string | null>(null);
 
   // Computed values
@@ -37,14 +37,14 @@ export function useTaskOutput(taskId: string | null) {
     if (pendingOutputRef.current.length === 0) return;
 
     const pending = pendingOutputRef.current;
-    // Capture the taskId this batch belongs to before clearing
+    // Capture the agentId this batch belongs to before clearing
     const batchTaskId = pendingTaskIdRef.current;
     pendingOutputRef.current = [];
     pendingTaskIdRef.current = null;
     flushTimeoutRef.current = null;
 
     // Only update state if we're still on the same task
-    if (batchTaskId === taskIdRef.current) {
+    if (batchTaskId === agentIdRef.current) {
       setOutput((prev) => {
         const newOutput = prev.concat(pending);
         return newOutput;
@@ -61,12 +61,12 @@ export function useTaskOutput(taskId: string | null) {
 
   // Save current state to cache when switching away
   useEffect(() => {
-    taskIdRef.current = taskId;
-  }, [taskId]);
+    agentIdRef.current = agentId;
+  }, [agentId]);
 
   // Load initial output when task changes
   useEffect(() => {
-    if (!taskId) {
+    if (!agentId) {
       setOutput([]);
       setTotalCount(0);
       setLoadedCount(0);
@@ -75,7 +75,7 @@ export function useTaskOutput(taskId: string | null) {
     }
 
     // Check cache first for immediate display
-    const cached = getCachedOutput(taskId);
+    const cached = getCachedOutput(agentId);
     if (cached && cached.output.length > 0) {
       setOutput(cached.output);
       setTotalCount(cached.totalCount);
@@ -83,17 +83,17 @@ export function useTaskOutput(taskId: string | null) {
       setIsLoading(false);
 
       // Still validate cache against server in background
-      tauri.getTaskOutputCount(taskId).then((serverCount) => {
+      tauri.getAgentOutputCount(agentId).then((serverCount) => {
         if (serverCount !== cached.totalCount) {
           // Cache is stale, re-fetch
           Promise.all([
-            tauri.getTaskOutput(taskId, PAGE_SIZE, 0),
+            tauri.getAgentOutput(agentId, PAGE_SIZE, 0),
             Promise.resolve(serverCount),
           ]).then(([existingOutput, count]) => {
             setOutput(existingOutput);
             setTotalCount(count);
             setLoadedCount(existingOutput.length);
-            setCachedOutput(taskId, {
+            setCachedOutput(agentId, {
               output: existingOutput,
               totalCount: count,
               loadedCount: existingOutput.length,
@@ -108,8 +108,8 @@ export function useTaskOutput(taskId: string | null) {
 
     // Fetch count and initial output in parallel
     Promise.all([
-      tauri.getTaskOutput(taskId, PAGE_SIZE, 0),
-      tauri.getTaskOutputCount(taskId),
+      tauri.getAgentOutput(agentId, PAGE_SIZE, 0),
+      tauri.getAgentOutputCount(agentId),
     ])
       .then(([existingOutput, count]) => {
         setOutput(existingOutput);
@@ -117,7 +117,7 @@ export function useTaskOutput(taskId: string | null) {
         setLoadedCount(existingOutput.length);
 
         // Store in cache
-        setCachedOutput(taskId, {
+        setCachedOutput(agentId, {
           output: existingOutput,
           totalCount: count,
           loadedCount: existingOutput.length,
@@ -125,14 +125,14 @@ export function useTaskOutput(taskId: string | null) {
       })
       .catch(console.error)
       .finally(() => setIsLoading(false));
-  }, [taskId]);
+  }, [agentId]);
 
   // Listen for new output with batching
   useEffect(() => {
-    if (!taskId) return;
+    if (!agentId) return;
 
-    const unlisten = listen<OutputEvent>("task-output", (event) => {
-      if (event.payload.task_id === taskId) {
+    const unlisten = listen<OutputEvent>("agent-output", (event) => {
+      if (event.payload.agent_id === agentId) {
         // Add to pending buffer instead of updating state immediately
         pendingOutputRef.current.push({
           output_type: event.payload.output_type,
@@ -140,9 +140,9 @@ export function useTaskOutput(taskId: string | null) {
           timestamp: event.payload.timestamp,
         });
 
-        // Capture the taskId when we start a new batch
+        // Capture the agentId when we start a new batch
         if (pendingTaskIdRef.current === null) {
-          pendingTaskIdRef.current = taskId;
+          pendingTaskIdRef.current = agentId;
         }
 
         // Schedule flush if not already scheduled
@@ -160,7 +160,7 @@ export function useTaskOutput(taskId: string | null) {
         flushPendingOutput();
       }
     };
-  }, [taskId, flushPendingOutput]);
+  }, [agentId, flushPendingOutput]);
 
   // Debounced auto-scroll to bottom when new output arrives
   // Only scrolls if user is already near the bottom (not reading old output)
@@ -190,17 +190,17 @@ export function useTaskOutput(taskId: string | null) {
 
   // Load more output (older items)
   const loadMore = useCallback(async () => {
-    if (!taskId || isLoadingMore || !hasMore) return;
+    if (!agentId || isLoadingMore || !hasMore) return;
 
     setIsLoadingMore(true);
     try {
-      const moreOutput = await tauri.getTaskOutput(taskId, PAGE_SIZE, loadedCount);
+      const moreOutput = await tauri.getAgentOutput(agentId, PAGE_SIZE, loadedCount);
 
       // Use functional update and capture new state for cache
       setOutput((prev) => {
         const newOutput = prev.concat(moreOutput);
         // Update cache with the actual new output (not stale closure value)
-        setCachedOutput(taskId, {
+        setCachedOutput(agentId, {
           output: newOutput,
           totalCount,
           loadedCount: loadedCount + moreOutput.length,
@@ -213,17 +213,17 @@ export function useTaskOutput(taskId: string | null) {
     } finally {
       setIsLoadingMore(false);
     }
-  }, [taskId, isLoadingMore, hasMore, loadedCount, totalCount]);
+  }, [agentId, isLoadingMore, hasMore, loadedCount, totalCount]);
 
   const clearOutput = useCallback(() => {
     setOutput([]);
     setTotalCount(0);
     setLoadedCount(0);
     pendingOutputRef.current = [];
-    if (taskId) {
-      clearCachedOutput(taskId);
+    if (agentId) {
+      clearCachedOutput(agentId);
     }
-  }, [taskId]);
+  }, [agentId]);
 
   return {
     output,
@@ -237,3 +237,6 @@ export function useTaskOutput(taskId: string | null) {
     clearOutput,
   };
 }
+
+// Backwards compatibility alias
+export const useTaskOutput = useAgentOutput;

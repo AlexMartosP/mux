@@ -1,5 +1,5 @@
-import type { ActivityEvent } from "../types/task";
-import type { ActiveAgent } from "../hooks/useTaskActivity";
+import type { ActivityEvent } from "../types/agent";
+import type { ActiveAgent } from "../hooks/useAgentActivity";
 
 interface ActivityFeedProps {
   currentActivity: ActivityEvent | null;

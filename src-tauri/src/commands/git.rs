@@ -5,103 +5,103 @@ use std::sync::Arc;
 use tauri::State;
 
 #[tauri::command]
-pub fn get_task_changes(
+pub fn get_agent_changes(
     state: State<Arc<AppState>>,
-    task_id: String,
+    agent_id: String,
 ) -> Result<Vec<FileChange>> {
-    let task = state
+    let agent = state
         .db
-        .get_task(&task_id)?
-        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
 
-    let base_branch = GitService::get_default_branch(&task.repository_path)?;
-    GitService::get_changed_files(&task.worktree_path, &base_branch)
+    let base_branch = GitService::get_default_branch(&agent.repository_path)?;
+    GitService::get_changed_files(&agent.worktree_path, &base_branch)
 }
 
 #[tauri::command]
 pub fn get_file_diff(
     state: State<Arc<AppState>>,
-    task_id: String,
+    agent_id: String,
     file_path: String,
 ) -> Result<FileDiff> {
-    let task = state
+    let agent = state
         .db
-        .get_task(&task_id)?
-        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
 
-    let base_branch = GitService::get_default_branch(&task.repository_path)?;
-    GitService::get_file_diff(&task.worktree_path, &base_branch, &file_path)
+    let base_branch = GitService::get_default_branch(&agent.repository_path)?;
+    GitService::get_file_diff(&agent.worktree_path, &base_branch, &file_path)
 }
 
 #[tauri::command]
 pub fn get_file_diff_with_context(
     state: State<Arc<AppState>>,
-    task_id: String,
+    agent_id: String,
     file_path: String,
     context_lines: u32,
 ) -> Result<FileDiff> {
-    let task = state
+    let agent = state
         .db
-        .get_task(&task_id)?
-        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
 
-    let base_branch = GitService::get_default_branch(&task.repository_path)?;
-    GitService::get_file_diff_with_context(&task.worktree_path, &base_branch, &file_path, context_lines)
+    let base_branch = GitService::get_default_branch(&agent.repository_path)?;
+    GitService::get_file_diff_with_context(&agent.worktree_path, &base_branch, &file_path, context_lines)
 }
 
 #[tauri::command]
 pub fn get_full_diff(
     state: State<Arc<AppState>>,
-    task_id: String,
+    agent_id: String,
 ) -> Result<String> {
-    let task = state
+    let agent = state
         .db
-        .get_task(&task_id)?
-        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
 
-    let base_branch = GitService::get_default_branch(&task.repository_path)?;
-    GitService::get_full_diff(&task.worktree_path, &base_branch)
+    let base_branch = GitService::get_default_branch(&agent.repository_path)?;
+    GitService::get_full_diff(&agent.worktree_path, &base_branch)
 }
 
 #[tauri::command]
-pub fn get_task_commits(
+pub fn get_agent_commits(
     state: State<Arc<AppState>>,
-    task_id: String,
+    agent_id: String,
     limit: Option<i32>,
 ) -> Result<Vec<CommitInfo>> {
-    let task = state
+    let agent = state
         .db
-        .get_task(&task_id)?
-        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
 
-    let base_branch = GitService::get_default_branch(&task.repository_path)?;
-    GitService::get_commits(&task.worktree_path, &base_branch, limit)
+    let base_branch = GitService::get_default_branch(&agent.repository_path)?;
+    GitService::get_commits(&agent.worktree_path, &base_branch, limit)
 }
 
 /// Revert a specific file's changes in a worktree (restore from base branch)
 #[tauri::command]
 pub fn revert_file_changes(
     state: State<Arc<AppState>>,
-    task_id: String,
+    agent_id: String,
     file_path: String,
 ) -> Result<()> {
-    let task = state
+    let agent = state
         .db
-        .get_task(&task_id)?
-        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
 
-    let base_branch = GitService::get_default_branch(&task.repository_path)?;
+    let base_branch = GitService::get_default_branch(&agent.repository_path)?;
 
     let output = std::process::Command::new("git")
         .args(["checkout", &format!("origin/{}", base_branch), "--", &file_path])
-        .current_dir(&task.worktree_path)
+        .current_dir(&agent.worktree_path)
         .output()
         .map_err(|e| AppError::Git(format!("Failed to revert file: {}", e)))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         if stderr.contains("did not match") || stderr.contains("not in") {
-            let full_path = std::path::Path::new(&task.worktree_path).join(&file_path);
+            let full_path = std::path::Path::new(&agent.worktree_path).join(&file_path);
             if full_path.exists() {
                 std::fs::remove_file(&full_path)?;
             }
@@ -157,24 +157,24 @@ pub struct BranchInfo {
     pub last_commit_date: String,
 }
 
-/// Get the base branch that a task's branch was forked from
+/// Get the base branch that an agent's branch was forked from
 /// This queries git to find the merge-base with common branches
 #[tauri::command]
 pub fn get_branch_base(
     state: State<Arc<AppState>>,
-    task_id: String,
+    agent_id: String,
 ) -> Result<Option<String>> {
-    let task = state
+    let agent = state
         .db
-        .get_task(&task_id)?
-        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
 
     // If we have a stored base_branch, verify it's still valid
-    if let Some(ref base) = task.base_branch {
+    if let Some(ref base) = agent.base_branch {
         // Check if the base branch still exists
         let check = std::process::Command::new("git")
             .args(["rev-parse", "--verify", &format!("origin/{}", base)])
-            .current_dir(&task.worktree_path)
+            .current_dir(&agent.worktree_path)
             .output();
 
         if check.is_ok() && check.unwrap().status.success() {
@@ -183,52 +183,52 @@ pub fn get_branch_base(
     }
 
     // Fall back to finding merge-base with default branch
-    let default_branch = GitService::get_default_branch(&task.repository_path)?;
+    let default_branch = GitService::get_default_branch(&agent.repository_path)?;
 
     // Get merge-base between current branch and default branch
     let output = std::process::Command::new("git")
         .args(["merge-base", "HEAD", &format!("origin/{}", default_branch)])
-        .current_dir(&task.worktree_path)
+        .current_dir(&agent.worktree_path)
         .output()
         .map_err(|e| AppError::Git(format!("Failed to get merge-base: {}", e)))?;
 
     if output.status.success() {
         Ok(Some(default_branch))
     } else {
-        Ok(task.base_branch.clone())
+        Ok(agent.base_branch.clone())
     }
 }
 
-/// Update the base_branch field for a task (called when branch is rebased)
+/// Update the base_branch field for an agent (called when branch is rebased)
 #[tauri::command]
-pub fn update_task_base_branch(
+pub fn update_agent_base_branch(
     state: State<Arc<AppState>>,
-    task_id: String,
+    agent_id: String,
     base_branch: String,
 ) -> Result<()> {
-    state.db.update_task_base_branch(&task_id, &base_branch)
+    state.db.update_agent_base_branch(&agent_id, &base_branch)
 }
 
-/// Refresh git stats (total additions/deletions) for a task
+/// Refresh git stats (total additions/deletions) for an agent
 #[tauri::command]
-pub fn refresh_task_git_stats(
+pub fn refresh_agent_git_stats(
     state: State<Arc<AppState>>,
-    task_id: String,
+    agent_id: String,
 ) -> Result<(i32, i32)> {
-    let task = state
+    let agent = state
         .db
-        .get_task(&task_id)?
-        .ok_or_else(|| AppError::TaskNotFound(task_id.clone()))?;
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
 
-    let base_branch = GitService::get_default_branch(&task.repository_path)?;
-    let changes = GitService::get_changed_files(&task.worktree_path, &base_branch)?;
+    let base_branch = GitService::get_default_branch(&agent.repository_path)?;
+    let changes = GitService::get_changed_files(&agent.worktree_path, &base_branch)?;
 
     // Sum up all additions and deletions
     let total_additions: i32 = changes.iter().map(|c| c.additions).sum();
     let total_deletions: i32 = changes.iter().map(|c| c.deletions).sum();
 
-    // Update the task in the database
-    state.db.update_task_git_stats(&task_id, total_additions, total_deletions)?;
+    // Update the agent in the database
+    state.db.update_agent_git_stats(&agent_id, total_additions, total_deletions)?;
 
     Ok((total_additions, total_deletions))
 }
