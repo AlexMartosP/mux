@@ -17,7 +17,9 @@ import { InlineError } from "./ErrorDisplay";
 import * as tauri from "../lib/tauri";
 import type { RepoInfo } from "../lib/tauri";
 
-type RightPanelTab = "changes" | "terminal";
+type ViewTab = "output" | "code-review" | "terminal";
+
+const VIEW_TAB_STORAGE_PREFIX = "mux-agent-view-tab-";
 
 interface FollowUpMessage {
   id: string;
@@ -92,12 +94,10 @@ export function ChatView({
   const [copiedBranch, setCopiedBranch] = useState(false);
   const [isHandbackModalOpen, setIsHandbackModalOpen] = useState(false);
   const [isTakingOver, setIsTakingOver] = useState(false);
-  const [changesPanelWidth, setChangesPanelWidth] = useState(320);
-  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("changes");
-  const [isResizing, setIsResizing] = useState(false);
+  // View tabs - persisted per agent
+  const [viewTab, setViewTab] = useState<ViewTab>("output");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const followUpTextareaRef = useRef<HTMLTextAreaElement>(null);
-  const resizeRef = useRef<{ startX: number; startWidth: number } | null>(null);
   const slashCommandsRef = useRef<HTMLDivElement>(null);
   const newTaskSlashCommandsRef = useRef<HTMLDivElement>(null);
 
@@ -205,39 +205,23 @@ export function ChatView({
     }
   }, [prompt]);
 
-  // Handle panel resizing
+  // Persist and restore view tab per agent
   useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing || !resizeRef.current) return;
-      const delta = resizeRef.current.startX - e.clientX;
-      const newWidth = Math.max(resizeRef.current.startWidth + delta, 200); // Min 200px, no max
-      setChangesPanelWidth(newWidth);
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-      resizeRef.current = null;
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
+    if (agent?.id) {
+      const savedTab = localStorage.getItem(`${VIEW_TAB_STORAGE_PREFIX}${agent.id}`);
+      if (savedTab && (savedTab === "output" || savedTab === "code-review" || savedTab === "terminal")) {
+        setViewTab(savedTab as ViewTab);
+      } else {
+        setViewTab("output");
+      }
     }
+  }, [agent?.id]);
 
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isResizing]);
-
-  const startResize = (e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-    resizeRef.current = { startX: e.clientX, startWidth: changesPanelWidth };
+  const handleViewTabChange = (tab: ViewTab) => {
+    setViewTab(tab);
+    if (agent?.id) {
+      localStorage.setItem(`${VIEW_TAB_STORAGE_PREFIX}${agent.id}`, tab);
+    }
   };
 
   const openInEditor = async (editor: 'vscode' | 'cursor') => {
@@ -1274,11 +1258,91 @@ export function ChatView({
         </div>
       )}
 
-      {/* Main content - Chat on left, Changes on right */}
+      {/* View Tabs */}
+      <div
+        className="flex items-center gap-1 px-4 py-2"
+        style={{ borderBottom: '1px solid var(--border-default)' }}
+      >
+        <button
+          onClick={() => handleViewTabChange("output")}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors"
+          style={{
+            backgroundColor: viewTab === "output" ? 'var(--bg-accent-subtle)' : 'transparent',
+            color: viewTab === "output" ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+            borderRadius: 'var(--border-radius)',
+          }}
+          onMouseEnter={(e) => {
+            if (viewTab !== "output") {
+              e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-primary)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (viewTab !== "output") {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }
+          }}
+        >
+          <Send size={14} strokeWidth={1.5} />
+          <span>Output</span>
+        </button>
+        <button
+          onClick={() => handleViewTabChange("code-review")}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors"
+          style={{
+            backgroundColor: viewTab === "code-review" ? 'var(--bg-accent-subtle)' : 'transparent',
+            color: viewTab === "code-review" ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+            borderRadius: 'var(--border-radius)',
+          }}
+          onMouseEnter={(e) => {
+            if (viewTab !== "code-review") {
+              e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-primary)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (viewTab !== "code-review") {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }
+          }}
+        >
+          <FileCode size={14} strokeWidth={1.5} />
+          <span>Code Review</span>
+        </button>
+        <button
+          onClick={() => handleViewTabChange("terminal")}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors"
+          style={{
+            backgroundColor: viewTab === "terminal" ? 'var(--bg-accent-subtle)' : 'transparent',
+            color: viewTab === "terminal" ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+            borderRadius: 'var(--border-radius)',
+          }}
+          onMouseEnter={(e) => {
+            if (viewTab !== "terminal") {
+              e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
+              e.currentTarget.style.color = 'var(--text-primary)';
+            }
+          }}
+          onMouseLeave={(e) => {
+            if (viewTab !== "terminal") {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }
+          }}
+        >
+          <Terminal size={14} strokeWidth={1.5} />
+          <span>Terminal</span>
+        </button>
+      </div>
+
+      {/* Main content - full width, based on selected tab */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Chat area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          <div className="flex-1 overflow-y-auto p-6" ref={outputRef}>
+        {/* Output tab */}
+        {viewTab === "output" && (
+          <div className="flex-1 flex flex-col min-w-0">
+            <div className="flex-1 overflow-y-auto p-6" ref={outputRef}>
             {/* Initial prompt */}
             <div className="mb-6">
               <div
@@ -1592,118 +1656,36 @@ export function ChatView({
             </div>
           </div>
         </div>
+        )}
 
-        {/* Resizable right panel */}
-        <div
-          className="flex-shrink-0 overflow-hidden relative flex flex-col"
-          style={{
-            width: changesPanelWidth,
-            borderLeft: '1px solid var(--border-default)',
-          }}
-        >
-          {/* Resize handle */}
-          <div
-            className="absolute left-0 top-0 bottom-0 w-2 cursor-col-resize z-10 transition-colors group flex items-center justify-center"
-            style={{
-              backgroundColor: isResizing ? 'var(--accent-cyan)' : 'transparent',
-            }}
-            onMouseDown={startResize}
-            onMouseEnter={(e) => {
-              if (!isResizing) e.currentTarget.style.backgroundColor = 'var(--border-active)';
-            }}
-            onMouseLeave={(e) => {
-              if (!isResizing) e.currentTarget.style.backgroundColor = 'transparent';
-            }}
-          >
-            {/* Grip dots */}
-            <div
-              className="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity"
-              style={{ pointerEvents: 'none' }}
-            >
-              <div className="w-1 h-1 rounded-full" style={{ backgroundColor: 'var(--text-dim)' }} />
-              <div className="w-1 h-1 rounded-full" style={{ backgroundColor: 'var(--text-dim)' }} />
-              <div className="w-1 h-1 rounded-full" style={{ backgroundColor: 'var(--text-dim)' }} />
-            </div>
+        {/* Code Review tab */}
+        {viewTab === "code-review" && (
+          <div className="flex-1 overflow-hidden">
+            <ChangesPanel
+              agentId={agent.id}
+              onSendReview={(reviewPrompt) => {
+                // Add as follow-up message for display
+                const newMessage: FollowUpMessage = {
+                  id: crypto.randomUUID(),
+                  content: reviewPrompt,
+                  timestamp: new Date().toISOString(),
+                  outputIndex: output.length,
+                };
+                setFollowUpMessages((prev) => [...prev, newMessage]);
+                onRestart(agent.id, reviewPrompt);
+                // Switch to output tab to show the response
+                handleViewTabChange("output");
+              }}
+            />
           </div>
-          {/* Extended hit area for easier grabbing */}
-          <div
-            className="absolute left-0 top-0 bottom-0 w-3 cursor-col-resize z-9"
-            style={{ transform: 'translateX(-50%)' }}
-            onMouseDown={startResize}
-          />
+        )}
 
-          {/* Tab buttons */}
-          <div
-            className="flex items-center gap-1 px-3 py-2"
-            style={{ borderBottom: '1px solid var(--border-default)' }}
-          >
-            <button
-              onClick={() => setRightPanelTab("changes")}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs transition-colors"
-              style={{
-                backgroundColor: rightPanelTab === "changes" ? 'var(--bg-accent-subtle)' : 'transparent',
-                color: rightPanelTab === "changes" ? 'var(--accent-cyan)' : 'var(--text-dim)',
-                borderRadius: 'var(--border-radius)',
-              }}
-              onMouseEnter={(e) => {
-                if (rightPanelTab !== "changes") e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
-              }}
-              onMouseLeave={(e) => {
-                if (rightPanelTab !== "changes") e.currentTarget.style.backgroundColor = 'transparent';
-              }}
-            >
-              <FileCode size={14} strokeWidth={1.5} />
-              <span>Changes</span>
-            </button>
-            <button
-              onClick={() => setRightPanelTab("terminal")}
-              className="flex items-center gap-1.5 px-2 py-1 text-xs transition-colors"
-              style={{
-                backgroundColor: rightPanelTab === "terminal" ? 'var(--bg-accent-subtle)' : 'transparent',
-                color: rightPanelTab === "terminal" ? 'var(--accent-cyan)' : 'var(--text-dim)',
-                borderRadius: 'var(--border-radius)',
-              }}
-              onMouseEnter={(e) => {
-                if (rightPanelTab !== "terminal") e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
-              }}
-              onMouseLeave={(e) => {
-                if (rightPanelTab !== "terminal") e.currentTarget.style.backgroundColor = 'transparent';
-              }}
-            >
-              <Terminal size={14} strokeWidth={1.5} />
-              <span>Terminal</span>
-            </button>
+        {/* Terminal tab */}
+        {viewTab === "terminal" && (
+          <div className="flex-1 overflow-hidden">
+            <TerminalView agentId={agent.id} />
           </div>
-
-          {/* Tab content - both panels stay mounted, visibility controlled by CSS */}
-          <div className="flex-1 overflow-hidden relative">
-            <div
-              className="absolute inset-0"
-              style={{ display: rightPanelTab === "changes" ? "block" : "none" }}
-            >
-              <ChangesPanel
-                agentId={agent.id}
-                onSendReview={(reviewPrompt) => {
-                  // Add as follow-up message for display
-                  const newMessage: FollowUpMessage = {
-                    id: crypto.randomUUID(),
-                    content: reviewPrompt,
-                    timestamp: new Date().toISOString(),
-                    outputIndex: output.length,
-                  };
-                  setFollowUpMessages((prev) => [...prev, newMessage]);
-                  onRestart(agent.id, reviewPrompt);
-                }}
-              />
-            </div>
-            <div
-              className="absolute inset-0"
-              style={{ display: rightPanelTab === "terminal" ? "block" : "none" }}
-            >
-              <TerminalView agentId={agent.id} />
-            </div>
-          </div>
-        </div>
+        )}
       </div>
 
       {/* Handback Modal */}
