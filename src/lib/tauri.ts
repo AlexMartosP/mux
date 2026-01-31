@@ -402,8 +402,16 @@ export async function scanFolderForRepositories(folderPath: string): Promise<Rep
 }
 
 // Terminal
-export async function openTerminal(agentId: string): Promise<void> {
+export interface OpenTerminalResponse {
+  session_existed: boolean;
+}
+
+export async function openTerminal(agentId: string): Promise<OpenTerminalResponse> {
   return invoke("open_terminal", { agentId });
+}
+
+export async function getTerminalBuffer(agentId: string): Promise<string | null> {
+  return invoke("get_terminal_buffer", { agentId });
 }
 
 export async function terminalInput(agentId: string, data: string): Promise<void> {

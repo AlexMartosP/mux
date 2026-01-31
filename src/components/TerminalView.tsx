@@ -23,17 +23,11 @@ export function TerminalView({ agentId }: TerminalViewProps) {
   const terminalRef = useRef<HTMLDivElement>(null);
   const xtermRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
-  const openedRef = useRef<string | null>(null); // Track which agent's terminal is open
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!terminalRef.current) return;
-
-    // Prevent duplicate opens for the same task
-    if (openedRef.current === agentId) {
-      return;
-    }
 
     // Create terminal instance with proper dark theme colors
     const term = new Terminal({
@@ -77,30 +71,6 @@ export function TerminalView({ agentId }: TerminalViewProps) {
     term.open(terminalRef.current);
     fitAddon.fit();
 
-    // Open backend terminal
-    const openBackendTerminal = async () => {
-      try {
-        await tauri.openTerminal(agentId);
-        openedRef.current = agentId; // Mark as opened
-        setIsConnected(true);
-        setError(null);
-
-        // Send initial resize after a short delay to let shell initialize
-        setTimeout(async () => {
-          try {
-            await tauri.terminalResize(agentId, term.cols, term.rows);
-          } catch {
-            // Ignore resize errors
-          }
-        }, 100);
-      } catch (err) {
-        setError(String(err));
-        term.writeln(`\x1b[31mFailed to open terminal: ${err}\x1b[0m`);
-      }
-    };
-
-    openBackendTerminal();
-
     // Handle terminal input
     const onDataDisposable = term.onData((data) => {
       tauri.terminalInput(agentId, data).catch(console.error);
@@ -126,6 +96,37 @@ export function TerminalView({ agentId }: TerminalViewProps) {
       }
     });
 
+    // Open backend terminal (or reconnect to existing session)
+    const openBackendTerminal = async () => {
+      try {
+        const { session_existed } = await tauri.openTerminal(agentId);
+        setIsConnected(true);
+        setError(null);
+
+        // If reconnecting to existing session, restore the buffered output
+        if (session_existed) {
+          const buffer = await tauri.getTerminalBuffer(agentId);
+          if (buffer) {
+            term.write(buffer);
+          }
+        }
+
+        // Send initial resize after a short delay to let shell initialize
+        setTimeout(async () => {
+          try {
+            await tauri.terminalResize(agentId, term.cols, term.rows);
+          } catch {
+            // Ignore resize errors
+          }
+        }, 100);
+      } catch (err) {
+        setError(String(err));
+        term.writeln(`\x1b[31mFailed to open terminal: ${err}\x1b[0m`);
+      }
+    };
+
+    openBackendTerminal();
+
     // Handle window resize
     const handleResize = () => {
       fitAddon.fit();
@@ -139,7 +140,7 @@ export function TerminalView({ agentId }: TerminalViewProps) {
     resizeObserver.observe(terminalRef.current);
 
     // Cleanup - don't close backend terminal, just cleanup frontend resources
-    // This allows the terminal session to persist when navigating between tasks
+    // This allows the terminal session to persist when navigating between agents
     return () => {
       onDataDisposable.dispose();
       onResizeDisposable.dispose();
@@ -149,8 +150,7 @@ export function TerminalView({ agentId }: TerminalViewProps) {
       resizeObserver.disconnect();
       term.dispose();
       // Note: We intentionally don't call closeTerminal here
-      // The session persists and will be reconnected when returning to this task
-      openedRef.current = null;
+      // The session persists and will be reconnected when returning to this agent
     };
   }, [agentId]);
 

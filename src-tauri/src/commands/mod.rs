@@ -27,7 +27,7 @@ pub use agent::{
     mark_notification_read, restart_agent, set_agent_auto_accept_edits, set_agent_pinned, stop_agent,
     takeover_agent, update_agent_description, update_agent_name, AppState,
 };
-pub use terminal::{close_terminal, open_terminal, terminal_input, terminal_resize, TerminalState};
+pub use terminal::{close_terminal, get_terminal_buffer, open_terminal, terminal_input, terminal_resize, TerminalState};
 pub use workspace::{
     add_repository_to_workspace, create_workspace, delete_workspace, delete_workspace_setting,
     get_all_workspace_settings, get_default_workspace, get_workspace, get_workspace_repositories,

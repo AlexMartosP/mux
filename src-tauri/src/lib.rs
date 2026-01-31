@@ -16,7 +16,7 @@ use commands::{
     get_workspace_repositories, get_workspace_setting, get_workspaces, handback_agent,
     install_claude_hook, install_cli, is_onboarding_completed, list_branches, list_repositories,
     list_workspace_repositories, mark_all_notifications_read, mark_notification_read, open_in_editor,
-    open_pr_in_browser, open_terminal, refresh_agent_git_stats, remove_repository_from_workspace,
+    open_pr_in_browser, open_terminal, get_terminal_buffer, refresh_agent_git_stats, remove_repository_from_workspace,
     reset_onboarding, respond_permission, restart_agent, revert_file_changes,
     scan_folder_for_repositories, set_default_workspace, set_setting, set_workspace_setting,
     set_agent_auto_accept_edits, set_agent_pinned, spawn_agent, stop_agent, takeover_agent,
@@ -185,6 +185,7 @@ pub fn run() {
             scan_folder_for_repositories,
             // Terminal
             open_terminal,
+            get_terminal_buffer,
             terminal_input,
             terminal_resize,
             close_terminal,

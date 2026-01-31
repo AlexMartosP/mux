@@ -7,6 +7,9 @@ use tauri::{AppHandle, Emitter};
 
 use crate::error::{AppError, Result};
 
+/// Maximum size of the output buffer per session (100KB)
+const MAX_BUFFER_SIZE: usize = 100 * 1024;
+
 /// Terminal output event sent to the frontend
 #[derive(Clone, serde::Serialize)]
 pub struct TerminalOutputEvent {
@@ -35,12 +38,15 @@ struct TerminalSession {
 /// Service for managing terminal sessions
 pub struct TerminalService {
     sessions: Arc<Mutex<HashMap<String, TerminalSession>>>,
+    /// Output buffers for session persistence - stores recent output per agent
+    output_buffers: Arc<Mutex<HashMap<String, Vec<u8>>>>,
 }
 
 impl TerminalService {
     pub fn new() -> Self {
         Self {
             sessions: Arc::new(Mutex::new(HashMap::new())),
+            output_buffers: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -51,7 +57,7 @@ impl TerminalService {
         task_id: &str,
         working_dir: &str,
     ) -> Result<()> {
-        // Check if session already exists
+        // Check if session already exists - caller should use has_session() first
         {
             let sessions = self.sessions.lock().unwrap();
             if sessions.contains_key(task_id) {
@@ -151,10 +157,17 @@ impl TerminalService {
             .try_clone_reader()
             .map_err(|e| AppError::Other(format!("Failed to get PTY reader: {}", e)))?;
 
+        // Initialize output buffer for this session
+        {
+            let mut buffers = self.output_buffers.lock().unwrap();
+            buffers.insert(task_id.to_string(), Vec::new());
+        }
+
         // Spawn thread to read output and send to frontend
         let task_id_clone = task_id.to_string();
         let app_handle_clone = app_handle.clone();
         let sessions_clone = Arc::clone(&self.sessions);
+        let buffers_clone = Arc::clone(&self.output_buffers);
 
         let reader_thread = thread::spawn(move || {
             let mut buf = [0u8; 4096];
@@ -174,6 +187,20 @@ impl TerminalService {
                     }
                     Ok(n) => {
                         let data = String::from_utf8_lossy(&buf[..n]).to_string();
+
+                        // Store in buffer for persistence
+                        {
+                            let mut buffers = buffers_clone.lock().unwrap();
+                            if let Some(buffer) = buffers.get_mut(&task_id_clone) {
+                                buffer.extend_from_slice(&buf[..n]);
+                                // Trim buffer if too large (keep last MAX_BUFFER_SIZE bytes)
+                                if buffer.len() > MAX_BUFFER_SIZE {
+                                    let start = buffer.len() - MAX_BUFFER_SIZE;
+                                    *buffer = buffer[start..].to_vec();
+                                }
+                            }
+                        }
+
                         let _ = app_handle_clone.emit(
                             "terminal-output",
                             TerminalOutputEvent {
@@ -196,9 +223,13 @@ impl TerminalService {
                 }
             }
 
-            // Clean up session
+            // Clean up session and buffer
             let mut sessions = sessions_clone.lock().unwrap();
             sessions.remove(&task_id_clone);
+
+            let mut buffers = buffers_clone.lock().unwrap();
+            buffers.remove(&task_id_clone);
+
             log::info!("Terminal session cleaned up for task {}", task_id_clone);
         });
 
@@ -263,6 +294,11 @@ impl TerminalService {
         if sessions.remove(task_id).is_some() {
             log::info!("Terminal session closed for task {}", task_id);
         }
+
+        // Also clear the buffer
+        let mut buffers = self.output_buffers.lock().unwrap();
+        buffers.remove(task_id);
+
         Ok(())
     }
 
@@ -270,5 +306,11 @@ impl TerminalService {
     pub fn has_session(&self, task_id: &str) -> bool {
         let sessions = self.sessions.lock().unwrap();
         sessions.contains_key(task_id)
+    }
+
+    /// Get the buffered output for a terminal session
+    pub fn get_buffer(&self, task_id: &str) -> Option<String> {
+        let buffers = self.output_buffers.lock().unwrap();
+        buffers.get(task_id).map(|b| String::from_utf8_lossy(b).to_string())
     }
 }
