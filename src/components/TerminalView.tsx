@@ -35,33 +35,34 @@ export function TerminalView({ agentId }: TerminalViewProps) {
       return;
     }
 
-    // Create terminal instance
+    // Create terminal instance with proper dark theme colors
     const term = new Terminal({
       cursorBlink: true,
-      fontFamily: "JetBrains Mono, SF Mono, Menlo, Monaco, Consolas, monospace",
+      fontFamily: "Geist Mono, JetBrains Mono, SF Mono, Menlo, Monaco, Consolas, monospace",
       fontSize: 12,
-      lineHeight: 1.2,
+      lineHeight: 1.4,
       theme: {
-        background: "var(--bg-primary)",
-        foreground: "var(--text-primary)",
-        cursor: "var(--accent-cyan)",
-        cursorAccent: "var(--bg-primary)",
-        selectionBackground: "var(--bg-accent-subtle)",
+        background: "#0a0a0a", // --background
+        foreground: "#fafafa", // --foreground
+        cursor: "#06b6d4", // cyan accent
+        cursorAccent: "#0a0a0a",
+        selectionBackground: "rgba(6, 182, 212, 0.2)",
+        selectionForeground: "#fafafa",
         black: "#1e1e1e",
-        red: "#f44336",
-        green: "#4caf50",
-        yellow: "#ffeb3b",
-        blue: "#2196f3",
-        magenta: "#e91e63",
-        cyan: "#00bcd4",
-        white: "#ffffff",
-        brightBlack: "#424242",
-        brightRed: "#ff5252",
-        brightGreen: "#69f0ae",
-        brightYellow: "#ffff00",
-        brightBlue: "#448aff",
-        brightMagenta: "#ff4081",
-        brightCyan: "#18ffff",
+        red: "#ef4444",
+        green: "#22c55e",
+        yellow: "#eab308",
+        blue: "#3b82f6",
+        magenta: "#ec4899",
+        cyan: "#06b6d4",
+        white: "#f5f5f5",
+        brightBlack: "#525252",
+        brightRed: "#f87171",
+        brightGreen: "#4ade80",
+        brightYellow: "#facc15",
+        brightBlue: "#60a5fa",
+        brightMagenta: "#f472b6",
+        brightCyan: "#22d3ee",
         brightWhite: "#ffffff",
       },
     });

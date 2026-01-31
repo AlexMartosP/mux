@@ -210,6 +210,7 @@ impl GitService {
     }
 
     /// Get the diff for a specific file with custom context lines
+    /// Shows ALL changes: committed + uncommitted (working directory vs merge base)
     pub fn get_file_diff_with_context(
         worktree_path: &str,
         base_branch: &str,
@@ -219,37 +220,56 @@ impl GitService {
         let merge_base = Self::get_merge_base(worktree_path, base_branch)?;
         let context_arg = format!("-U{}", context_lines);
 
+        // Diff working directory against merge base (shows ALL changes: committed + uncommitted)
+        // Note: No "HEAD" argument means we diff merge_base against working directory
         let output = Command::new("git")
-            .args(["diff", &context_arg, &merge_base, "HEAD", "--", file_path])
+            .args(["diff", &context_arg, &merge_base, "--", file_path])
             .current_dir(worktree_path)
             .output()
             .map_err(|e| AppError::Git(format!("Failed to run git diff: {}", e)))?;
 
         let diff = String::from_utf8_lossy(&output.stdout).to_string();
 
-        // If no committed diff, check for uncommitted changes
+        // If no diff, check for untracked file (not in git at all)
         let diff = if diff.is_empty() {
-            let uncommitted = Command::new("git")
-                .args(["diff", &context_arg, "HEAD", "--", file_path])
-                .current_dir(worktree_path)
-                .output()
-                .map_err(|e| AppError::Git(format!("Failed to run git diff: {}", e)))?;
+            let file_full_path = std::path::Path::new(worktree_path).join(file_path);
+            if file_full_path.exists() {
+                // Check if file is untracked
+                let status_output = Command::new("git")
+                    .args(["status", "--porcelain", "--", file_path])
+                    .current_dir(worktree_path)
+                    .output()
+                    .ok();
 
-            let uncommitted_diff = String::from_utf8_lossy(&uncommitted.stdout).to_string();
+                let is_untracked = status_output
+                    .map(|o| String::from_utf8_lossy(&o.stdout).starts_with("??"))
+                    .unwrap_or(false);
 
-            if uncommitted_diff.is_empty() {
-                // Check for untracked file
-                let content = std::fs::read_to_string(
-                    std::path::Path::new(worktree_path).join(file_path)
-                ).unwrap_or_default();
-
-                if !content.is_empty() {
-                    format!("New file: {}\n\n{}", file_path, content)
+                if is_untracked {
+                    // Show untracked file content as a proper diff
+                    let content = std::fs::read_to_string(&file_full_path).unwrap_or_default();
+                    if !content.is_empty() {
+                        // Format as a proper unified diff for new file
+                        let line_count = content.lines().count();
+                        let mut diff_lines = vec![
+                            format!("diff --git a/{} b/{}", file_path, file_path),
+                            "new file mode 100644".to_string(),
+                            format!("--- /dev/null"),
+                            format!("+++ b/{}", file_path),
+                            format!("@@ -0,0 +1,{} @@", line_count),
+                        ];
+                        for line in content.lines() {
+                            diff_lines.push(format!("+{}", line));
+                        }
+                        diff_lines.join("\n")
+                    } else {
+                        String::new()
+                    }
                 } else {
                     String::new()
                 }
             } else {
-                uncommitted_diff
+                String::new()
             }
         } else {
             diff
@@ -261,12 +281,13 @@ impl GitService {
         })
     }
 
-    /// Get the full diff of all changes
+    /// Get the full diff of all changes (committed + uncommitted)
     pub fn get_full_diff(worktree_path: &str, base_branch: &str) -> Result<String> {
         let merge_base = Self::get_merge_base(worktree_path, base_branch)?;
 
+        // Diff working directory against merge base (shows ALL changes)
         let output = Command::new("git")
-            .args(["diff", &merge_base, "HEAD"])
+            .args(["diff", &merge_base])
             .current_dir(worktree_path)
             .output()
             .map_err(|e| AppError::Git(format!("Failed to run git diff: {}", e)))?;
