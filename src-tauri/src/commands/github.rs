@@ -1,6 +1,6 @@
 use crate::commands::AppState;
 use crate::error::{AppError, Result};
-use crate::services::github::{GitHubService, PRCreateInput, PRPreview, PullRequest};
+use crate::services::github::{CIStatusResponse, GitHubService, PRCreateInput, PRPreview, PullRequest};
 use crate::services::agent_generator;
 use std::sync::Arc;
 use tauri::State;
@@ -93,4 +93,9 @@ pub fn create_pull_request(
 #[tauri::command]
 pub fn open_pr_in_browser(url: String) -> Result<()> {
     GitHubService::open_pr_in_browser(&url)
+}
+
+#[tauri::command]
+pub fn get_ci_status(pr_url: String) -> Result<CIStatusResponse> {
+    GitHubService::get_ci_status(&pr_url)
 }

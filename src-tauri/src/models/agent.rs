@@ -179,6 +179,27 @@ impl Agent {
         )
     }
 
+    /// Create a new agent with a custom branch name
+    /// Name/description metadata will be loaded in the background
+    pub fn new_with_custom_branch(repository_path: String, prompt: String, branch_name: String, base_branch: Option<String>) -> Self {
+        // Ensure branch name has proper format
+        let branch = if branch_name.contains('/') {
+            branch_name
+        } else {
+            format!("agent/{}", branch_name)
+        };
+
+        Self::new_with_metadata(
+            repository_path,
+            prompt,
+            "Loading...".to_string(),
+            String::new(),
+            branch,
+            true, // metadata is loading
+            base_branch,
+        )
+    }
+
     /// Create a new agent with auto-generated metadata (fallback)
     pub fn new(repository_path: String, prompt: String, base_branch: Option<String>) -> Self {
         // Auto-generate agent name and description from prompt
@@ -269,4 +290,6 @@ pub struct SpawnAgentInput {
     pub existing_branch: Option<String>,
     /// Optional: base branch to create the new branch from (defaults to main/master)
     pub base_branch: Option<String>,
+    /// Optional: custom branch name for new branches (if not provided, auto-generated)
+    pub branch_name: Option<String>,
 }

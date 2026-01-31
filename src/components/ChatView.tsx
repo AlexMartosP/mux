@@ -3,7 +3,9 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Menu } from "@base-ui/react/menu";
 import { Send, Square, ArrowUp, ArrowDown, RefreshCw, Hand, Undo2, FolderOpen, GitPullRequest, MoreVertical, FileCode, Terminal } from "lucide-react";
-import { Button } from "./Button";
+import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import type { Agent } from "../types/agent";
 import { useAgentOutput } from "../hooks/useAgentOutput";
 import { usePermissions } from "../hooks/usePermissions";
@@ -17,9 +19,13 @@ import { InlineError } from "./ErrorDisplay";
 import * as tauri from "../lib/tauri";
 import type { RepoInfo } from "../lib/tauri";
 
-type ViewTab = "output" | "code-review" | "terminal";
+type RightPanelTab = "code-review" | "terminal";
 
-const VIEW_TAB_STORAGE_PREFIX = "mux-agent-view-tab-";
+const RIGHT_PANEL_TAB_STORAGE_PREFIX = "mux-agent-right-panel-tab-";
+const RIGHT_PANEL_WIDTH_KEY = "mux-right-panel-width";
+const DEFAULT_RIGHT_PANEL_WIDTH = 400;
+const MIN_RIGHT_PANEL_WIDTH = 200;
+const MAX_RIGHT_PANEL_WIDTH = 800;
 
 interface FollowUpMessage {
   id: string;
@@ -30,7 +36,7 @@ interface FollowUpMessage {
 
 interface ChatViewProps {
   agent: Agent | null;
-  onSpawnAgent: (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string) => Promise<void>;
+  onSpawnAgent: (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string, branchName?: string) => Promise<void>;
   onStop: (id: string) => void;
   onRestart: (id: string, prompt?: string) => void;
   onDelete: (id: string) => void;
@@ -60,6 +66,9 @@ export function ChatView({
   const [branches, setBranches] = useState<{ name: string; is_current: boolean; last_commit_date: string }[]>([]);
   const [showBranchSelector, setShowBranchSelector] = useState(false);
   const branchSelectorRef = useRef<HTMLDivElement>(null);
+  // Custom branch name for new branches
+  const [customBranchName, setCustomBranchName] = useState<string>("");
+  const [useCustomBranchName, setUseCustomBranchName] = useState(false);
   // Base branch selector (which branch to fork from when creating a new branch)
   const [selectedBaseBranch, setSelectedBaseBranch] = useState<string>("");
   const [baseBranchSearch, setBaseBranchSearch] = useState("");
@@ -94,8 +103,14 @@ export function ChatView({
   const [copiedBranch, setCopiedBranch] = useState(false);
   const [isHandbackModalOpen, setIsHandbackModalOpen] = useState(false);
   const [isTakingOver, setIsTakingOver] = useState(false);
-  // View tabs - persisted per agent
-  const [viewTab, setViewTab] = useState<ViewTab>("output");
+  // Right panel tabs - persisted per agent
+  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>("code-review");
+  // Right panel resize state
+  const [rightPanelWidth, setRightPanelWidth] = useState(() => {
+    const saved = localStorage.getItem(RIGHT_PANEL_WIDTH_KEY);
+    return saved ? parseInt(saved, 10) : DEFAULT_RIGHT_PANEL_WIDTH;
+  });
+  const [isResizing, setIsResizing] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const followUpTextareaRef = useRef<HTMLTextAreaElement>(null);
   const slashCommandsRef = useRef<HTMLDivElement>(null);
@@ -205,24 +220,53 @@ export function ChatView({
     }
   }, [prompt]);
 
-  // Persist and restore view tab per agent
+  // Persist and restore right panel tab per agent
   useEffect(() => {
     if (agent?.id) {
-      const savedTab = localStorage.getItem(`${VIEW_TAB_STORAGE_PREFIX}${agent.id}`);
-      if (savedTab && (savedTab === "output" || savedTab === "code-review" || savedTab === "terminal")) {
-        setViewTab(savedTab as ViewTab);
+      const savedTab = localStorage.getItem(`${RIGHT_PANEL_TAB_STORAGE_PREFIX}${agent.id}`);
+      if (savedTab && (savedTab === "code-review" || savedTab === "terminal")) {
+        setRightPanelTab(savedTab as RightPanelTab);
       } else {
-        setViewTab("output");
+        setRightPanelTab("code-review");
       }
     }
   }, [agent?.id]);
 
-  const handleViewTabChange = (tab: ViewTab) => {
-    setViewTab(tab);
+  const handleRightPanelTabChange = (tab: RightPanelTab) => {
+    setRightPanelTab(tab);
     if (agent?.id) {
-      localStorage.setItem(`${VIEW_TAB_STORAGE_PREFIX}${agent.id}`, tab);
+      localStorage.setItem(`${RIGHT_PANEL_TAB_STORAGE_PREFIX}${agent.id}`, tab);
     }
   };
+
+  // Resize handlers
+  const handleResizeStart = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  };
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = window.innerWidth - e.clientX;
+      const clampedWidth = Math.min(MAX_RIGHT_PANEL_WIDTH, Math.max(MIN_RIGHT_PANEL_WIDTH, newWidth));
+      setRightPanelWidth(clampedWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+      localStorage.setItem(RIGHT_PANEL_WIDTH_KEY, String(rightPanelWidth));
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+    };
+  }, [isResizing, rightPanelWidth]);
 
   const openInEditor = async (editor: 'vscode' | 'cursor') => {
     if (!agent) return;
@@ -258,9 +302,13 @@ export function ChatView({
     try {
       // Only pass baseBranch if we're creating a new branch (not using an existing one)
       const baseBranchToUse = selectedBranch ? undefined : (selectedBaseBranch || undefined);
-      await onSpawnAgent(repositoryPath.trim(), prompt.trim(), selectedBranch || undefined, baseBranchToUse);
+      // Pass custom branch name if specified
+      const branchNameToUse = useCustomBranchName && customBranchName.trim() ? customBranchName.trim() : undefined;
+      await onSpawnAgent(repositoryPath.trim(), prompt.trim(), selectedBranch || undefined, baseBranchToUse, branchNameToUse);
       setPrompt("");
       setSelectedBaseBranch("");
+      setCustomBranchName("");
+      setUseCustomBranchName(false);
     } catch (err) {
       console.error("Failed to spawn agent:", err);
       setError(err instanceof Error ? err.message : String(err));
@@ -658,14 +706,16 @@ export function ChatView({
                   className="px-3 py-2 text-xs transition-colors flex items-center gap-2"
                   style={{
                     backgroundColor: 'transparent',
-                    border: `1px solid ${selectedBranch ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
+                    border: `1px solid ${selectedBranch || useCustomBranchName ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
                     borderRadius: 'var(--border-radius)',
-                    color: selectedBranch ? 'var(--text-primary)' : 'var(--text-dim)',
+                    color: selectedBranch || useCustomBranchName ? 'var(--text-primary)' : 'var(--text-dim)',
                   }}
                 >
                   <span style={{ color: 'var(--accent-cyan)' }}>[B]</span>
                   {selectedBranch ? (
                     <span className="truncate max-w-[200px]">{selectedBranch}</span>
+                  ) : useCustomBranchName ? (
+                    <span>New branch (custom name)</span>
                   ) : (
                     <span>New branch (auto-generated)</span>
                   )}
@@ -701,19 +751,42 @@ export function ChatView({
                         type="button"
                         onClick={() => {
                           setSelectedBranch("");
+                          setUseCustomBranchName(false);
+                          setCustomBranchName("");
                           setShowBranchSelector(false);
                           setBranchSearch("");
                         }}
                         className="w-full text-left px-3 py-2 text-xs transition-colors"
                         style={{
-                          backgroundColor: !selectedBranch ? 'var(--bg-surface)' : 'transparent',
-                          color: !selectedBranch ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                          backgroundColor: !selectedBranch && !useCustomBranchName ? 'var(--bg-surface)' : 'transparent',
+                          color: !selectedBranch && !useCustomBranchName ? 'var(--accent-cyan)' : 'var(--text-secondary)',
                           borderBottom: '1px solid var(--border-default)',
                         }}
                         onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-surface)'}
-                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = !selectedBranch ? 'var(--bg-surface)' : 'transparent'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = !selectedBranch && !useCustomBranchName ? 'var(--bg-surface)' : 'transparent'}
                       >
                         <span style={{ color: 'var(--accent-cyan)' }}>+</span> New branch (auto-generated)
+                      </button>
+
+                      {/* Custom branch name option */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedBranch("");
+                          setUseCustomBranchName(true);
+                          setShowBranchSelector(false);
+                          setBranchSearch("");
+                        }}
+                        className="w-full text-left px-3 py-2 text-xs transition-colors"
+                        style={{
+                          backgroundColor: useCustomBranchName ? 'var(--bg-surface)' : 'transparent',
+                          color: useCustomBranchName ? 'var(--accent-cyan)' : 'var(--text-secondary)',
+                          borderBottom: '1px solid var(--border-default)',
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'var(--bg-surface)'}
+                        onMouseLeave={(e) => e.currentTarget.style.backgroundColor = useCustomBranchName ? 'var(--bg-surface)' : 'transparent'}
+                      >
+                        <span style={{ color: 'var(--accent-cyan)' }}>+</span> New branch (custom name)
                       </button>
 
                       {filteredBranches.map((branch) => (
@@ -747,6 +820,35 @@ export function ChatView({
                     </div>
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Custom branch name input - show when creating a new custom branch */}
+            {repositoryPath && useCustomBranchName && !selectedBranch && (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={customBranchName}
+                  onChange={(e) => {
+                    // Validate branch name: no spaces, convert to lowercase kebab-case
+                    const value = e.target.value
+                      .toLowerCase()
+                      .replace(/\s+/g, '-')
+                      .replace(/[^a-z0-9-/_]/g, '');
+                    setCustomBranchName(value);
+                  }}
+                  placeholder="feature/my-branch-name"
+                  className="flex-1 px-3 py-2 text-xs"
+                  style={{
+                    backgroundColor: 'var(--bg-primary)',
+                    border: `1px solid ${customBranchName ? 'var(--accent-cyan)' : 'var(--border-default)'}`,
+                    borderRadius: 'var(--border-radius)',
+                    color: 'var(--text-primary)',
+                  }}
+                />
+                <span className="text-xs" style={{ color: 'var(--text-dim)' }}>
+                  Branch name
+                </span>
               </div>
             )}
 
@@ -894,7 +996,7 @@ export function ChatView({
               <div className="flex justify-end mt-2">
                 <Button
                   type="submit"
-                  variant={(!isSubmitting && repositoryPath.trim() && prompt.trim()) ? "primary" : "ghost"}
+                  variant={(!isSubmitting && repositoryPath.trim() && prompt.trim()) ? "default" : "ghost"}
                   size="icon"
                   disabled={isSubmitting || !repositoryPath.trim() || !prompt.trim()}
                   title="Start task"
@@ -918,14 +1020,16 @@ export function ChatView({
   const isSettingUp = agent.status === "idle" && output.length === 0;
 
   return (
-    <div className="flex-1 flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
-      <header
-        className="flex items-center justify-between"
-        style={{
-          padding: 'var(--space-3) var(--space-4)',
-          borderBottom: '1px solid var(--border-default)',
-        }}
-      >
+    <div className="flex-1 flex overflow-hidden" style={{ backgroundColor: 'var(--bg-primary)' }}>
+      {/* Left Panel: Header + Banners + Output + Follow-up input */}
+      <div className="flex-1 flex flex-col min-w-0">
+        <header
+          className="flex items-center justify-between"
+          style={{
+            padding: 'var(--space-3) var(--space-4)',
+            borderBottom: '1px solid var(--border-default)',
+          }}
+        >
         {/* Left: Title and metadata inline */}
         <div className="flex items-center gap-3 min-w-0 flex-1">
           {/* Title */}
@@ -952,18 +1056,34 @@ export function ChatView({
               }}
             />
           ) : (
-            <h2
-              className="cursor-pointer hover:underline truncate"
-              style={{
-                fontSize: '13px',
-                fontWeight: 500,
-                color: 'var(--text-primary)',
-              }}
-              onClick={startEditingTitle}
-              title="Click to edit"
-            >
-              {agent.name}
-            </h2>
+            <div className="flex items-center gap-2 min-w-0">
+              <h2
+                className="cursor-pointer hover:underline truncate"
+                style={{
+                  fontSize: '13px',
+                  fontWeight: 500,
+                  color: 'var(--text-primary)',
+                }}
+                onClick={startEditingTitle}
+                title="Click to edit"
+              >
+                {agent.name}
+              </h2>
+              {/* Show indicator if metadata is still loading */}
+              {agent.metadata_loading && (
+                <span
+                  className="text-xs px-1.5 py-0.5"
+                  style={{
+                    backgroundColor: 'var(--bg-surface)',
+                    color: 'var(--text-dim)',
+                    borderRadius: '4px',
+                  }}
+                  title="Agent name/description being generated"
+                >
+                  ⏳
+                </span>
+              )}
+            </div>
           )}
 
           {/* Separator */}
@@ -1251,98 +1371,15 @@ export function ChatView({
                 The task encountered an error. Review the output below for details, or try restarting.
               </p>
             </div>
-            <Button variant="secondary" color="red" onClick={() => onRestart(agent.id)}>
+            <Button variant="outline" onClick={() => onRestart(agent.id)}>
               RETRY
             </Button>
           </div>
         </div>
       )}
 
-      {/* View Tabs */}
-      <div
-        className="flex items-center gap-1 px-4 py-2"
-        style={{ borderBottom: '1px solid var(--border-default)' }}
-      >
-        <button
-          onClick={() => handleViewTabChange("output")}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors"
-          style={{
-            backgroundColor: viewTab === "output" ? 'var(--bg-accent-subtle)' : 'transparent',
-            color: viewTab === "output" ? 'var(--accent-cyan)' : 'var(--text-secondary)',
-            borderRadius: 'var(--border-radius)',
-          }}
-          onMouseEnter={(e) => {
-            if (viewTab !== "output") {
-              e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (viewTab !== "output") {
-              e.currentTarget.style.backgroundColor = 'transparent';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }
-          }}
-        >
-          <Send size={14} strokeWidth={1.5} />
-          <span>Output</span>
-        </button>
-        <button
-          onClick={() => handleViewTabChange("code-review")}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors"
-          style={{
-            backgroundColor: viewTab === "code-review" ? 'var(--bg-accent-subtle)' : 'transparent',
-            color: viewTab === "code-review" ? 'var(--accent-cyan)' : 'var(--text-secondary)',
-            borderRadius: 'var(--border-radius)',
-          }}
-          onMouseEnter={(e) => {
-            if (viewTab !== "code-review") {
-              e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (viewTab !== "code-review") {
-              e.currentTarget.style.backgroundColor = 'transparent';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }
-          }}
-        >
-          <FileCode size={14} strokeWidth={1.5} />
-          <span>Code Review</span>
-        </button>
-        <button
-          onClick={() => handleViewTabChange("terminal")}
-          className="flex items-center gap-1.5 px-3 py-1.5 text-xs transition-colors"
-          style={{
-            backgroundColor: viewTab === "terminal" ? 'var(--bg-accent-subtle)' : 'transparent',
-            color: viewTab === "terminal" ? 'var(--accent-cyan)' : 'var(--text-secondary)',
-            borderRadius: 'var(--border-radius)',
-          }}
-          onMouseEnter={(e) => {
-            if (viewTab !== "terminal") {
-              e.currentTarget.style.backgroundColor = 'var(--bg-hover)';
-              e.currentTarget.style.color = 'var(--text-primary)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (viewTab !== "terminal") {
-              e.currentTarget.style.backgroundColor = 'transparent';
-              e.currentTarget.style.color = 'var(--text-secondary)';
-            }
-          }}
-        >
-          <Terminal size={14} strokeWidth={1.5} />
-          <span>Terminal</span>
-        </button>
-      </div>
-
-      {/* Main content - full width, based on selected tab */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Output tab */}
-        {viewTab === "output" && (
-          <div className="flex-1 flex flex-col min-w-0">
-            <div className="flex-1 overflow-y-auto p-6" ref={outputRef}>
+        {/* Output area */}
+        <div className="flex-1 overflow-y-auto p-6" ref={outputRef}>
             {/* Initial prompt */}
             <div className="mb-6">
               <div
@@ -1618,22 +1655,20 @@ export function ChatView({
               {/* Buttons row: accept edits toggle on left, send/stop on right */}
               <div className="flex items-center justify-between mt-2">
                 {/* Accept edits toggle button on left */}
-                <Button
-                  variant="ghost"
-                  active={agent.auto_accept_edits ?? false}
-                  onClick={async () => {
-                    const newValue = !(agent.auto_accept_edits ?? false);
-                    await tauri.setAgentAutoAcceptEdits(agent.id, newValue);
-                    if (onUpdateAgent) onUpdateAgent({ ...agent, auto_accept_edits: newValue });
+                <Toggle
+                  pressed={agent.auto_accept_edits ?? false}
+                  onPressedChange={async (pressed) => {
+                    await tauri.setAgentAutoAcceptEdits(agent.id, pressed);
+                    if (onUpdateAgent) onUpdateAgent({ ...agent, auto_accept_edits: pressed });
                   }}
                 >
                   Accept edits
-                </Button>
+                </Toggle>
                 {/* Send/Stop button on right */}
                 {isRunning ? (
                   <Button
-                    variant="secondary"
-                    color="red"
+                    variant="outline"
+                   
                     size="icon"
                     onClick={() => onStop(agent.id)}
                     title="Stop task"
@@ -1642,7 +1677,7 @@ export function ChatView({
                   </Button>
                 ) : (
                   <Button
-                    variant={followUpPrompt.trim() ? "primary" : "ghost"}
+                    variant={followUpPrompt.trim() ? "default" : "ghost"}
                     size="icon"
                     onClick={handleFollowUpSubmit}
                     disabled={!followUpPrompt.trim()}
@@ -1653,40 +1688,68 @@ export function ChatView({
                 )}
               </div>
             </div>
-            </div>
           </div>
         </div>
-        )}
-
-        {/* Code Review tab */}
-        {viewTab === "code-review" && (
-          <div className="flex-1 overflow-hidden">
-            <ChangesPanel
-              agentId={agent.id}
-              onSendReview={(reviewPrompt) => {
-                // Add as follow-up message for display
-                const newMessage: FollowUpMessage = {
-                  id: crypto.randomUUID(),
-                  content: reviewPrompt,
-                  timestamp: new Date().toISOString(),
-                  outputIndex: output.length,
-                };
-                setFollowUpMessages((prev) => [...prev, newMessage]);
-                onRestart(agent.id, reviewPrompt);
-                // Switch to output tab to show the response
-                handleViewTabChange("output");
-              }}
-            />
-          </div>
-        )}
-
-        {/* Terminal tab */}
-        {viewTab === "terminal" && (
-          <div className="flex-1 overflow-hidden">
-            <TerminalView agentId={agent.id} />
-          </div>
-        )}
       </div>
+
+      {/* Resize handle */}
+      <div
+        className="w-1 cursor-col-resize hover:bg-[var(--accent-cyan)] transition-colors"
+        style={{
+          backgroundColor: isResizing ? 'var(--accent-cyan)' : 'var(--border-default)',
+        }}
+        onMouseDown={handleResizeStart}
+      />
+
+      {/* Right Panel: Code Review / Terminal tabs */}
+      <Tabs
+        value={rightPanelTab}
+        onValueChange={(value) => handleRightPanelTabChange(value as RightPanelTab)}
+        className="flex flex-col overflow-hidden"
+        style={{
+          width: `${rightPanelWidth}px`,
+          minWidth: `${MIN_RIGHT_PANEL_WIDTH}px`,
+          maxWidth: `${MAX_RIGHT_PANEL_WIDTH}px`,
+        }}
+      >
+        {/* Right panel tabs */}
+        <div
+          className="px-3 py-2"
+          style={{ borderBottom: '1px solid var(--border-default)' }}
+        >
+          <TabsList className="gap-1">
+            <TabsTrigger value="code-review" className="text-xs gap-1.5 px-3 py-1.5">
+              <FileCode size={14} strokeWidth={1.5} />
+              <span>Code Review</span>
+            </TabsTrigger>
+            <TabsTrigger value="terminal" className="text-xs gap-1.5 px-3 py-1.5">
+              <Terminal size={14} strokeWidth={1.5} />
+              <span>Terminal</span>
+            </TabsTrigger>
+          </TabsList>
+        </div>
+
+        {/* Right panel content */}
+        <TabsContent value="code-review" className="flex-1 overflow-hidden m-0">
+          <ChangesPanel
+            agentId={agent.id}
+            onSendReview={(reviewPrompt) => {
+              // Add as follow-up message for display
+              const newMessage: FollowUpMessage = {
+                id: crypto.randomUUID(),
+                content: reviewPrompt,
+                timestamp: new Date().toISOString(),
+                outputIndex: output.length,
+              };
+              setFollowUpMessages((prev) => [...prev, newMessage]);
+              onRestart(agent.id, reviewPrompt);
+            }}
+          />
+        </TabsContent>
+        <TabsContent value="terminal" className="flex-1 overflow-hidden m-0">
+          <TerminalView agentId={agent.id} />
+        </TabsContent>
+      </Tabs>
 
       {/* Handback Modal */}
       <HandbackModal

@@ -1,8 +1,9 @@
 import { useState, useMemo, useRef, useEffect, RefObject } from "react";
 import { Bell, Settings, Pencil, Plus, ChevronsLeft, ChevronsRight, X } from "lucide-react";
-import type { Agent } from "../types/agent";
+import type { Agent, CIStatus } from "../types/agent";
 import { AgentList } from "./AgentList";
-import { Button } from "./Button";
+import { PermissionsQueue } from "./PermissionsQueue";
+import { Button } from "@/components/ui/button";
 import { usePermissions } from "../hooks/usePermissions";
 import { formatShortcut, SHORTCUTS } from "../hooks/useKeyboardShortcuts";
 import { useNotifications } from "../hooks/useNotifications";
@@ -17,6 +18,7 @@ interface SidebarProps {
   searchInputRef?: RefObject<HTMLInputElement | null>;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
+  ciStatuses?: Map<string, CIStatus>;
 }
 
 export function Sidebar({
@@ -29,6 +31,7 @@ export function Sidebar({
   searchInputRef,
   collapsed = false,
   onToggleCollapse,
+  ciStatuses,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
@@ -283,10 +286,10 @@ export function Sidebar({
         <Button
           variant="ghost"
           onClick={onNewAgent}
-          className="w-full"
+          className="w-full justify-start gap-2"
           title={`Spawn agent (${formatShortcut(SHORTCUTS.newTask)})`}
-          startIcon={<Plus size={14} strokeWidth={1.5} style={{ color: 'var(--accent-cyan)' }} />}
         >
+          <Plus size={14} strokeWidth={1.5} className="text-primary" />
           Spawn agent
         </Button>
 
@@ -380,7 +383,7 @@ export function Sidebar({
         {hasActiveFilters && (
           <Button
             variant="ghost"
-            color="red"
+           
             onClick={clearAllFilters}
             className="w-full"
           >
@@ -460,6 +463,7 @@ export function Sidebar({
           selectMode={selectMode}
           selectedAgentIds={selectedAgentIds}
           onToggleAgentSelection={toggleAgentSelection}
+          ciStatuses={ciStatuses}
         />
       </div>
 
@@ -470,8 +474,8 @@ export function Sidebar({
           style={{ borderTop: '1px solid var(--border-default)' }}
         >
           <Button
-            variant="secondary"
-            color="red"
+            variant="outline"
+           
             onClick={handleArchiveSelected}
             disabled={selectedAgentIds.size === 0 || isArchiving}
             className="w-full"
@@ -494,6 +498,12 @@ export function Sidebar({
         className="px-3 py-2 flex items-center justify-center gap-2"
         style={{ borderTop: '1px solid var(--border-default)' }}
       >
+        {/* Permissions Queue */}
+        <PermissionsQueue
+          agents={agents}
+          onNavigateToAgent={onSelectAgent}
+        />
+
         {/* Notifications */}
         <Button variant="ghost" size="icon" title="Notifications" className="relative">
           <Bell size={16} strokeWidth={1.5} />
@@ -514,7 +524,7 @@ export function Sidebar({
         {/* Edit/Select mode */}
         {agents.length > 0 && (
           <Button
-            variant={selectMode ? "primary" : "ghost"}
+            variant={selectMode ? "default" : "ghost"}
             size="icon"
             onClick={() => selectMode ? exitSelectMode() : setSelectMode(true)}
             title={selectMode ? "Exit edit mode" : "Edit agents"}

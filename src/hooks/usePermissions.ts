@@ -147,6 +147,7 @@ export function usePermissions(agentId?: string | null) {
     pendingCount: filteredRequests.length,
     totalPendingCount: pendingRequests.length,
     pendingAgentIds,
+    allPendingRequests: pendingRequests,
     dismissRequest,
   };
 }

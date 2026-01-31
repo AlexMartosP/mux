@@ -46,6 +46,13 @@ export interface RepositoryInfo {
   path: string;
 }
 
+export interface WorkspaceRepository {
+  workspace_id: string;
+  repository_path: string;
+  name: string;
+  added_at: string;
+}
+
 export interface NotificationEntry {
   id: number;
   agent_id?: string;
@@ -88,6 +95,7 @@ export interface SpawnAgentInput {
   prompt: string;
   existing_branch?: string;
   base_branch?: string;
+  branch_name?: string; // Custom branch name for new branches (if not provided, auto-generated)
 }
 
 export interface OutputLine {
@@ -177,6 +185,21 @@ export interface PRPreview {
   commits: CommitSummary[];
   has_existing_pr: boolean;
   existing_pr_url?: string;
+}
+
+// CI Status types
+export type CIStatus = "passing" | "failing" | "running" | "no_ci";
+
+export interface CICheck {
+  name: string;
+  state: string;
+  conclusion: string | null;
+  link: string | null;
+}
+
+export interface CIStatusResponse {
+  status: CIStatus;
+  checks: CICheck[];
 }
 
 // Re-export old names as aliases for backwards compatibility during transition

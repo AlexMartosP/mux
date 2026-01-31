@@ -44,10 +44,11 @@ pub async fn spawn_agent(
     state: State<'_, Arc<AppState>>,
     input: SpawnAgentInput,
 ) -> Result<Agent> {
-    log::info!("[spawn_agent] repo={}, existing_branch={:?}, base_branch={:?}, prompt={}...",
+    log::info!("[spawn_agent] repo={}, existing_branch={:?}, base_branch={:?}, branch_name={:?}, prompt={}...",
         input.repository_path,
         input.existing_branch,
         input.base_branch,
+        input.branch_name,
         &input.prompt[..input.prompt.len().min(80)]);
     // 1. Create agent immediately with temp name for instant UI feedback
     let agent = if let Some(ref existing_branch) = input.existing_branch {
@@ -59,6 +60,14 @@ pub async fn spawn_agent(
             String::new(),
             existing_branch.clone(),
             true, // metadata_loading
+            input.base_branch.clone(),
+        )
+    } else if let Some(ref custom_branch_name) = input.branch_name {
+        // Use custom branch name - still needs metadata generation for name/description
+        Agent::new_with_custom_branch(
+            input.repository_path.clone(),
+            input.prompt.clone(),
+            custom_branch_name.clone(),
             input.base_branch.clone(),
         )
     } else {

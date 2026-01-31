@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Agent, SpawnAgentInput, OutputLine, FileChange, FileDiff, CommitInfo, PRPreview, PullRequest, NotificationEntry, BranchInfo, CostSummary, Workspace, RepositoryInfo } from "../types/agent";
+import type { Agent, SpawnAgentInput, OutputLine, FileChange, FileDiff, CommitInfo, PRPreview, PullRequest, NotificationEntry, BranchInfo, CostSummary, Workspace, RepositoryInfo, WorkspaceRepository, CIStatusResponse } from "../types/agent";
 
 export async function getAgents(): Promise<Agent[]> {
   return invoke("get_agents");
@@ -106,6 +106,10 @@ export async function createPullRequest(
 
 export async function openPRInBrowser(url: string): Promise<void> {
   return invoke("open_pr_in_browser", { url });
+}
+
+export async function getCIStatus(prUrl: string): Promise<CIStatusResponse> {
+  return invoke("get_ci_status", { prUrl });
 }
 
 export async function refreshAgentGitStats(agentId: string): Promise<[number, number]> {
@@ -374,6 +378,27 @@ export async function deleteWorkspaceSetting(workspaceId: string, key: string): 
 
 export async function getAllWorkspaceSettings(workspaceId: string): Promise<Record<string, string>> {
   return invoke("get_all_workspace_settings", { workspaceId });
+}
+
+// Workspace repositories
+export async function getWorkspaceRepositories(workspaceId: string): Promise<WorkspaceRepository[]> {
+  return invoke("get_workspace_repositories", { workspaceId });
+}
+
+export async function addRepositoryToWorkspace(
+  workspaceId: string,
+  repositoryPath: string,
+  name: string
+): Promise<WorkspaceRepository> {
+  return invoke("add_repository_to_workspace", { workspaceId, repositoryPath, name });
+}
+
+export async function removeRepositoryFromWorkspace(workspaceId: string, repositoryPath: string): Promise<void> {
+  return invoke("remove_repository_from_workspace", { workspaceId, repositoryPath });
+}
+
+export async function scanFolderForRepositories(folderPath: string): Promise<RepositoryInfo[]> {
+  return invoke("scan_folder_for_repositories", { folderPath });
 }
 
 // Terminal

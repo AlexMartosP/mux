@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { GitPullRequest } from "lucide-react";
-import type { Agent, AgentStatus } from "../types/agent";
+import { GitPullRequest, Check, X, Loader2 } from "lucide-react";
+import type { Agent, AgentStatus, CIStatus } from "../types/agent";
 import * as tauri from "../lib/tauri";
 
 interface ContextMenuState {
@@ -19,6 +19,7 @@ interface AgentListProps {
   selectMode?: boolean;
   selectedAgentIds?: Set<string>;
   onToggleAgentSelection?: (agentId: string) => void;
+  ciStatuses?: Map<string, CIStatus>;
 }
 
 type StatusCategory = "waiting" | "working" | "in_review" | "idle";
@@ -128,6 +129,36 @@ function groupAgentsByStatusAndRepo(
   return result;
 }
 
+// CI Status indicator component
+function CIStatusIndicator({ status }: { status: CIStatus }) {
+  switch (status) {
+    case "passing":
+      return (
+        <span className="flex items-center gap-1 text-xs" style={{ color: "var(--accent-green)" }}>
+          <Check size={12} />
+          <span>CI</span>
+        </span>
+      );
+    case "failing":
+      return (
+        <span className="flex items-center gap-1 text-xs" style={{ color: "var(--accent-red)" }}>
+          <X size={12} />
+          <span>CI</span>
+        </span>
+      );
+    case "running":
+      return (
+        <span className="flex items-center gap-1 text-xs" style={{ color: "var(--accent-yellow)" }}>
+          <Loader2 size={12} className="animate-spin" />
+          <span>CI</span>
+        </span>
+      );
+    case "no_ci":
+    default:
+      return null;
+  }
+}
+
 export function AgentList({
   agents,
   selectedAgentId,
@@ -137,6 +168,7 @@ export function AgentList({
   selectMode = false,
   selectedAgentIds = new Set(),
   onToggleAgentSelection,
+  ciStatuses = new Map(),
 }: AgentListProps) {
   const [collapsedCategories, setCollapsedCategories] = useState<Set<StatusCategory>>(new Set());
   const [contextMenu, setContextMenu] = useState<ContextMenuState>({
@@ -314,15 +346,27 @@ export function AgentList({
                             )}
 
                             <div className="flex-1 min-w-0">
-                              <SlidingText
-                                text={agent.name}
-                                className="text-xs font-medium"
-                                style={{
-                                  color: isSelected
-                                    ? "var(--text-primary)"
-                                    : "var(--text-secondary)",
-                                }}
-                              />
+                              <div className="flex items-center gap-1">
+                                <SlidingText
+                                  text={agent.name}
+                                  className="text-xs font-medium"
+                                  style={{
+                                    color: isSelected
+                                      ? "var(--text-primary)"
+                                      : "var(--text-secondary)",
+                                  }}
+                                />
+                                {/* Metadata loading indicator */}
+                                {agent.metadata_loading && (
+                                  <span
+                                    className="text-xs flex-shrink-0"
+                                    style={{ color: "var(--text-dim)" }}
+                                    title="Generating name..."
+                                  >
+                                    ⏳
+                                  </span>
+                                )}
+                              </div>
                               <div className="flex items-center gap-2 mt-0.5">
                                 <SlidingText
                                   text={agent.branch}
@@ -343,6 +387,11 @@ export function AgentList({
                                 ) : null}
                               </div>
                             </div>
+
+                            {/* CI status */}
+                            {agent.pr_url && ciStatuses.get(agent.id) && (
+                              <CIStatusIndicator status={ciStatuses.get(agent.id)!} />
+                            )}
 
                             {/* PR icon */}
                             {agent.pr_url && (

@@ -6,11 +6,13 @@ import { TopNavBar } from "./components/TopNavBar";
 import { ChatView } from "./components/ChatView";
 import { SetupScreen } from "./components/SetupScreen";
 import { Settings } from "./components/Settings";
+import { WorkspaceSettings } from "./components/WorkspaceSettings";
 import { Onboarding } from "./components/Onboarding";
 import { ToastContainer } from "./components/Toast";
 import { useAgents } from "./hooks/useAgents";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useUpdateNotifications } from "./hooks/useUpdateNotifications";
+import { useCIStatus } from "./hooks/useCIStatus";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import * as tauri from "./lib/tauri";
@@ -18,12 +20,10 @@ import type { SetupStage, SetupProgressEvent, Workspace } from "./types/agent";
 
 const SIDEBAR_COLLAPSED_KEY = "mux-sidebar-collapsed";
 
-type View = "chat" | "settings";
-type AppMode = "agents" | "prs" | "dashboard";
+type View = "chat" | "settings" | "workspace-settings";
 
 function AppContent() {
   const [currentView, setCurrentView] = useState<View>("chat");
-  const [appMode, setAppMode] = useState<AppMode>("agents");
   const [showOnboarding, setShowOnboarding] = useState<boolean | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
     return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true";
@@ -47,6 +47,9 @@ function AppContent() {
     updateAgent,
     refresh: refreshAgents,
   } = useAgents();
+
+  // CI status for agents with PRs
+  const { ciStatuses } = useCIStatus(agents);
 
   // Ref for focusing search input in sidebar
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -111,6 +114,10 @@ function AppContent() {
     setCurrentView("chat");
   }, []);
 
+  const handleOpenWorkspaceSettings = useCallback(() => {
+    setCurrentView("workspace-settings");
+  }, []);
+
   const handleToggleSidebar = useCallback(() => {
     setSidebarCollapsed((prev) => {
       const newValue = !prev;
@@ -127,7 +134,7 @@ function AppContent() {
     onNewTask: handleNewChat,
     onOpenSettings: handleOpenSettings,
     onCloseModal: () => {
-      if (currentView === "settings") {
+      if (currentView === "settings" || currentView === "workspace-settings") {
         setCurrentView("chat");
       }
     },
@@ -142,7 +149,7 @@ function AppContent() {
     onRestartTask: selectedAgentId ? () => restartAgent(selectedAgentId) : undefined,
     onCopyBranch: handleCopyBranch,
     onCreatePR: handleCreatePR,
-    isSettingsOpen: currentView === "settings",
+    isSettingsOpen: currentView === "settings" || currentView === "workspace-settings",
     onToggleSidebar: handleToggleSidebar,
   });
 
@@ -196,8 +203,8 @@ function AppContent() {
     };
   }, []);
 
-  const handleSpawnAgent = async (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string) => {
-    await spawnAgent({ repository_path: repositoryPath, prompt, existing_branch: existingBranch, base_branch: baseBranch });
+  const handleSpawnAgent = async (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string, branchName?: string) => {
+    await spawnAgent({ repository_path: repositoryPath, prompt, existing_branch: existingBranch, base_branch: baseBranch, branch_name: branchName });
   };
 
   // Show loading while checking onboarding status
@@ -256,13 +263,11 @@ function AppContent() {
     >
       {/* Top Navigation Bar */}
       <TopNavBar
-        currentMode={appMode}
-        onModeChange={setAppMode}
         workspaces={workspaces}
         selectedWorkspaceId={selectedWorkspaceId}
         onSelectWorkspace={setSelectedWorkspaceId}
         onOpenSettings={handleOpenSettings}
-        agentCount={agents.length}
+        onOpenWorkspaceSettings={handleOpenWorkspaceSettings}
       />
 
       {/* Main content area with sidebar */}
@@ -292,6 +297,7 @@ function AppContent() {
           searchInputRef={searchInputRef}
           collapsed={sidebarCollapsed}
           onToggleCollapse={handleToggleSidebar}
+          ciStatuses={ciStatuses}
         />
 
         {currentView === "settings" ? (
@@ -300,11 +306,53 @@ function AppContent() {
             onRestartOnboarding={() => setShowOnboarding(true)}
             onWorkspacesChange={loadWorkspaces}
           />
+        ) : currentView === "workspace-settings" ? (
+          <div
+            className="flex-1 flex flex-col overflow-hidden"
+            style={{ backgroundColor: "var(--bg-primary)" }}
+          >
+            <div
+              className="flex items-center justify-between px-4 py-3"
+              style={{ borderBottom: "1px solid var(--border-default)" }}
+            >
+              <h2 className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                Workspace Settings
+              </h2>
+              <button
+                onClick={handleCloseSettings}
+                className="text-xs px-2 py-1 transition-colors"
+                style={{
+                  backgroundColor: "transparent",
+                  border: "1px solid var(--border-default)",
+                  color: "var(--text-secondary)",
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border-active)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = "var(--border-default)";
+                }}
+              >
+                Close
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <WorkspaceSettings onWorkspacesChange={loadWorkspaces} />
+            </div>
+          </div>
         ) : selectedAgent?.status === "setting_up" ? (
           <div className="flex-1 flex flex-col">
             <SetupScreen
               agentName={selectedAgent.name}
               currentStage={setupProgress[selectedAgent.id] || "initializing"}
+              repositoryPath={selectedAgent.repository_path}
+              branch={selectedAgent.branch}
+              onCancel={() => {
+                // Stop the agent and delete it
+                stopAgent(selectedAgent.id);
+                deleteAgent(selectedAgent.id);
+                setSelectedAgentId(null);
+              }}
             />
           </div>
         ) : (

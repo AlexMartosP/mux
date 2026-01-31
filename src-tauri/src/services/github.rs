@@ -10,6 +10,32 @@ pub struct PullRequest {
     pub state: String,
 }
 
+/// CI check status for a PR
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CIStatus {
+    Passing,
+    Failing,
+    Running,
+    NoCi,
+}
+
+/// Individual CI check result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CICheck {
+    pub name: String,
+    pub state: String,
+    pub conclusion: Option<String>,
+    pub link: Option<String>,
+}
+
+/// CI status response
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CIStatusResponse {
+    pub status: CIStatus,
+    pub checks: Vec<CICheck>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PRCreateInput {
     pub title: String,
@@ -459,5 +485,110 @@ impl GitHubService {
         body.push_str("- [ ] Automated tests pass\n");
 
         body
+    }
+
+    /// Get CI status for a PR by URL
+    pub fn get_ci_status(pr_url: &str) -> Result<CIStatusResponse> {
+        // Extract repo and PR number from URL
+        // URL format: https://github.com/owner/repo/pull/123
+        let parts: Vec<&str> = pr_url.trim_end_matches('/').split('/').collect();
+        if parts.len() < 2 {
+            return Ok(CIStatusResponse {
+                status: CIStatus::NoCi,
+                checks: Vec::new(),
+            });
+        }
+
+        let pr_number = parts.last().unwrap_or(&"");
+
+        // Get the repo part (owner/repo) - it's 4 parts before the PR number
+        // https://github.com/owner/repo/pull/123
+        let repo_parts: Vec<&str> = parts.iter().rev().skip(2).take(2).copied().collect();
+        if repo_parts.len() < 2 {
+            return Ok(CIStatusResponse {
+                status: CIStatus::NoCi,
+                checks: Vec::new(),
+            });
+        }
+        let repo = format!("{}/{}", repo_parts[1], repo_parts[0]);
+
+        // Run gh pr checks
+        let output = Command::new("gh")
+            .args([
+                "pr",
+                "checks",
+                pr_number,
+                "--repo",
+                &repo,
+                "--json",
+                "name,state,conclusion,link",
+            ])
+            .output()
+            .map_err(|e| AppError::GitHub(format!("Failed to run gh pr checks: {}", e)))?;
+
+        if !output.status.success() {
+            // If the command fails, it might be because there are no checks
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("no checks") || stderr.contains("no status checks") {
+                return Ok(CIStatusResponse {
+                    status: CIStatus::NoCi,
+                    checks: Vec::new(),
+                });
+            }
+            return Err(AppError::GitHub(format!(
+                "Failed to get CI status: {}",
+                stderr.trim()
+            )));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        if stdout.trim().is_empty() || stdout.trim() == "[]" {
+            return Ok(CIStatusResponse {
+                status: CIStatus::NoCi,
+                checks: Vec::new(),
+            });
+        }
+
+        // Parse the JSON response
+        let checks: Vec<CICheck> = serde_json::from_str(&stdout).map_err(|e| {
+            AppError::GitHub(format!("Failed to parse CI checks response: {}", e))
+        })?;
+
+        if checks.is_empty() {
+            return Ok(CIStatusResponse {
+                status: CIStatus::NoCi,
+                checks,
+            });
+        }
+
+        // Determine overall status
+        let mut has_running = false;
+        let mut has_failing = false;
+
+        for check in &checks {
+            // Check state: PENDING, IN_PROGRESS, COMPLETED, etc.
+            let state = check.state.to_uppercase();
+            if state == "PENDING" || state == "IN_PROGRESS" || state == "QUEUED" {
+                has_running = true;
+            } else if state == "COMPLETED" {
+                // Check conclusion: SUCCESS, FAILURE, CANCELLED, etc.
+                if let Some(conclusion) = &check.conclusion {
+                    let conclusion = conclusion.to_uppercase();
+                    if conclusion == "FAILURE" || conclusion == "TIMED_OUT" || conclusion == "CANCELLED" {
+                        has_failing = true;
+                    }
+                }
+            }
+        }
+
+        let status = if has_failing {
+            CIStatus::Failing
+        } else if has_running {
+            CIStatus::Running
+        } else {
+            CIStatus::Passing
+        };
+
+        Ok(CIStatusResponse { status, checks })
     }
 }
