@@ -16,6 +16,7 @@ import { OutputRenderer } from "./OutputRenderer";
 import { PermissionPopover } from "./PermissionPopover";
 import { HandbackModal } from "./HandbackModal";
 import { InlineError } from "./ErrorDisplay";
+import { ErrorBoundary } from "./ErrorBoundary";
 import * as tauri from "../lib/tauri";
 import type { RepoInfo } from "../lib/tauri";
 
@@ -1731,23 +1732,27 @@ export const ChatView = memo(function ChatView({
 
         {/* Right panel content */}
         <TabsContent value="code-review" className="flex-1 overflow-hidden m-0">
-          <ChangesPanel
-            agentId={agent.id}
-            onSendReview={(reviewPrompt) => {
-              // Add as follow-up message for display
-              const newMessage: FollowUpMessage = {
-                id: crypto.randomUUID(),
-                content: reviewPrompt,
-                timestamp: new Date().toISOString(),
-                outputIndex: output.length,
-              };
-              setFollowUpMessages((prev) => [...prev, newMessage]);
-              onRestart(agent.id, reviewPrompt);
-            }}
-          />
+          <ErrorBoundary name="Code Review" inline>
+            <ChangesPanel
+              agentId={agent.id}
+              onSendReview={(reviewPrompt) => {
+                // Add as follow-up message for display
+                const newMessage: FollowUpMessage = {
+                  id: crypto.randomUUID(),
+                  content: reviewPrompt,
+                  timestamp: new Date().toISOString(),
+                  outputIndex: output.length,
+                };
+                setFollowUpMessages((prev) => [...prev, newMessage]);
+                onRestart(agent.id, reviewPrompt);
+              }}
+            />
+          </ErrorBoundary>
         </TabsContent>
         <TabsContent value="terminal" className="flex-1 overflow-hidden m-0">
-          <TerminalView agentId={agent.id} />
+          <ErrorBoundary name="Terminal" inline>
+            <TerminalView agentId={agent.id} />
+          </ErrorBoundary>
         </TabsContent>
       </Tabs>
 

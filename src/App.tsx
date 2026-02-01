@@ -363,7 +363,7 @@ function AppContent() {
             />
           </div>
         ) : (
-          <ErrorBoundary>
+          <ErrorBoundary name="Agent View">
             <ChatView
               agent={selectedAgent}
               onSpawnAgent={handleSpawnAgent}
