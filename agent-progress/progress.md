@@ -40,6 +40,32 @@
   - Sidebar agent list
 - Shows when AI is still generating name/description
 
+## Phase 4: Agent View Polish (4.2, 4.3) ✅ COMPLETE
+
+### Code Review Tab (#49)
+- Fixed syntax highlighting by removing conflicting `@types/refractor` v3
+  - refractor v5 has built-in types with common languages pre-registered
+  - Default import from `refractor` now includes common bundle
+- Show ALL changes (committed + uncommitted)
+  - Changed `git diff` to compare working directory vs merge base
+  - Previously only showed committed changes (merge_base to HEAD)
+  - Now shows: `git diff {merge_base} -- {file}` (no HEAD)
+- Untracked files shown as proper unified diff format
+
+### Terminal Tab (#73)
+- Fixed event field name mismatch
+  - Backend was sending `task_id` but frontend expected `agent_id`
+  - Updated `TerminalOutputEvent` and `TerminalExitEvent` structs
+- Updated terminal theme with proper hex colors
+  - xterm.js doesn't understand CSS variables
+  - Changed from `var(--bg-primary)` to `#0a0a0a`, etc.
+- Full terminal implementation:
+  - PTY-based shell (user's $SHELL)
+  - Input via `term.onData` -> `tauri.terminalInput`
+  - Output via Tauri events -> `term.write`
+  - Resize support via `term.onResize` -> `tauri.terminalResize`
+  - Scrolling built into xterm.js
+
 ## Technical Notes
 
 ### Files Modified

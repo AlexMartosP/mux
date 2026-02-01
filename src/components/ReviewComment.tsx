@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { MessageSquare, X, Send, Eye } from "lucide-react";
-import { Button } from "./Button";
+import { Button } from "@/components/ui/button";
 
 export interface ReviewComment {
   id: string;
@@ -86,7 +86,7 @@ export function CommentInput({ filePath, lineNumber, onSubmit, onCancel }: Comme
             Add
           </Button>
           <Button
-            variant="primary"
+            variant="default"
             onClick={() => handleSubmit(true)}
             disabled={!content.trim()}
             title="Send to Claude immediately"
@@ -230,8 +230,8 @@ export function ReviewActionsBar({
           View ({comments.length})
         </Button>
         <Button
-          variant="primary"
-          color="green"
+          variant="default"
+         
           onClick={onSendAll}
         >
           <Send size={14} strokeWidth={1.5} className="mr-1" />

@@ -13,15 +13,16 @@ use commands::{
     get_file_diff_with_context, get_full_diff, get_notifications, get_pr_preview, get_settings,
     get_slash_commands, get_agent, get_agent_changes, get_agent_commits, get_agent_output,
     get_agent_output_count, get_agents, get_unread_notification_count, get_workspace,
-    get_workspace_repositories, get_workspace_setting, get_workspaces, handback_agent,
-    install_claude_hook, install_cli, is_onboarding_completed, list_branches, list_repositories,
-    list_workspace_repositories, mark_all_notifications_read, mark_notification_read, open_in_editor,
-    open_pr_in_browser, open_terminal, get_terminal_buffer, refresh_agent_git_stats, remove_repository_from_workspace,
-    reset_onboarding, respond_permission, restart_agent, revert_file_changes,
-    scan_folder_for_repositories, set_default_workspace, set_setting, set_workspace_setting,
-    set_agent_auto_accept_edits, set_agent_pinned, spawn_agent, stop_agent, takeover_agent,
-    terminal_input, terminal_resize, uninstall_claude_hook, update_settings, update_agent_base_branch,
-    update_agent_description, update_agent_name, update_workspace, AppState, TerminalState,
+    get_workspace_repositories, get_workspace_repository, get_workspace_setting, get_workspaces,
+    handback_agent, install_claude_hook, install_cli, is_onboarding_completed, list_branches,
+    list_repositories, list_workspace_repositories, mark_all_notifications_read,
+    mark_notification_read, open_in_editor, open_pr_in_browser, open_terminal, get_terminal_buffer,
+    refresh_agent_git_stats, remove_repository_from_workspace, reset_onboarding, respond_permission,
+    restart_agent, revert_file_changes, scan_folder_for_repositories, set_default_workspace,
+    set_setting, set_workspace_setting, set_agent_auto_accept_edits, set_agent_pinned, spawn_agent,
+    stop_agent, takeover_agent, terminal_input, terminal_resize, uninstall_claude_hook,
+    update_repository_scripts, update_settings, update_agent_base_branch, update_agent_description,
+    update_agent_name, update_workspace, AppState, TerminalState,
 };
 use db::Database;
 use models::AgentStatus;
@@ -180,8 +181,10 @@ pub fn run() {
             get_all_workspace_settings,
             // Workspace repositories
             get_workspace_repositories,
+            get_workspace_repository,
             add_repository_to_workspace,
             remove_repository_from_workspace,
+            update_repository_scripts,
             scan_folder_for_repositories,
             // Terminal
             open_terminal,

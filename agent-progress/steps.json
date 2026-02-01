@@ -1,32 +1,17 @@
 {
-  "issue": "Roadmap #101 - Phase 2 & 3",
-  "phase": "Phase 2 & 3 - COMPLETE",
+  "issue": "Roadmap #101 - Phase 4",
+  "phase": "Phase 4 (4.2, 4.3) - COMPLETE",
   "steps": [
     {
-      "title": "Phase 2.1 - CI Status (#95)",
-      "description": "Show CI/build status for agents with PRs",
+      "title": "Phase 4.2 - Code Review Tab (#49)",
+      "description": "Fix syntax highlighting, show ALL changes",
       "status": "completed"
     },
     {
-      "title": "Phase 2.3 - Unified Permissions Queue (#78)",
-      "description": "Centralized permissions panel",
-      "status": "completed"
-    },
-    {
-      "title": "Phase 3.1 - Agent Setup Screen (#96)",
-      "description": "Full-screen progress view during spawn",
-      "status": "completed"
-    },
-    {
-      "title": "Phase 3.2 - Branch Management (#97)",
-      "description": "Custom branch name when spawning",
-      "status": "completed"
-    },
-    {
-      "title": "Phase 3.3 - Agent Naming (#99)",
-      "description": "Inline editing and metadata loading indicator",
+      "title": "Phase 4.3 - Terminal Tab (#73)",
+      "description": "Full terminal implementation with input/output",
       "status": "completed"
     }
   ],
-  "next_phase": "Phase 4: Agent View Polish"
+  "next_phase": "Phase 4.1: Output Rendering & Phase 4.4: Quick Actions"
 }

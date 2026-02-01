@@ -1,12 +1,19 @@
-import { useState, useRef, useEffect } from "react";
-import { ChevronDown, Settings } from "lucide-react";
+import { ChevronDown, Settings, User } from "lucide-react";
 import type { Workspace } from "../types/agent";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface WorkspaceSelectorProps {
   workspaces: Workspace[];
   selectedWorkspaceId: string | null;
   onSelectWorkspace: (workspaceId: string | null) => void;
   onOpenSettings: () => void;
+  onOpenWorkspaceSettings: () => void;
 }
 
 export function WorkspaceSelector({
@@ -14,173 +21,91 @@ export function WorkspaceSelector({
   selectedWorkspaceId,
   onSelectWorkspace,
   onOpenSettings,
+  onOpenWorkspaceSettings,
 }: WorkspaceSelectorProps) {
-  const [isOpen, setIsOpen] = useState(false);
-  const dropdownRef = useRef<HTMLDivElement>(null);
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [isOpen]);
-
   const selectedWorkspace = workspaces.find((w) => w.id === selectedWorkspaceId);
-  const displayName = selectedWorkspace?.name || "All Agents";
+  const displayName = selectedWorkspace?.name || "All Workspaces";
 
   return (
-    <div className="relative" ref={dropdownRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center justify-between px-3 py-2 text-xs transition-colors"
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className="w-full flex items-center justify-between px-3 py-2 text-xs transition-colors rounded-sm cursor-pointer"
         style={{
           backgroundColor: "var(--bg-surface)",
           border: "1px solid var(--border-default)",
           color: "var(--text-primary)",
         }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.borderColor = "var(--border-active)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.borderColor = "var(--border-default)";
-        }}
       >
         <span className="truncate">{displayName}</span>
         <ChevronDown
           size={14}
-          style={{
-            color: "var(--text-dim)",
-            transform: isOpen ? "rotate(180deg)" : "rotate(0deg)",
-            transition: "transform 0.15s ease",
-          }}
+          className="transition-transform duration-150 data-[state=open]:rotate-180"
+          style={{ color: "var(--text-dim)" }}
         />
-      </button>
+      </DropdownMenuTrigger>
 
-      {isOpen && (
-        <div
-          className="absolute top-full left-0 right-0 mt-1 z-50 py-1 shadow-lg"
+      <DropdownMenuContent
+        align="start"
+        sideOffset={4}
+        className="min-w-[var(--anchor-width)]"
+        style={{
+          backgroundColor: "var(--bg-elevated)",
+          border: "1px solid var(--border-default)",
+        }}
+      >
+        {/* All Workspaces option */}
+        <DropdownMenuItem
+          onClick={() => onSelectWorkspace(null)}
+          className="text-xs"
           style={{
-            backgroundColor: "var(--bg-elevated)",
-            border: "1px solid var(--border-default)",
+            backgroundColor: selectedWorkspaceId === null ? "var(--bg-accent-subtle)" : undefined,
           }}
         >
-          {/* All Agents option */}
-          <button
-            onClick={() => {
-              onSelectWorkspace(null);
-              setIsOpen(false);
-            }}
-            className="w-full text-left px-3 py-1.5 text-xs transition-colors"
+          All Workspaces
+        </DropdownMenuItem>
+
+        {workspaces.length > 0 && <DropdownMenuSeparator />}
+
+        {/* Workspace list */}
+        {workspaces.map((workspace) => (
+          <DropdownMenuItem
+            key={workspace.id}
+            onClick={() => onSelectWorkspace(workspace.id)}
+            className="text-xs"
             style={{
               backgroundColor:
-                selectedWorkspaceId === null ? "var(--bg-accent-subtle)" : "transparent",
-              color: "var(--text-secondary)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--bg-hover)";
-              e.currentTarget.style.color = "var(--text-primary)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor =
-                selectedWorkspaceId === null ? "var(--bg-accent-subtle)" : "transparent";
-              e.currentTarget.style.color = "var(--text-secondary)";
+                selectedWorkspaceId === workspace.id ? "var(--bg-accent-subtle)" : undefined,
             }}
           >
-            All Agents
-          </button>
+            <span className="truncate flex-1">{workspace.name}</span>
+            {workspace.is_default && (
+              <span
+                className="text-[10px] px-1 ml-2"
+                style={{
+                  backgroundColor: "var(--bg-surface)",
+                  color: "var(--text-dim)",
+                }}
+              >
+                default
+              </span>
+            )}
+          </DropdownMenuItem>
+        ))}
 
-          {workspaces.length > 0 && (
-            <div
-              className="my-1"
-              style={{
-                height: "1px",
-                backgroundColor: "var(--border-default)",
-              }}
-            />
-          )}
+        <DropdownMenuSeparator />
 
-          {/* Workspace list */}
-          {workspaces.map((workspace) => (
-            <button
-              key={workspace.id}
-              onClick={() => {
-                onSelectWorkspace(workspace.id);
-                setIsOpen(false);
-              }}
-              className="w-full text-left px-3 py-1.5 text-xs transition-colors"
-              style={{
-                backgroundColor:
-                  selectedWorkspaceId === workspace.id
-                    ? "var(--bg-accent-subtle)"
-                    : "transparent",
-                color: "var(--text-secondary)",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = "var(--bg-hover)";
-                e.currentTarget.style.color = "var(--text-primary)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor =
-                  selectedWorkspaceId === workspace.id
-                    ? "var(--bg-accent-subtle)"
-                    : "transparent";
-                e.currentTarget.style.color = "var(--text-secondary)";
-              }}
-            >
-              <div className="flex items-center gap-2">
-                <span className="truncate flex-1">{workspace.name}</span>
-                {workspace.is_default && (
-                  <span
-                    className="text-[10px] px-1"
-                    style={{
-                      backgroundColor: "var(--bg-surface)",
-                      color: "var(--text-dim)",
-                    }}
-                  >
-                    default
-                  </span>
-                )}
-              </div>
-            </button>
-          ))}
+        {/* Workspace Settings */}
+        <DropdownMenuItem onClick={onOpenWorkspaceSettings} className="text-xs gap-2">
+          <Settings size={12} />
+          <span>Workspace Settings</span>
+        </DropdownMenuItem>
 
-          <div
-            className="my-1"
-            style={{
-              height: "1px",
-              backgroundColor: "var(--border-default)",
-            }}
-          />
-
-          {/* Settings button */}
-          <button
-            onClick={() => {
-              onOpenSettings();
-              setIsOpen(false);
-            }}
-            className="w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center gap-2"
-            style={{ color: "var(--text-dim)" }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.backgroundColor = "var(--bg-hover)";
-              e.currentTarget.style.color = "var(--text-primary)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.backgroundColor = "transparent";
-              e.currentTarget.style.color = "var(--text-dim)";
-            }}
-          >
-            <Settings size={12} />
-            <span>Manage Workspaces</span>
-          </button>
-        </div>
-      )}
-    </div>
+        {/* User Settings */}
+        <DropdownMenuItem onClick={onOpenSettings} className="text-xs gap-2">
+          <User size={12} />
+          <span>User Settings</span>
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

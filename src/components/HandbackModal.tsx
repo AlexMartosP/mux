@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import type { Agent, FileChange } from "../types/agent";
 import * as tauri from "../lib/tauri";
-import { Button } from "./Button";
+import { Button } from "@/components/ui/button";
 
 interface HandbackModalProps {
   agent: Agent;
@@ -95,7 +95,7 @@ export function HandbackModal({ agent, isOpen, onClose, onHandback }: HandbackMo
               Commit your changes and resume Claude
             </p>
           </div>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
         </div>
@@ -210,12 +210,12 @@ export function HandbackModal({ agent, isOpen, onClose, onHandback }: HandbackMo
           className="px-6 py-4 flex items-center justify-end gap-3"
           style={{ borderTop: "1px solid var(--border-default)" }}
         >
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
           <Button
-            variant="primary"
-            color="green"
+            variant="default"
+           
             onClick={handleSubmit}
             disabled={isSubmitting || !commitMessage.trim()}
           >

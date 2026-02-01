@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, memo, useCallback } from "react";
 import { GitPullRequest, Check, X, Loader2 } from "lucide-react";
 import type { Agent, AgentStatus, CIStatus } from "../types/agent";
 import * as tauri from "../lib/tauri";
@@ -130,7 +130,7 @@ function groupAgentsByStatusAndRepo(
 }
 
 // CI Status indicator component
-function CIStatusIndicator({ status }: { status: CIStatus }) {
+const CIStatusIndicator = memo(function CIStatusIndicator({ status }: { status: CIStatus }) {
   switch (status) {
     case "passing":
       return (
@@ -157,9 +157,169 @@ function CIStatusIndicator({ status }: { status: CIStatus }) {
     default:
       return null;
   }
+});
+
+// Memoized agent list item component
+interface AgentListItemProps {
+  agent: Agent;
+  isSelected: boolean;
+  isChecked: boolean;
+  selectMode: boolean;
+  ciStatus?: CIStatus;
+  onSelect: (agentId: string) => void;
+  onToggleSelection?: (agentId: string) => void;
+  onContextMenu: (e: React.MouseEvent, agentId: string) => void;
 }
 
-export function AgentList({
+const AgentListItem = memo(function AgentListItem({
+  agent,
+  isSelected,
+  isChecked,
+  selectMode,
+  ciStatus,
+  onSelect,
+  onToggleSelection,
+  onContextMenu,
+}: AgentListItemProps) {
+  const isRunning = agent.status === "running";
+
+  const handleClick = useCallback(() => {
+    if (selectMode) {
+      onToggleSelection?.(agent.id);
+    } else {
+      onSelect(agent.id);
+    }
+  }, [selectMode, onToggleSelection, onSelect, agent.id]);
+
+  const handleContextMenuClick = useCallback((e: React.MouseEvent) => {
+    onContextMenu(e, agent.id);
+  }, [onContextMenu, agent.id]);
+
+  const handleCheckboxClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+  }, []);
+
+  const handleCheckboxChange = useCallback(() => {
+    onToggleSelection?.(agent.id);
+  }, [onToggleSelection, agent.id]);
+
+  const handlePRClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    tauri.openPRInBrowser(agent.pr_url!);
+  }, [agent.pr_url]);
+
+  return (
+    <div
+      className="group px-3 py-2 flex items-center gap-2 transition-colors cursor-pointer"
+      style={{
+        backgroundColor: isSelected
+          ? "var(--bg-accent-subtle)"
+          : isChecked
+          ? "var(--bg-surface)"
+          : "transparent",
+        borderBottom: "1px solid var(--border-default)",
+      }}
+      onClick={handleClick}
+      onContextMenu={handleContextMenuClick}
+      onMouseEnter={(e) => {
+        if (!isSelected && !selectMode) {
+          e.currentTarget.style.backgroundColor = "var(--bg-hover)";
+        }
+      }}
+      onMouseLeave={(e) => {
+        if (!isSelected && !selectMode) {
+          e.currentTarget.style.backgroundColor = isChecked
+            ? "var(--bg-surface)"
+            : "transparent";
+        }
+      }}
+    >
+      {selectMode && (
+        <input
+          type="checkbox"
+          checked={isChecked}
+          onChange={handleCheckboxChange}
+          className="accent-cyan-400"
+          onClick={handleCheckboxClick}
+        />
+      )}
+
+      {isRunning && (
+        <span className="flex-shrink-0">
+          <Spinner />
+        </span>
+      )}
+
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-1">
+          <SlidingText
+            text={agent.name}
+            className="text-xs font-medium"
+            style={{
+              color: isSelected
+                ? "var(--text-primary)"
+                : "var(--text-secondary)",
+            }}
+          />
+          {/* Metadata loading indicator */}
+          {agent.metadata_loading && (
+            <span
+              className="text-xs flex-shrink-0"
+              style={{ color: "var(--text-dim)" }}
+              title="Generating name..."
+            >
+              ⏳
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2 mt-0.5">
+          <SlidingText
+            text={agent.branch}
+            className="text-xs"
+            style={{ color: "var(--text-dim)" }}
+          />
+          {/* Git stats */}
+          {(agent.total_additions || agent.total_deletions) ? (
+            <span className="text-xs flex-shrink-0">
+              <span style={{ color: "var(--accent-green)" }}>
+                +{agent.total_additions || 0}
+              </span>
+              <span style={{ color: "var(--text-dim)" }}> </span>
+              <span style={{ color: "var(--accent-red)" }}>
+                -{agent.total_deletions || 0}
+              </span>
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      {/* CI status */}
+      {agent.pr_url && ciStatus && (
+        <CIStatusIndicator status={ciStatus} />
+      )}
+
+      {/* PR icon */}
+      {agent.pr_url && (
+        <button
+          onClick={handlePRClick}
+          className="flex-shrink-0 p-1 rounded transition-colors"
+          style={{ color: "var(--accent-cyan)" }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.backgroundColor = "var(--bg-surface)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = "transparent";
+          }}
+          title="Open PR in browser"
+        >
+          <GitPullRequest size={14} />
+        </button>
+      )}
+    </div>
+  );
+});
+
+export const AgentList = memo(function AgentList({
   agents,
   selectedAgentId,
   onSelectAgent,
@@ -293,129 +453,19 @@ export function AgentList({
                       </div>
 
                       {/* Agents */}
-                      {repoAgents.map((agent) => {
-                        const isSelected = selectedAgentId === agent.id;
-                        const isChecked = selectedAgentIds.has(agent.id);
-                        const isRunning = agent.status === "running";
-
-                        return (
-                          <div
-                            key={agent.id}
-                            className="group px-3 py-2 flex items-center gap-2 transition-colors cursor-pointer"
-                            style={{
-                              backgroundColor: isSelected
-                                ? "var(--bg-accent-subtle)"
-                                : isChecked
-                                ? "var(--bg-surface)"
-                                : "transparent",
-                              borderBottom: "1px solid var(--border-default)",
-                            }}
-                            onClick={() =>
-                              selectMode
-                                ? onToggleAgentSelection?.(agent.id)
-                                : onSelectAgent(agent.id)
-                            }
-                            onContextMenu={(e) => handleContextMenu(e, agent.id)}
-                            onMouseEnter={(e) => {
-                              if (!isSelected && !selectMode) {
-                                e.currentTarget.style.backgroundColor = "var(--bg-hover)";
-                              }
-                            }}
-                            onMouseLeave={(e) => {
-                              if (!isSelected && !selectMode) {
-                                e.currentTarget.style.backgroundColor = isChecked
-                                  ? "var(--bg-surface)"
-                                  : "transparent";
-                              }
-                            }}
-                          >
-                            {selectMode && (
-                              <input
-                                type="checkbox"
-                                checked={isChecked}
-                                onChange={() => onToggleAgentSelection?.(agent.id)}
-                                className="accent-cyan-400"
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                            )}
-
-                            {isRunning && (
-                              <span className="flex-shrink-0">
-                                <Spinner />
-                              </span>
-                            )}
-
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1">
-                                <SlidingText
-                                  text={agent.name}
-                                  className="text-xs font-medium"
-                                  style={{
-                                    color: isSelected
-                                      ? "var(--text-primary)"
-                                      : "var(--text-secondary)",
-                                  }}
-                                />
-                                {/* Metadata loading indicator */}
-                                {agent.metadata_loading && (
-                                  <span
-                                    className="text-xs flex-shrink-0"
-                                    style={{ color: "var(--text-dim)" }}
-                                    title="Generating name..."
-                                  >
-                                    ⏳
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <SlidingText
-                                  text={agent.branch}
-                                  className="text-xs"
-                                  style={{ color: "var(--text-dim)" }}
-                                />
-                                {/* Git stats */}
-                                {(agent.total_additions || agent.total_deletions) ? (
-                                  <span className="text-xs flex-shrink-0">
-                                    <span style={{ color: "var(--accent-green)" }}>
-                                      +{agent.total_additions || 0}
-                                    </span>
-                                    <span style={{ color: "var(--text-dim)" }}> </span>
-                                    <span style={{ color: "var(--accent-red)" }}>
-                                      -{agent.total_deletions || 0}
-                                    </span>
-                                  </span>
-                                ) : null}
-                              </div>
-                            </div>
-
-                            {/* CI status */}
-                            {agent.pr_url && ciStatuses.get(agent.id) && (
-                              <CIStatusIndicator status={ciStatuses.get(agent.id)!} />
-                            )}
-
-                            {/* PR icon */}
-                            {agent.pr_url && (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  tauri.openPRInBrowser(agent.pr_url!);
-                                }}
-                                className="flex-shrink-0 p-1 rounded transition-colors"
-                                style={{ color: "var(--accent-cyan)" }}
-                                onMouseEnter={(e) => {
-                                  e.currentTarget.style.backgroundColor = "var(--bg-surface)";
-                                }}
-                                onMouseLeave={(e) => {
-                                  e.currentTarget.style.backgroundColor = "transparent";
-                                }}
-                                title="Open PR in browser"
-                              >
-                                <GitPullRequest size={14} />
-                              </button>
-                            )}
-                          </div>
-                        );
-                      })}
+                      {repoAgents.map((agent) => (
+                        <AgentListItem
+                          key={agent.id}
+                          agent={agent}
+                          isSelected={selectedAgentId === agent.id}
+                          isChecked={selectedAgentIds.has(agent.id)}
+                          selectMode={selectMode}
+                          ciStatus={ciStatuses.get(agent.id)}
+                          onSelect={onSelectAgent}
+                          onToggleSelection={onToggleAgentSelection}
+                          onContextMenu={handleContextMenu}
+                        />
+                      ))}
                     </div>
                   ))}
                 </div>
@@ -456,4 +506,4 @@ export function AgentList({
       )}
     </>
   );
-}
+});

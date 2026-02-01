@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, memo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Menu } from "@base-ui/react/menu";
@@ -43,7 +43,7 @@ interface ChatViewProps {
   onUpdateAgent?: (agent: Agent) => void;
 }
 
-export function ChatView({
+export const ChatView = memo(function ChatView({
   agent,
   onSpawnAgent,
   onStop,
@@ -1762,6 +1762,5 @@ export function ChatView({
       />
     </div>
   );
-}
-
+});
 

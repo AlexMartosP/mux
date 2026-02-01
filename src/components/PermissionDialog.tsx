@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { PermissionRequest } from "../lib/tauri";
 import * as tauri from "../lib/tauri";
-import { Button } from "./Button";
+import { Button } from "@/components/ui/button";
 
 interface PermissionDialogProps {
   request: PermissionRequest;
@@ -156,8 +156,8 @@ export function PermissionDialog({ request, onDismiss }: PermissionDialogProps) 
         {/* Actions */}
         <div className="flex gap-3">
           <Button
-            variant="primary"
-            color="green"
+            variant="default"
+           
             onClick={handleAllow}
             disabled={isResponding}
             className="flex-1"
@@ -165,8 +165,8 @@ export function PermissionDialog({ request, onDismiss }: PermissionDialogProps) 
             {isResponding ? "..." : "Allow"}
           </Button>
           <Button
-            variant="secondary"
-            color="red"
+            variant="outline"
+           
             onClick={handleDeny}
             disabled={isResponding}
             className="flex-1"

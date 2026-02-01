@@ -35,6 +35,7 @@ directories = "5"
 slug = "0.1"
 regex = "1"
 human_ids = "0.1"
+portable-pty = "0.8"
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"

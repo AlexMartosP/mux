@@ -5,16 +5,14 @@ import * as tauri from "../lib/tauri";
 import type { AppSettings, ExportOptions } from "../lib/tauri";
 import { useUpdater } from "../hooks/useUpdater";
 import { useTheme } from "../contexts/ThemeContext";
-import { Button } from "./Button";
-import { WorkspaceSettings } from "./WorkspaceSettings";
+import { Button } from "@/components/ui/button";
 
 interface SettingsProps {
   onClose: () => void;
   onRestartOnboarding?: () => void;
-  onWorkspacesChange?: () => void;
 }
 
-export function Settings({ onClose, onRestartOnboarding, onWorkspacesChange }: SettingsProps) {
+export function Settings({ onClose, onRestartOnboarding }: SettingsProps) {
   const [settings, setSettings] = useState<AppSettings>({
     base_repo_directory: null,
     branch_prefix: null,
@@ -145,29 +143,18 @@ export function Settings({ onClose, onRestartOnboarding, onWorkspacesChange }: S
     <div className="flex-1 flex flex-col" style={{ backgroundColor: 'var(--bg-primary)' }}>
       <header className="px-6 py-4 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-default)' }}>
         <div>
-          <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>SETTINGS</h2>
+          <h2 className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>USER SETTINGS</h2>
           <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Configure Mux preferences
+            Configure global app preferences
           </p>
         </div>
-        <Button variant="secondary" onClick={onClose}>
+        <Button variant="outline" onClick={onClose}>
           Close
         </Button>
       </header>
 
       <div className="flex-1 overflow-y-auto p-6">
         <div className="max-w-xl space-y-6">
-          {/* Workspaces */}
-          <div>
-            <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
-              WORKSPACES
-            </label>
-            <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
-              Organize agents into workspaces, each with its own repository folder and settings.
-            </p>
-            <WorkspaceSettings onWorkspacesChange={onWorkspacesChange} />
-          </div>
-
           {/* Notifications */}
           <div>
             <label className="block text-xs font-medium mb-2" style={{ color: 'var(--text-primary)' }}>
@@ -382,11 +369,11 @@ export function Settings({ onClose, onRestartOnboarding, onWorkspacesChange }: S
             </p>
             <div className="flex items-center gap-3">
               {!updateAvailable ? (
-                <Button variant="secondary" onClick={checkForUpdates} disabled={checking}>
+                <Button variant="outline" onClick={checkForUpdates} disabled={checking}>
                   {checking ? "Checking..." : "Check for updates"}
                 </Button>
               ) : (
-                <Button variant="primary" color="green" onClick={downloadAndInstall} disabled={downloading}>
+                <Button variant="default" onClick={downloadAndInstall} disabled={downloading}>
                   {downloading ? `Downloading ${downloadProgress}%` : `Update to ${updateAvailable.version}`}
                 </Button>
               )}
@@ -481,7 +468,7 @@ export function Settings({ onClose, onRestartOnboarding, onWorkspacesChange }: S
 
               {/* Export button */}
               <div className="flex items-center gap-3">
-                <Button variant="secondary" onClick={handleExport} disabled={isExporting}>
+                <Button variant="outline" onClick={handleExport} disabled={isExporting}>
                   {isExporting ? "Exporting..." : "Export all tasks"}
                 </Button>
                 {exportMessage && (
@@ -498,7 +485,7 @@ export function Settings({ onClose, onRestartOnboarding, onWorkspacesChange }: S
 
           {/* Save Button */}
           <div className="flex items-center gap-3 pt-4" style={{ borderTop: '1px solid var(--border-default)' }}>
-            <Button variant="primary" onClick={handleSave} disabled={isSaving}>
+            <Button variant="default" onClick={handleSave} disabled={isSaving}>
               {isSaving ? "Saving..." : "Save settings"}
             </Button>
             {saveMessage && (
@@ -519,7 +506,7 @@ export function Settings({ onClose, onRestartOnboarding, onWorkspacesChange }: S
             <p className="text-xs mb-3" style={{ color: 'var(--text-dim)' }}>
               Found an issue? Let us know and we'll fix it.
             </p>
-            <Button variant="secondary" onClick={handleSubmitBug} disabled={isSubmittingBug}>
+            <Button variant="outline" onClick={handleSubmitBug} disabled={isSubmittingBug}>
               {isSubmittingBug ? "Opening..." : "Report bug"}
             </Button>
           </div>
@@ -534,7 +521,7 @@ export function Settings({ onClose, onRestartOnboarding, onWorkspacesChange }: S
                 Re-run the setup wizard to reconfigure Mux.
               </p>
               <Button
-                variant="secondary"
+                variant="outline"
                 onClick={async () => {
                   await tauri.resetOnboarding();
                   onRestartOnboarding();

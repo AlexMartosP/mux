@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { NotificationEntry } from "../types/agent";
 import * as tauri from "../lib/tauri";
-import { Button } from "./Button";
+import { Button } from "@/components/ui/button";
 
 interface NotificationCenterProps {
   onNavigateToTask?: (agentId: string) => void;

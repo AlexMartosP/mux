@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { PermissionRequest } from "../lib/tauri";
 import * as tauri from "../lib/tauri";
-import { Button } from "./Button";
+import { Button } from "@/components/ui/button";
 
 interface PermissionPopoverProps {
   request: PermissionRequest;
@@ -177,8 +177,8 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
         {/* Actions */}
         <div className="flex gap-2 flex-shrink-0">
           <Button
-            variant="primary"
-            color="green"
+            variant="default"
+           
             onClick={handleAllow}
             disabled={isResponding}
           >
@@ -188,7 +188,7 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
           {/* Always Allow dropdown */}
           <div className="relative" ref={alwaysMenuRef}>
             <Button
-              variant="secondary"
+              variant="outline"
               onClick={() => setShowAlwaysMenu(!showAlwaysMenu)}
               disabled={isResponding}
               title="Always allow this type of action"
@@ -227,8 +227,8 @@ export function PermissionPopover({ request, onDismiss }: PermissionPopoverProps
           </div>
 
           <Button
-            variant="secondary"
-            color="red"
+            variant="outline"
+           
             onClick={handleDeny}
             disabled={isResponding}
           >

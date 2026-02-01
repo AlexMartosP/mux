@@ -175,6 +175,23 @@ impl Database {
             [],
         )?;
 
+        // Workspace repositories junction table (for specific repos in a workspace)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS workspace_repositories (
+                workspace_id TEXT NOT NULL,
+                repository_path TEXT NOT NULL,
+                name TEXT NOT NULL,
+                added_at TEXT NOT NULL,
+                PRIMARY KEY (workspace_id, repository_path),
+                FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Migration: Add setup_script and teardown_script columns to workspace_repositories
+        let _ = conn.execute("ALTER TABLE workspace_repositories ADD COLUMN setup_script TEXT", []);
+        let _ = conn.execute("ALTER TABLE workspace_repositories ADD COLUMN teardown_script TEXT", []);
+
         Ok(())
     }
 
@@ -1013,6 +1030,93 @@ impl Database {
 
         Ok(tasks)
     }
+
+    // Workspace repository methods
+
+    /// Get all repositories in a workspace
+    pub fn get_workspace_repositories(&self, workspace_id: &str) -> Result<Vec<WorkspaceRepository>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT workspace_id, repository_path, name, added_at, setup_script, teardown_script FROM workspace_repositories WHERE workspace_id = ? ORDER BY name ASC",
+        )?;
+
+        let repos = stmt
+            .query_map([workspace_id], |row| {
+                Ok(WorkspaceRepository {
+                    workspace_id: row.get(0)?,
+                    repository_path: row.get(1)?,
+                    name: row.get(2)?,
+                    added_at: row.get(3)?,
+                    setup_script: row.get(4)?,
+                    teardown_script: row.get(5)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(repos)
+    }
+
+    /// Add a repository to a workspace
+    pub fn add_repository_to_workspace(&self, workspace_id: &str, repository_path: &str, name: &str) -> Result<WorkspaceRepository> {
+        let conn = self.conn.lock().unwrap();
+        let added_at = chrono::Utc::now().to_rfc3339();
+
+        conn.execute(
+            "INSERT OR REPLACE INTO workspace_repositories (workspace_id, repository_path, name, added_at, setup_script, teardown_script) VALUES (?, ?, ?, ?, NULL, NULL)",
+            params![workspace_id, repository_path, name, added_at],
+        )?;
+
+        Ok(WorkspaceRepository {
+            workspace_id: workspace_id.to_string(),
+            repository_path: repository_path.to_string(),
+            name: name.to_string(),
+            added_at,
+            setup_script: None,
+            teardown_script: None,
+        })
+    }
+
+    /// Update repository scripts
+    pub fn update_repository_scripts(&self, workspace_id: &str, repository_path: &str, setup_script: Option<&str>, teardown_script: Option<&str>) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE workspace_repositories SET setup_script = ?, teardown_script = ? WHERE workspace_id = ? AND repository_path = ?",
+            params![setup_script, teardown_script, workspace_id, repository_path],
+        )?;
+        Ok(())
+    }
+
+    /// Get a specific repository from a workspace
+    pub fn get_workspace_repository(&self, workspace_id: &str, repository_path: &str) -> Result<Option<WorkspaceRepository>> {
+        let conn = self.conn.lock().unwrap();
+        let repo = conn
+            .query_row(
+                "SELECT workspace_id, repository_path, name, added_at, setup_script, teardown_script FROM workspace_repositories WHERE workspace_id = ? AND repository_path = ?",
+                params![workspace_id, repository_path],
+                |row| {
+                    Ok(WorkspaceRepository {
+                        workspace_id: row.get(0)?,
+                        repository_path: row.get(1)?,
+                        name: row.get(2)?,
+                        added_at: row.get(3)?,
+                        setup_script: row.get(4)?,
+                        teardown_script: row.get(5)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(repo)
+    }
+
+    /// Remove a repository from a workspace
+    pub fn remove_repository_from_workspace(&self, workspace_id: &str, repository_path: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM workspace_repositories WHERE workspace_id = ? AND repository_path = ?",
+            params![workspace_id, repository_path],
+        )?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1060,4 +1164,16 @@ pub struct Workspace {
     pub repos_folder_path: String,
     pub created_at: String,
     pub is_default: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WorkspaceRepository {
+    pub workspace_id: String,
+    pub repository_path: String,
+    pub name: String,
+    pub added_at: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub setup_script: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub teardown_script: Option<String>,
 }

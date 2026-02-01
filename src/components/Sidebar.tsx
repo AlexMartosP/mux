@@ -1,4 +1,5 @@
-import { useState, useMemo, useRef, useEffect, RefObject } from "react";
+import { useState, useMemo, useRef, useEffect, RefObject, memo } from "react";
+import { useDebouncedValue } from "../hooks/useDebouncedValue";
 import { Bell, Settings, Pencil, Plus, ChevronsLeft, ChevronsRight, X } from "lucide-react";
 import type { Agent, CIStatus } from "../types/agent";
 import { AgentList } from "./AgentList";
@@ -21,7 +22,7 @@ interface SidebarProps {
   ciStatuses?: Map<string, CIStatus>;
 }
 
-export function Sidebar({
+export const Sidebar = memo(function Sidebar({
   agents,
   selectedAgentId,
   onSelectAgent,
@@ -34,6 +35,8 @@ export function Sidebar({
   ciStatuses,
 }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  // Debounce search to prevent filtering on every keystroke
+  const debouncedSearchQuery = useDebouncedValue(searchQuery, 150);
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -73,9 +76,9 @@ export function Sidebar({
   const filteredAgents = useMemo(() => {
     let result = agents;
 
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
+    // Filter by search query (using debounced value for performance)
+    if (debouncedSearchQuery.trim()) {
+      const query = debouncedSearchQuery.toLowerCase();
       result = result.filter(agent =>
         agent.name.toLowerCase().includes(query) ||
         agent.description?.toLowerCase().includes(query) ||
@@ -93,7 +96,7 @@ export function Sidebar({
     }
 
     return result;
-  }, [agents, searchQuery, selectedRepos]);
+  }, [agents, debouncedSearchQuery, selectedRepos]);
 
   const toggleRepo = (repo: string) => {
     setSelectedRepos(prev => {
@@ -545,4 +548,4 @@ export function Sidebar({
       </div>
     </aside>
   );
-}
+});

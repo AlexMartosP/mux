@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react";
 import { createPortal } from "react-dom";
 import { Maximize2, Minimize2, RefreshCw, RotateCcw, X, FilePlus, FileEdit, FileX, ChevronsUpDown } from "lucide-react";
 import { SimpleDiffViewer } from "./SimpleDiffViewer";
-import { Button } from "./Button";
+import { Button } from "@/components/ui/button";
 import { ReviewActionsBar, type ReviewComment } from "./ReviewComment";
 import { getAgentChanges, getFileDiff, getFileDiffWithContext, revertFileChanges, refreshAgentGitStats } from "../lib/tauri";
 import type { FileChange, FileDiff } from "../types/agent";
@@ -24,7 +24,7 @@ interface DiffCacheEntry {
 // Cache TTL: 30 seconds (diffs can become stale if agent is making changes)
 const CACHE_TTL = 30000;
 
-export function ChangesPanel({
+export const ChangesPanel = memo(function ChangesPanel({
   agentId,
   onSendReview,
   isFullScreen = false,
@@ -103,10 +103,11 @@ export function ChangesPanel({
     setShowCommentsPopover(false);
   }, [comments, onSendReview]);
 
-  // Get comments for the selected file
-  const fileComments = selectedFile
-    ? comments.filter(c => c.filePath === selectedFile)
-    : [];
+  // Get comments for the selected file (memoized)
+  const fileComments = useMemo(() =>
+    selectedFile ? comments.filter(c => c.filePath === selectedFile) : [],
+    [selectedFile, comments]
+  );
 
   // Clear cache when task changes
   useEffect(() => {
@@ -303,6 +304,16 @@ export function ChangesPanel({
     loadChanges(true);
   }, [loadChanges]);
 
+  // This must be called before any early returns to satisfy React's rules of hooks
+  const totalChanges = useMemo(() =>
+    files.reduce(
+      (acc, f) => ({ additions: acc.additions + f.additions, deletions: acc.deletions + f.deletions }),
+      { additions: 0, deletions: 0 }
+    ),
+    [files]
+  );
+
+  // Early returns - AFTER all hooks are called
   if (loading && files.length === 0) {
     return (
       <div
@@ -330,11 +341,6 @@ export function ChangesPanel({
       </div>
     );
   }
-
-  const totalChanges = files.reduce(
-    (acc, f) => ({ additions: acc.additions + f.additions, deletions: acc.deletions + f.deletions }),
-    { additions: 0, deletions: 0 }
-  );
 
   // Get filename from path
   const getFileName = (path: string) => path.split('/').pop() || path;
@@ -711,4 +717,4 @@ export function ChangesPanel({
       />
     </div>
   );
-}
+});

@@ -51,6 +51,8 @@ export interface WorkspaceRepository {
   repository_path: string;
   name: string;
   added_at: string;
+  setup_script?: string;
+  teardown_script?: string;
 }
 
 export interface NotificationEntry {

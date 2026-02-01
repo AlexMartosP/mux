@@ -1,5 +1,5 @@
 use crate::commands::AppState;
-use crate::db::Workspace;
+use crate::db::{Workspace, WorkspaceRepository};
 use crate::error::Result;
 use std::sync::Arc;
 use tauri::State;
@@ -126,4 +126,69 @@ pub fn list_workspace_repositories(repos_folder_path: String) -> Result<Vec<Repo
 pub struct RepositoryInfo {
     pub name: String,
     pub path: String,
+}
+
+// Workspace repository commands
+
+/// Get all repositories explicitly added to a workspace
+#[tauri::command]
+pub fn get_workspace_repositories(
+    state: State<Arc<AppState>>,
+    workspace_id: String,
+) -> Result<Vec<WorkspaceRepository>> {
+    state.db.get_workspace_repositories(&workspace_id)
+}
+
+/// Add a repository to a workspace
+#[tauri::command]
+pub fn add_repository_to_workspace(
+    state: State<Arc<AppState>>,
+    workspace_id: String,
+    repository_path: String,
+    name: String,
+) -> Result<WorkspaceRepository> {
+    state.db.add_repository_to_workspace(&workspace_id, &repository_path, &name)
+}
+
+/// Remove a repository from a workspace
+#[tauri::command]
+pub fn remove_repository_from_workspace(
+    state: State<Arc<AppState>>,
+    workspace_id: String,
+    repository_path: String,
+) -> Result<()> {
+    state.db.remove_repository_from_workspace(&workspace_id, &repository_path)
+}
+
+/// Update repository scripts (setup and teardown)
+#[tauri::command]
+pub fn update_repository_scripts(
+    state: State<Arc<AppState>>,
+    workspace_id: String,
+    repository_path: String,
+    setup_script: Option<String>,
+    teardown_script: Option<String>,
+) -> Result<()> {
+    state.db.update_repository_scripts(
+        &workspace_id,
+        &repository_path,
+        setup_script.as_deref(),
+        teardown_script.as_deref(),
+    )
+}
+
+/// Get a specific repository from a workspace
+#[tauri::command]
+pub fn get_workspace_repository(
+    state: State<Arc<AppState>>,
+    workspace_id: String,
+    repository_path: String,
+) -> Result<Option<WorkspaceRepository>> {
+    state.db.get_workspace_repository(&workspace_id, &repository_path)
+}
+
+/// Scan a folder for git repositories (for picker dialog)
+#[tauri::command]
+pub fn scan_folder_for_repositories(folder_path: String) -> Result<Vec<RepositoryInfo>> {
+    list_workspace_repositories(folder_path)
 }

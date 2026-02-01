@@ -9,6 +9,7 @@ import { Settings } from "./components/Settings";
 import { WorkspaceSettings } from "./components/WorkspaceSettings";
 import { Onboarding } from "./components/Onboarding";
 import { ToastContainer } from "./components/Toast";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { useAgents } from "./hooks/useAgents";
 import { useKeyboardShortcuts } from "./hooks/useKeyboardShortcuts";
 import { useUpdateNotifications } from "./hooks/useUpdateNotifications";
@@ -304,7 +305,6 @@ function AppContent() {
           <Settings
             onClose={handleCloseSettings}
             onRestartOnboarding={() => setShowOnboarding(true)}
-            onWorkspacesChange={loadWorkspaces}
           />
         ) : currentView === "workspace-settings" ? (
           <div
@@ -312,15 +312,20 @@ function AppContent() {
             style={{ backgroundColor: "var(--bg-primary)" }}
           >
             <div
-              className="flex items-center justify-between px-4 py-3"
+              className="flex items-center justify-between px-6 py-4"
               style={{ borderBottom: "1px solid var(--border-default)" }}
             >
-              <h2 className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
-                Workspace Settings
-              </h2>
+              <div>
+                <h2 className="text-sm font-medium" style={{ color: "var(--text-primary)" }}>
+                  WORKSPACE SETTINGS
+                </h2>
+                <p className="text-xs mt-1" style={{ color: "var(--text-secondary)" }}>
+                  Manage workspaces and their repositories
+                </p>
+              </div>
               <button
                 onClick={handleCloseSettings}
-                className="text-xs px-2 py-1 transition-colors"
+                className="text-xs px-3 py-1.5 transition-colors"
                 style={{
                   backgroundColor: "transparent",
                   border: "1px solid var(--border-default)",
@@ -336,8 +341,10 @@ function AppContent() {
                 Close
               </button>
             </div>
-            <div className="flex-1 overflow-auto p-4">
-              <WorkspaceSettings onWorkspacesChange={loadWorkspaces} />
+            <div className="flex-1 overflow-auto p-6">
+              <div className="max-w-xl">
+                <WorkspaceSettings onWorkspacesChange={loadWorkspaces} />
+              </div>
             </div>
           </div>
         ) : selectedAgent?.status === "setting_up" ? (
@@ -356,14 +363,16 @@ function AppContent() {
             />
           </div>
         ) : (
-          <ChatView
-            agent={selectedAgent}
-            onSpawnAgent={handleSpawnAgent}
-            onStop={stopAgent}
-            onRestart={restartAgent}
-            onDelete={deleteAgent}
-            onUpdateAgent={updateAgent}
-          />
+          <ErrorBoundary>
+            <ChatView
+              agent={selectedAgent}
+              onSpawnAgent={handleSpawnAgent}
+              onStop={stopAgent}
+              onRestart={restartAgent}
+              onDelete={deleteAgent}
+              onUpdateAgent={updateAgent}
+            />
+          </ErrorBoundary>
         )}
       </div>
       <ToastContainer />

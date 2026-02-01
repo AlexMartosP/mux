@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import * as tauri from "../lib/tauri";
-import { Button } from "./Button";
+import { Button } from "@/components/ui/button";
 
 interface OnboardingProps {
   onComplete: () => void;
@@ -231,7 +231,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
       >
         <p>Let's get you set up in a few quick steps.</p>
       </div>
-      <Button variant="primary" onClick={onNext}>
+      <Button variant="default" onClick={onNext}>
         Get started
       </Button>
     </div>
@@ -278,7 +278,7 @@ function RepositoryStep({
             className="flex-1 px-4 py-3 text-sm"
             style={inputStyle}
           />
-          <Button variant="secondary" onClick={onBrowse}>
+          <Button variant="outline" onClick={onBrowse}>
             Browse
           </Button>
         </div>
@@ -423,7 +423,7 @@ function PermissionsStep({
               </div>
 
               <Button
-                variant="primary"
+                variant="default"
                 onClick={onInstallHook}
                 disabled={isInstalling}
                 className="w-full"
@@ -629,10 +629,10 @@ function CompleteStep({
       </p>
 
       <div className="flex justify-center gap-3">
-        <Button variant="secondary" onClick={onBack}>
+        <Button variant="outline" onClick={onBack}>
           Back
         </Button>
-        <Button variant="primary" onClick={onFinish} disabled={isSaving}>
+        <Button variant="default" onClick={onFinish} disabled={isSaving}>
           {isSaving ? "Saving..." : "Start using Mux"}
         </Button>
       </div>
@@ -652,10 +652,10 @@ function NavigationButtons({
 }) {
   return (
     <div className="flex justify-between">
-      <Button variant="secondary" onClick={onBack}>
+      <Button variant="outline" onClick={onBack}>
         Back
       </Button>
-      <Button variant="primary" onClick={onNext}>
+      <Button variant="default" onClick={onNext}>
         {nextLabel}
       </Button>
     </div>

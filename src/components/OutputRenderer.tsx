@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, memo } from "react";
 import Markdown from "react-markdown";
 import type { OutputLine } from "../types/agent";
 
@@ -117,7 +117,7 @@ function stripPathsFromContent(content: string, repositoryPath?: string): string
   return result;
 }
 
-export function OutputRenderer({ output, isRunning, repositoryPath }: OutputRendererProps) {
+export const OutputRenderer = memo(function OutputRenderer({ output, isRunning, repositoryPath }: OutputRendererProps) {
   const sections = useMemo(() => {
     // First pass: build flat sections
     const flat: OutputSection[] = [];
@@ -217,7 +217,7 @@ export function OutputRenderer({ output, isRunning, repositoryPath }: OutputRend
       )}
     </div>
   );
-}
+});
 
 function Section({ section, repositoryPath }: { section: OutputSection; repositoryPath?: string }) {
   const [isExpanded, setIsExpanded] = useState(false);

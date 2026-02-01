@@ -31,6 +31,7 @@ pub use terminal::{close_terminal, get_terminal_buffer, open_terminal, terminal_
 pub use workspace::{
     add_repository_to_workspace, create_workspace, delete_workspace, delete_workspace_setting,
     get_all_workspace_settings, get_default_workspace, get_workspace, get_workspace_repositories,
-    get_workspace_setting, get_workspaces, list_workspace_repositories, remove_repository_from_workspace,
-    scan_folder_for_repositories, set_default_workspace, set_workspace_setting, update_workspace,
+    get_workspace_repository, get_workspace_setting, get_workspaces, list_workspace_repositories,
+    remove_repository_from_workspace, scan_folder_for_repositories, set_default_workspace,
+    set_workspace_setting, update_repository_scripts, update_workspace,
 };

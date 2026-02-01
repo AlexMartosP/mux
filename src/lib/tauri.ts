@@ -401,6 +401,22 @@ export async function scanFolderForRepositories(folderPath: string): Promise<Rep
   return invoke("scan_folder_for_repositories", { folderPath });
 }
 
+export async function getWorkspaceRepository(
+  workspaceId: string,
+  repositoryPath: string
+): Promise<WorkspaceRepository | null> {
+  return invoke("get_workspace_repository", { workspaceId, repositoryPath });
+}
+
+export async function updateRepositoryScripts(
+  workspaceId: string,
+  repositoryPath: string,
+  setupScript?: string,
+  teardownScript?: string
+): Promise<void> {
+  return invoke("update_repository_scripts", { workspaceId, repositoryPath, setupScript, teardownScript });
+}
+
 // Terminal
 export interface OpenTerminalResponse {
   session_existed: boolean;

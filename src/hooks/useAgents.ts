@@ -7,6 +7,7 @@ import {
 } from "@tauri-apps/plugin-notification";
 import type { Agent, SpawnAgentInput, StatusEvent, DescriptionEvent, AgentMetadataEvent } from "../types/agent";
 import * as tauri from "../lib/tauri";
+import { getCachedSettings } from "./useSettings";
 
 export function useAgents() {
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -67,15 +68,17 @@ export function useAgents() {
       async (event) => {
         const { title, body, notification_type } = event.payload;
 
-        // Check notification settings
+        // Check notification settings (using cached settings)
         try {
-          const settings = await tauri.getSettings();
-          const isCompletion = notification_type === "completed" || title.includes("Completed");
-          const isError = notification_type === "error" || title.includes("Failed") || title.includes("Error");
+          const settings = await getCachedSettings();
+          if (settings) {
+            const isCompletion = notification_type === "completed" || title.includes("Completed");
+            const isError = notification_type === "error" || title.includes("Failed") || title.includes("Error");
 
-          // Skip notification if disabled in settings
-          if (isCompletion && !settings.notify_on_completion) return;
-          if (isError && !settings.notify_on_error) return;
+            // Skip notification if disabled in settings
+            if (isCompletion && !settings.notify_on_completion) return;
+            if (isError && !settings.notify_on_error) return;
+          }
         } catch {
           // If settings can't be fetched, show notification anyway
         }
