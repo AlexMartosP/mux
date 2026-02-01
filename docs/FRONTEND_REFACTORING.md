@@ -15,20 +15,22 @@ This document outlines opportunities for simplifying the frontend codebase and m
 | Sidebar.tsx | 551 | Medium | Several inline components |
 | Settings.tsx | 538 | Medium | Could be modularized |
 
-## Completed Refactoring (Phase 1)
+## Completed Refactoring (Phase 1 & 2)
 
 ### New Reusable Components Created
 
 1. **SlashCommandsDropdown** (`src/components/SlashCommandsDropdown.tsx`)
-   - Extracted from ChatView (was duplicated twice)
+   - Extracted from ChatView (was duplicated twice) - **NOW INTEGRATED**
    - Props: `commands`, `selectedIndex`, `onSelect`, `onHover`, `onRefresh`
    - Uses Tailwind classes for styling
+   - Reduced ChatView by ~165 lines
 
 2. **BranchSelector** (`src/components/BranchSelector.tsx`)
    - Extracted from ChatView (was duplicated twice)
    - Props: `branches`, `selectedBranch`, `onSelectBranch`, `newBranchMode`, etc.
    - Includes `CustomBranchNameInput` sub-component
    - Uses Tailwind classes for styling
+   - **Not yet integrated** - requires state management changes
 
 3. **ErrorBoundary** (`src/components/ErrorBoundary.tsx`) - Enhanced
    - Added `name` prop for context
@@ -37,10 +39,27 @@ This document outlines opportunities for simplifying the frontend codebase and m
    - Added `withErrorBoundary` HOC for functional components
    - Uses Tailwind classes for styling
 
+### New Custom Hooks Created
+
+1. **useTextareaAutoResize** (`src/hooks/useTextareaAutoResize.ts`)
+   - Auto-resizes textarea based on content
+   - Options: `maxHeight`, `minHeight`
+   - Returns `textareaRef` and `resize` function
+
+2. **useSlashCommandsUI** (`src/hooks/useSlashCommandsUI.ts`)
+   - Manages slash command dropdown state
+   - Handles filtering, keyboard navigation, selection
+   - Returns `isOpen`, `selectedIndex`, `filteredCommands`, handlers
+
 ### Error Boundaries Added
 - ChatView wrapped in App.tsx with `name="Agent View"`
 - ChangesPanel wrapped with `inline` mode
 - TerminalView wrapped with `inline` mode
+
+### ChatView Reduction
+- **Before:** 1766 lines
+- **After:** 1601 lines
+- **Saved:** 165 lines (9.3% reduction)
 
 ## Recommended Future Refactoring (Phase 2)
 

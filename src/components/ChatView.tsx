@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, memo } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { Menu } from "@base-ui/react/menu";
-import { Send, Square, ArrowUp, ArrowDown, RefreshCw, Hand, Undo2, FolderOpen, GitPullRequest, MoreVertical, FileCode, Terminal } from "lucide-react";
+import { Send, Square, Hand, Undo2, FolderOpen, GitPullRequest, MoreVertical, FileCode, Terminal } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -17,6 +17,7 @@ import { PermissionPopover } from "./PermissionPopover";
 import { HandbackModal } from "./HandbackModal";
 import { InlineError } from "./ErrorDisplay";
 import { ErrorBoundary } from "./ErrorBoundary";
+import { SlashCommandsDropdown } from "./SlashCommandsDropdown";
 import * as tauri from "../lib/tauri";
 import type { RepoInfo } from "../lib/tauri";
 
@@ -597,88 +598,15 @@ export const ChatView = memo(function ChatView({
           )}
 
           {/* Slash command suggestions for new task */}
-          {showNewTaskSlashCommands && filteredNewTaskCommands.length > 0 && (
-            <div
+          {showNewTaskSlashCommands && (
+            <SlashCommandsDropdown
               ref={newTaskSlashCommandsRef}
-              className="absolute bottom-full left-4 right-4 mb-1 flex flex-col"
-              style={{
-                backgroundColor: 'var(--bg-elevated)',
-                border: '1px solid var(--border-active)',
-                borderRadius: 'var(--border-radius)',
-                zIndex: 'var(--z-dropdown)',
-                maxHeight: '240px',
-              }}
-            >
-              <div style={{ flex: 1, overflowY: 'auto' }}>
-              {filteredNewTaskCommands.map((cmd, index) => (
-                <button
-                  key={cmd.command}
-                  data-index={index}
-                  onClick={() => handleSelectNewTaskCommand(cmd.command)}
-                  className="w-full text-left px-3 py-2 flex items-center gap-3 transition-colors"
-                  style={{
-                    backgroundColor:
-                      index === newTaskSelectedCommandIndex
-                        ? 'var(--bg-surface)'
-                        : 'transparent',
-                  }}
-                  onMouseEnter={() => setNewTaskSelectedCommandIndex(index)}
-                >
-                  <span
-                    className="text-xs font-medium"
-                    style={{ color: 'var(--accent-cyan)' }}
-                  >
-                    {cmd.command}
-                  </span>
-                  <span className="text-xs flex-1 truncate" style={{ color: 'var(--text-dim)' }}>
-                    {cmd.description}
-                  </span>
-                  <span
-                    className="text-xs px-1.5 py-0.5"
-                    style={{
-                      backgroundColor: 'var(--bg-primary)',
-                      border: '1px solid var(--border-default)',
-                      borderRadius: 'var(--border-radius)',
-                      color: cmd.source === 'project' ? 'var(--accent-green)' :
-                             cmd.source === 'global' ? 'var(--accent-yellow)' :
-                             'var(--text-dim)',
-                    }}
-                  >
-                    {cmd.source}
-                  </span>
-                </button>
-              ))}
-              </div>
-              <div
-                className="flex items-center justify-between"
-                style={{
-                  padding: 'var(--space-2) var(--space-3)',
-                  fontSize: '12px',
-                  color: 'var(--text-dim)',
-                  borderTop: '1px solid var(--border-default)',
-                }}
-              >
-                <span className="flex items-center gap-1">
-                  <ArrowUp size={12} strokeWidth={1.5} />
-                  <ArrowDown size={12} strokeWidth={1.5} />
-                  <span>navigate • Tab select • Esc close</span>
-                </span>
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    refreshNewTaskSlashCommands();
-                  }}
-                  className="transition-colors"
-                  style={{ color: 'var(--text-dim)' }}
-                  onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
-                  onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
-                  title="Refresh commands"
-                >
-                  <RefreshCw size={12} strokeWidth={1.5} />
-                </button>
-              </div>
-            </div>
+              commands={filteredNewTaskCommands}
+              selectedIndex={newTaskSelectedCommandIndex}
+              onSelect={handleSelectNewTaskCommand}
+              onHover={setNewTaskSelectedCommandIndex}
+              onRefresh={refreshNewTaskSlashCommands}
+            />
           )}
 
           <form onSubmit={handleSubmit} className="space-y-3">
@@ -1508,114 +1436,16 @@ export const ChatView = memo(function ChatView({
             {/* Input container with slash commands */}
             <div className="relative">
               {/* Slash command suggestions */}
-              {showSlashCommands && filteredCommands.length > 0 && (
-              <div
-                ref={slashCommandsRef}
-                style={{
-                  position: 'absolute',
-                  bottom: '100%',
-                  left: 0,
-                  right: 0,
-                  marginBottom: 'var(--space-1)',
-                  backgroundColor: 'var(--bg-elevated)',
-                  border: '1px solid var(--border-active)',
-                  borderRadius: 'var(--border-radius)',
-                  zIndex: 'var(--z-dropdown)',
-                  maxHeight: '240px',
-                  display: 'flex',
-                  flexDirection: 'column',
-                }}
-              >
-                <div style={{ flex: 1, overflowY: 'auto' }}>
-                  {filteredCommands.map((cmd, index) => (
-                    <button
-                      key={cmd.command}
-                      data-index={index}
-                      onClick={() => handleSelectCommand(cmd.command)}
-                      className="w-full text-left transition-colors"
-                      style={{
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: 'var(--space-3)',
-                        padding: 'var(--space-2) var(--space-3)',
-                        backgroundColor:
-                          index === selectedCommandIndex
-                            ? 'var(--bg-surface)'
-                            : 'transparent',
-                      }}
-                      onMouseEnter={() => setSelectedCommandIndex(index)}
-                    >
-                      <span
-                        style={{
-                          fontSize: '12px',
-                          fontWeight: 500,
-                          color: 'var(--accent-cyan)',
-                        }}
-                      >
-                        {cmd.command}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: '12px',
-                          flex: 1,
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          color: 'var(--text-dim)',
-                        }}
-                      >
-                        {cmd.description}
-                      </span>
-                      <span
-                        style={{
-                          fontSize: '10px',
-                          padding: '2px var(--space-1)',
-                          backgroundColor: 'var(--bg-primary)',
-                          border: '1px solid var(--border-default)',
-                          borderRadius: 'var(--border-radius)',
-                          color: cmd.source === 'project' ? 'var(--accent-green)' :
-                                 cmd.source === 'global' ? 'var(--accent-yellow)' :
-                                 'var(--text-dim)',
-                        }}
-                      >
-                        {cmd.source}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: 'var(--space-2) var(--space-3)',
-                    fontSize: '12px',
-                    color: 'var(--text-dim)',
-                    borderTop: '1px solid var(--border-default)',
-                  }}
-                >
-                  <span className="flex items-center gap-1">
-                    <ArrowUp size={12} strokeWidth={1.5} />
-                    <ArrowDown size={12} strokeWidth={1.5} />
-                    <span>navigate • Tab select • Esc close</span>
-                  </span>
-                  <button
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      refreshSlashCommands();
-                    }}
-                    className="transition-colors"
-                    style={{ color: 'var(--text-dim)' }}
-                    onMouseEnter={(e) => e.currentTarget.style.color = 'var(--accent-cyan)'}
-                    onMouseLeave={(e) => e.currentTarget.style.color = 'var(--text-dim)'}
-                    title="Refresh commands"
-                  >
-                    <RefreshCw size={12} strokeWidth={1.5} />
-                  </button>
-                </div>
-              </div>
-            )}
+              {showSlashCommands && (
+                <SlashCommandsDropdown
+                  ref={slashCommandsRef}
+                  commands={filteredCommands}
+                  selectedIndex={selectedCommandIndex}
+                  onSelect={handleSelectCommand}
+                  onHover={setSelectedCommandIndex}
+                  onRefresh={refreshSlashCommands}
+                />
+              )}
 
             {/* Floating input container */}
             <div
