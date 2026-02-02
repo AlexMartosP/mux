@@ -31,12 +31,27 @@ impl WorktreeService {
             .map(|b| b.to_string())
             .unwrap_or_else(|| Self::get_default_branch(repo_path_obj).unwrap_or_else(|_| "main".to_string()));
 
+        // Check if origin remote exists
+        let has_origin = Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .current_dir(repo_path_obj)
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+
         // Run git worktree through a shell script that:
         // 1. Sources nvm if available
         // 2. Runs `nvm use` if .nvmrc exists (to get correct node version for hooks)
         // 3. Runs the git worktree command
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".to_string());
         let home = std::env::var("HOME").unwrap_or_default();
+
+        // Use origin/branch if remote exists, otherwise use local branch
+        let base_ref = if has_origin {
+            format!("origin/{}", default_branch)
+        } else {
+            default_branch.clone()
+        };
 
         let script = format!(
             r#"
@@ -50,12 +65,12 @@ impl WorktreeService {
             fi
 
             # Run the git worktree command
-            git worktree add -B "{branch}" "{worktree_path}" "origin/{default_branch}"
+            git worktree add -B "{branch}" "{worktree_path}" "{base_ref}"
             "#,
             repo_path = repo_path,
             branch = branch,
             worktree_path = worktree_path,
-            default_branch = default_branch,
+            base_ref = base_ref,
         );
 
         // Retry with exponential backoff for transient git failures (lock contention, etc.)
