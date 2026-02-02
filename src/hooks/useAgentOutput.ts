@@ -11,14 +11,19 @@ import {
 
 const PAGE_SIZE = 200;
 const BATCH_INTERVAL_MS = 50; // Batch events every 50ms for smoother rendering
+const SCROLL_THRESHOLD = 200; // Pixels from top to trigger infinite scroll
 
 export function useAgentOutput(agentId: string | null) {
   const [output, setOutput] = useState<OutputLine[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [totalCount, setTotalCount] = useState(0);
-  const [loadedCount, setLoadedCount] = useState(0);
+  // Track the lowest offset we've loaded (for loading older messages)
+  const [oldestOffsetLoaded, setOldestOffsetLoaded] = useState(0);
   const outputRef = useRef<HTMLDivElement>(null);
+  // Ref to track if we should preserve scroll position after prepending
+  const shouldPreserveScrollRef = useRef(false);
+  const previousScrollHeightRef = useRef(0);
 
   // Buffer for batching incoming events
   const pendingOutputRef = useRef<OutputLine[]>([]);
@@ -28,11 +33,12 @@ export function useAgentOutput(agentId: string | null) {
   // Track which agentId the pending output belongs to (captured when batch starts)
   const pendingTaskIdRef = useRef<string | null>(null);
 
-  // Computed values
-  const hasMore = loadedCount < totalCount;
-  const remainingCount = totalCount - loadedCount;
+  // Computed values - hasMore means there are older messages to load
+  const hasMore = oldestOffsetLoaded > 0;
+  const remainingCount = oldestOffsetLoaded;
 
   // Flush pending output to state (batched for performance)
+  // New output is appended at the end (newest messages)
   const flushPendingOutput = useCallback(() => {
     if (pendingOutputRef.current.length === 0) return;
 
@@ -50,7 +56,6 @@ export function useAgentOutput(agentId: string | null) {
         return newOutput;
       });
       setTotalCount((prev) => prev + pending.length);
-      setLoadedCount((prev) => prev + pending.length);
     }
 
     // Update cache for the task the output belongs to
@@ -65,11 +70,12 @@ export function useAgentOutput(agentId: string | null) {
   }, [agentId]);
 
   // Load initial output when task changes
+  // Now loads NEWEST messages first (from the end of the output)
   useEffect(() => {
     if (!agentId) {
       setOutput([]);
       setTotalCount(0);
-      setLoadedCount(0);
+      setOldestOffsetLoaded(0);
       pendingOutputRef.current = [];
       return;
     }
@@ -79,23 +85,21 @@ export function useAgentOutput(agentId: string | null) {
     if (cached && cached.output.length > 0) {
       setOutput(cached.output);
       setTotalCount(cached.totalCount);
-      setLoadedCount(cached.loadedCount);
+      setOldestOffsetLoaded(cached.loadedCount > 0 ? Math.max(0, cached.totalCount - cached.loadedCount) : 0);
       setIsLoading(false);
 
       // Still validate cache against server in background
       tauri.getAgentOutputCount(agentId).then((serverCount) => {
         if (serverCount !== cached.totalCount) {
-          // Cache is stale, re-fetch
-          Promise.all([
-            tauri.getAgentOutput(agentId, PAGE_SIZE, 0),
-            Promise.resolve(serverCount),
-          ]).then(([existingOutput, count]) => {
+          // Cache is stale, re-fetch newest messages
+          const initialOffset = Math.max(0, serverCount - PAGE_SIZE);
+          tauri.getAgentOutput(agentId, PAGE_SIZE, initialOffset).then((existingOutput) => {
             setOutput(existingOutput);
-            setTotalCount(count);
-            setLoadedCount(existingOutput.length);
+            setTotalCount(serverCount);
+            setOldestOffsetLoaded(initialOffset);
             setCachedOutput(agentId, {
               output: existingOutput,
-              totalCount: count,
+              totalCount: serverCount,
               loadedCount: existingOutput.length,
             });
           });
@@ -106,21 +110,22 @@ export function useAgentOutput(agentId: string | null) {
 
     setIsLoading(true);
 
-    // Fetch count and initial output in parallel
-    Promise.all([
-      tauri.getAgentOutput(agentId, PAGE_SIZE, 0),
-      tauri.getAgentOutputCount(agentId),
-    ])
-      .then(([existingOutput, count]) => {
-        setOutput(existingOutput);
-        setTotalCount(count);
-        setLoadedCount(existingOutput.length);
+    // First get the count, then load from the end (newest messages)
+    tauri.getAgentOutputCount(agentId)
+      .then((count) => {
+        // Calculate offset to get newest messages
+        const initialOffset = Math.max(0, count - PAGE_SIZE);
+        return tauri.getAgentOutput(agentId, PAGE_SIZE, initialOffset).then((existingOutput) => {
+          setOutput(existingOutput);
+          setTotalCount(count);
+          setOldestOffsetLoaded(initialOffset);
 
-        // Store in cache
-        setCachedOutput(agentId, {
-          output: existingOutput,
-          totalCount: count,
-          loadedCount: existingOutput.length,
+          // Store in cache
+          setCachedOutput(agentId, {
+            output: existingOutput,
+            totalCount: count,
+            loadedCount: existingOutput.length,
+          });
         });
       })
       .catch(console.error)
@@ -188,42 +193,79 @@ export function useAgentOutput(agentId: string | null) {
     };
   }, [output]);
 
-  // Load more output (older items)
+  // Load more output (OLDER items - prepended to the beginning)
   const loadMore = useCallback(async () => {
     if (!agentId || isLoadingMore || !hasMore) return;
 
     setIsLoadingMore(true);
-    try {
-      const moreOutput = await tauri.getAgentOutput(agentId, PAGE_SIZE, loadedCount);
 
-      // Use functional update and capture new state for cache
+    // Save scroll position before loading
+    if (outputRef.current) {
+      previousScrollHeightRef.current = outputRef.current.scrollHeight;
+      shouldPreserveScrollRef.current = true;
+    }
+
+    try {
+      // Load older messages (lower offset)
+      const newOffset = Math.max(0, oldestOffsetLoaded - PAGE_SIZE);
+      const limit = oldestOffsetLoaded - newOffset; // May be less than PAGE_SIZE near the beginning
+
+      const olderOutput = await tauri.getAgentOutput(agentId, limit, newOffset);
+
+      // Prepend older messages to the beginning
       setOutput((prev) => {
-        const newOutput = prev.concat(moreOutput);
-        // Update cache with the actual new output (not stale closure value)
+        const newOutput = olderOutput.concat(prev);
+        // Update cache
         setCachedOutput(agentId, {
           output: newOutput,
           totalCount,
-          loadedCount: loadedCount + moreOutput.length,
+          loadedCount: newOutput.length,
         });
         return newOutput;
       });
-      setLoadedCount((prev) => prev + moreOutput.length);
+      setOldestOffsetLoaded(newOffset);
     } catch (error) {
       console.error("Failed to load more output:", error);
     } finally {
       setIsLoadingMore(false);
     }
-  }, [agentId, isLoadingMore, hasMore, loadedCount, totalCount]);
+  }, [agentId, isLoadingMore, hasMore, oldestOffsetLoaded, totalCount]);
 
   const clearOutput = useCallback(() => {
     setOutput([]);
     setTotalCount(0);
-    setLoadedCount(0);
+    setOldestOffsetLoaded(0);
     pendingOutputRef.current = [];
     if (agentId) {
       clearCachedOutput(agentId);
     }
   }, [agentId]);
+
+  // Preserve scroll position after prepending older messages
+  useEffect(() => {
+    if (shouldPreserveScrollRef.current && outputRef.current) {
+      const newScrollHeight = outputRef.current.scrollHeight;
+      const scrollDiff = newScrollHeight - previousScrollHeightRef.current;
+      outputRef.current.scrollTop += scrollDiff;
+      shouldPreserveScrollRef.current = false;
+    }
+  }, [output]);
+
+  // Infinite scroll - detect when user scrolls near the top
+  useEffect(() => {
+    const container = outputRef.current;
+    if (!container || !hasMore) return;
+
+    const handleScroll = () => {
+      // Check if near the top (within SCROLL_THRESHOLD pixels)
+      if (container.scrollTop < SCROLL_THRESHOLD && !isLoadingMore && hasMore) {
+        loadMore();
+      }
+    };
+
+    container.addEventListener("scroll", handleScroll, { passive: true });
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, [hasMore, isLoadingMore, loadMore]);
 
   return {
     output,

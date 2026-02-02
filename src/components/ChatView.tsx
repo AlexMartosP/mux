@@ -1316,6 +1316,34 @@ export const ChatView = memo(function ChatView({
 
         {/* Output area */}
         <div className="flex-1 overflow-y-auto p-6" ref={outputRef}>
+            {/* Infinite scroll loading indicator (at the top) */}
+            {isLoadingMore && (
+              <div className="flex items-center justify-center py-3 mb-4">
+                <div className="flex items-center gap-2 text-xs" style={{ color: 'var(--text-dim)' }}>
+                  <div className="flex gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--accent-cyan)', animation: 'pulse 1s infinite' }} />
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--accent-cyan)', animation: 'pulse 1s infinite', animationDelay: '150ms' }} />
+                    <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: 'var(--accent-cyan)', animation: 'pulse 1s infinite', animationDelay: '300ms' }} />
+                  </div>
+                  <span>Loading older messages...</span>
+                </div>
+              </div>
+            )}
+
+            {/* Fallback load more button (shows if infinite scroll didn't trigger) */}
+            {hasMore && !isLoadingMore && !isRunning && (
+              <div className="flex justify-center mb-4">
+                <Button
+                  variant="ghost"
+                  onClick={loadMore}
+                  size="sm"
+                  className="text-xs"
+                >
+                  Load older messages ({remainingCount} more)
+                </Button>
+              </div>
+            )}
+
             {/* Initial prompt */}
             <div className="mb-6">
               <div
@@ -1414,19 +1442,6 @@ export const ChatView = memo(function ChatView({
               });
             })()}
 
-            {/* Load more button */}
-            {hasMore && !isRunning && (
-              <div className="mt-4 pt-4" style={{ borderTop: '1px solid var(--border-default)' }}>
-                <Button
-                  variant="ghost"
-                  onClick={loadMore}
-                  disabled={isLoadingMore}
-                  className="w-full"
-                >
-                  {isLoadingMore ? 'Loading...' : `Load more (${remainingCount} remaining)`}
-                </Button>
-              </div>
-            )}
           </div>
 
           {/* Follow-up input - floating box */}
