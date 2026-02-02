@@ -39,11 +39,12 @@ interface FollowUpMessage {
 
 interface ChatViewProps {
   agent: Agent | null;
-  onSpawnAgent: (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string, branchName?: string) => Promise<void>;
+  onSpawnAgent: (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string, branchName?: string, workspaceId?: string) => Promise<void>;
   onStop: (id: string) => void;
   onRestart: (id: string, prompt?: string) => void;
   onDelete: (id: string) => void;
   onUpdateAgent?: (agent: Agent) => void;
+  workspaceId?: string | null;
 }
 
 export const ChatView = memo(function ChatView({
@@ -53,6 +54,7 @@ export const ChatView = memo(function ChatView({
   onRestart,
   onDelete,
   onUpdateAgent,
+  workspaceId,
 }: ChatViewProps) {
   const [repositoryPath, setRepositoryPath] = useState(() => {
     return localStorage.getItem(LAST_REPO_KEY) || "";
@@ -310,7 +312,7 @@ export const ChatView = memo(function ChatView({
       const baseBranchToUse = selectedBranch ? undefined : (selectedBaseBranch || undefined);
       // Pass custom branch name if specified
       const branchNameToUse = useCustomBranchName && customBranchName.trim() ? customBranchName.trim() : undefined;
-      await onSpawnAgent(repositoryPath.trim(), prompt.trim(), selectedBranch || undefined, baseBranchToUse, branchNameToUse);
+      await onSpawnAgent(repositoryPath.trim(), prompt.trim(), selectedBranch || undefined, baseBranchToUse, branchNameToUse, workspaceId || undefined);
       setPrompt("");
       setSelectedBaseBranch("");
       setCustomBranchName("");

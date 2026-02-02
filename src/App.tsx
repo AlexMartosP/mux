@@ -204,8 +204,8 @@ function AppContent() {
     };
   }, []);
 
-  const handleSpawnAgent = async (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string, branchName?: string) => {
-    await spawnAgent({ repository_path: repositoryPath, prompt, existing_branch: existingBranch, base_branch: baseBranch, branch_name: branchName });
+  const handleSpawnAgent = async (repositoryPath: string, prompt: string, existingBranch?: string, baseBranch?: string, branchName?: string, workspaceId?: string) => {
+    await spawnAgent({ repository_path: repositoryPath, prompt, existing_branch: existingBranch, base_branch: baseBranch, branch_name: branchName, workspace_id: workspaceId });
   };
 
   // Show loading while checking onboarding status
@@ -371,6 +371,7 @@ function AppContent() {
               onRestart={restartAgent}
               onDelete={deleteAgent}
               onUpdateAgent={updateAgent}
+              workspaceId={selectedWorkspaceId}
             />
           </ErrorBoundary>
         )}
