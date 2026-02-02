@@ -25,6 +25,7 @@ type RightPanelTab = "code-review" | "terminal";
 
 const RIGHT_PANEL_TAB_STORAGE_PREFIX = "mux-agent-right-panel-tab-";
 const RIGHT_PANEL_WIDTH_KEY = "mux-right-panel-width";
+const LAST_REPO_KEY = "mux-last-selected-repo";
 const DEFAULT_RIGHT_PANEL_WIDTH = 400;
 const MIN_RIGHT_PANEL_WIDTH = 200;
 const MAX_RIGHT_PANEL_WIDTH = 800;
@@ -53,7 +54,9 @@ export const ChatView = memo(function ChatView({
   onDelete,
   onUpdateAgent,
 }: ChatViewProps) {
-  const [repositoryPath, setRepositoryPath] = useState("");
+  const [repositoryPath, setRepositoryPath] = useState(() => {
+    return localStorage.getItem(LAST_REPO_KEY) || "";
+  });
   const [prompt, setPrompt] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -288,6 +291,7 @@ export const ChatView = memo(function ChatView({
       });
       if (selected && typeof selected === "string") {
         setRepositoryPath(selected);
+        localStorage.setItem(LAST_REPO_KEY, selected);
       }
     } catch (err) {
       console.error("Failed to open folder picker:", err);
@@ -556,7 +560,10 @@ export const ChatView = memo(function ChatView({
                 {availableRepos.map((repo) => (
                   <button
                     key={repo.path}
-                    onClick={() => setRepositoryPath(repo.path)}
+                    onClick={() => {
+                      setRepositoryPath(repo.path);
+                      localStorage.setItem(LAST_REPO_KEY, repo.path);
+                    }}
                     className="text-left px-3 py-2 text-xs transition-colors"
                     style={{
                       backgroundColor: repositoryPath === repo.path ? 'var(--bg-elevated)' : 'var(--bg-surface)',
