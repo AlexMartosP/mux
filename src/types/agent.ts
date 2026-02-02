@@ -98,6 +98,7 @@ export interface SpawnAgentInput {
   existing_branch?: string;
   base_branch?: string;
   branch_name?: string; // Custom branch name for new branches (if not provided, auto-generated)
+  workspace_id?: string; // Workspace ID to associate with (for setup/teardown scripts)
 }
 
 export interface OutputLine {
@@ -120,7 +121,7 @@ export interface StatusEvent {
   status: string;
 }
 
-export type SetupStage = "initializing" | "creating_worktree" | "generating_metadata" | "starting_agent";
+export type SetupStage = "initializing" | "creating_worktree" | "running_setup" | "generating_metadata" | "starting_agent";
 
 export interface SetupProgressEvent {
   agent_id: string;

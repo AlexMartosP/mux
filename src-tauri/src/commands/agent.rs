@@ -44,14 +44,15 @@ pub async fn spawn_agent(
     state: State<'_, Arc<AppState>>,
     input: SpawnAgentInput,
 ) -> Result<Agent> {
-    log::info!("[spawn_agent] repo={}, existing_branch={:?}, base_branch={:?}, branch_name={:?}, prompt={}...",
+    log::info!("[spawn_agent] repo={}, existing_branch={:?}, base_branch={:?}, branch_name={:?}, workspace_id={:?}, prompt={}...",
         input.repository_path,
         input.existing_branch,
         input.base_branch,
         input.branch_name,
+        input.workspace_id,
         &input.prompt[..input.prompt.len().min(80)]);
     // 1. Create agent immediately with temp name for instant UI feedback
-    let agent = if let Some(ref existing_branch) = input.existing_branch {
+    let mut agent = if let Some(ref existing_branch) = input.existing_branch {
         // Use existing branch - create agent with that branch name
         Agent::new_with_metadata(
             input.repository_path.clone(),
@@ -72,6 +73,19 @@ pub async fn spawn_agent(
         )
     } else {
         Agent::new_with_temp_name(input.repository_path.clone(), input.prompt.clone(), input.base_branch.clone())
+    };
+
+    // Set workspace_id if provided
+    agent.workspace_id = input.workspace_id.clone();
+
+    // Look up setup script from workspace repository (if workspace is set)
+    let setup_script = if let Some(ref ws_id) = input.workspace_id {
+        state.db.get_workspace_repository(ws_id, &input.repository_path)
+            .ok()
+            .flatten()
+            .and_then(|repo| repo.setup_script)
+    } else {
+        None
     };
 
     // 2. Save to database immediately (with metadata_loading: true, status: SettingUp)
@@ -103,6 +117,7 @@ pub async fn spawn_agent(
     let prompt = agent.prompt.clone();
     let existing_branch = input.existing_branch.clone();
     let base_branch = input.base_branch.clone();
+    let setup_script_clone = setup_script.clone();
     let db = Arc::clone(&state.db);
     let claude = Arc::clone(&state.claude);
     let app_handle_clone = app_handle.clone();
@@ -149,6 +164,37 @@ pub async fn spawn_agent(
 
         match wt_result {
             Ok(Ok(())) => {
+                // Run setup script if configured
+                if let Some(ref script) = setup_script_clone {
+                    let _ = app_handle_clone.emit(
+                        "agent-setup-progress",
+                        AgentSetupProgressEvent {
+                            agent_id: agent_id.clone(),
+                            stage: "running_setup".to_string(),
+                            message: "Running setup script...".to_string(),
+                        },
+                    );
+
+                    let script = script.clone();
+                    let wt_path = worktree_path.clone();
+                    let script_result = tokio::task::spawn_blocking(move || {
+                        execute_script(&script, &wt_path)
+                    }).await;
+
+                    match script_result {
+                        Ok(Ok(())) => {
+                            log::info!("[spawn_agent] Setup script completed successfully for agent {}", agent_id);
+                        }
+                        Ok(Err(e)) => {
+                            log::error!("[spawn_agent] Setup script failed for agent {}: {}", agent_id, e);
+                            // Continue anyway - setup script failure shouldn't block agent
+                        }
+                        Err(e) => {
+                            log::error!("[spawn_agent] Setup script task panicked for agent {}: {}", agent_id, e);
+                        }
+                    }
+                }
+
                 if should_queue {
                     // Queue the agent - it will be started when a slot opens
                     let _ = db.update_agent_status(&agent_id, AgentStatus::Queued);
@@ -368,6 +414,38 @@ pub async fn delete_agent(state: State<'_, Arc<AppState>>, id: String) -> Result
     // Stop process if running
     state.claude.stop(&id)?;
 
+    // Look up teardown script if agent has a workspace
+    let teardown_script = if let Some(ref ws_id) = agent.workspace_id {
+        state.db.get_workspace_repository(ws_id, &agent.repository_path)
+            .ok()
+            .flatten()
+            .and_then(|repo| repo.teardown_script)
+    } else {
+        None
+    };
+
+    // Run teardown script if configured
+    if let Some(ref script) = teardown_script {
+        let script = script.clone();
+        let wt_path = agent.worktree_path.clone();
+        let script_result = tokio::task::spawn_blocking(move || {
+            execute_script(&script, &wt_path)
+        }).await;
+
+        match script_result {
+            Ok(Ok(())) => {
+                log::info!("[delete_agent] Teardown script completed successfully for agent {}", id);
+            }
+            Ok(Err(e)) => {
+                log::error!("[delete_agent] Teardown script failed for agent {}: {}", id, e);
+                // Continue anyway - teardown failure shouldn't block deletion
+            }
+            Err(e) => {
+                log::error!("[delete_agent] Teardown script task panicked for agent {}: {}", id, e);
+            }
+        }
+    }
+
     // Remove worktree in background (can be slow)
     let repo_path = agent.repository_path.clone();
     let worktree_path = agent.worktree_path.clone();
@@ -392,6 +470,28 @@ pub async fn delete_agents(state: State<'_, Arc<AppState>>, ids: Vec<String>) ->
         if let Ok(Some(agent)) = state.db.get_agent(&id) {
             // Stop process if running
             let _ = state.claude.stop(&id);
+
+            // Look up teardown script if agent has a workspace
+            let teardown_script = if let Some(ref ws_id) = agent.workspace_id {
+                state.db.get_workspace_repository(ws_id, &agent.repository_path)
+                    .ok()
+                    .flatten()
+                    .and_then(|repo| repo.teardown_script)
+            } else {
+                None
+            };
+
+            // Run teardown script if configured
+            if let Some(script) = teardown_script {
+                let wt_path = agent.worktree_path.clone();
+                let script_result = tokio::task::spawn_blocking(move || {
+                    execute_script(&script, &wt_path)
+                }).await;
+
+                if let Err(e) = script_result {
+                    log::error!("[delete_agents] Teardown script task failed for agent {}: {}", id, e);
+                }
+            }
 
             // Remove worktree in background
             let repo_path = agent.repository_path.clone();
@@ -885,4 +985,47 @@ pub fn handback_agent(
     log::info!("[handback] Handback complete for agent {}", id);
 
     Ok(())
+}
+
+/// Execute a shell script in the given working directory
+fn execute_script(script: &str, working_dir: &str) -> Result<()> {
+    use std::process::Command;
+
+    log::info!("[execute_script] Running script in {}: {}", working_dir, script);
+
+    // Determine shell based on platform
+    let (shell, flag) = if cfg!(target_os = "windows") {
+        ("cmd", "/C")
+    } else {
+        ("sh", "-c")
+    };
+
+    let output = Command::new(shell)
+        .arg(flag)
+        .arg(script)
+        .current_dir(working_dir)
+        .output()
+        .map_err(|e| crate::error::AppError::Other(format!("Failed to execute script: {}", e)))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    if !stdout.is_empty() {
+        log::info!("[execute_script] stdout: {}", stdout);
+    }
+    if !stderr.is_empty() {
+        log::warn!("[execute_script] stderr: {}", stderr);
+    }
+
+    if output.status.success() {
+        log::info!("[execute_script] Script completed successfully");
+        Ok(())
+    } else {
+        let exit_code = output.status.code().unwrap_or(-1);
+        log::error!("[execute_script] Script failed with exit code {}", exit_code);
+        Err(crate::error::AppError::Other(format!(
+            "Script failed with exit code {}: {}",
+            exit_code, stderr
+        )))
+    }
 }
