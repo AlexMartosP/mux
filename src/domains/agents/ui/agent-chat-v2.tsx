@@ -3,7 +3,6 @@ import type { Agent } from "@/types/agent";
 import { OutputRenderer } from "@/components/OutputRenderer";
 import { useAgentChat } from "../hooks/useAgentChat";
 import { FloatingInput } from "./floating-input";
-import { StatusBanners } from "./status-banners";
 
 const SCROLL_THRESHOLD = 100; // Pixels from top to trigger load more
 
@@ -13,7 +12,7 @@ interface AgentChatV2Props {
   onUpdateAgent?: (agent: Agent) => void;
 }
 
-export function AgentChatV2({ agent, onStop, onUpdateAgent }: AgentChatV2Props) {
+export function AgentChatV2({ agent }: AgentChatV2Props) {
   const { messages, sendMessage, isLoading, isLoadingMore, hasMore, loadMore, isSending } =
     useAgentChat(agent.id);
 

@@ -1,5 +1,4 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
 import * as tauri from "@/domains/tauri/commands";
 import { workspaceKeys } from "./workspaces-keys";
 

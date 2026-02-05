@@ -133,7 +133,7 @@ export interface Message {
 export interface AgentMessageEvent {
   agent_id: string;
   message_id: string;
-  event_type: "message_created" | "message_part" | "message_complete";
+  event_type: "message_created" | "message_part" | "message_complete" | "message_deleted";
   role?: "assistant" | "user" | "system";
   timestamp?: string;
   part?: MessagePart;

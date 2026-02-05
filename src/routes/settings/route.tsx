@@ -1,9 +1,8 @@
-import { createFileRoute, Outlet, Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { ArrowLeft, Bell, MessageSquare, MessageCircle, RefreshCw, Icon, Plus } from "lucide-react";
+import { createFileRoute, Outlet, Link, useLocation } from "@tanstack/react-router";
+import { ArrowLeft, Bell, MessageSquare, MessageCircle, RefreshCw, Plus } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { useUpdater } from "@/hooks/useUpdater";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
 import { useWorkspacesQuery } from "@/domains/workspaces/data/workspaces-queries";
 import { Separator } from "@/components/ui/separator";
 
@@ -22,7 +21,6 @@ type NavItem = {
 
 function SettingsLayout() {
   const location = useLocation();
-  const navigate = useNavigate();
   const { checking, checkForUpdates, updateAvailable, downloading, downloadProgress, downloadAndInstall } = useUpdater();
   const getWorkspaces = useWorkspacesQuery();
 

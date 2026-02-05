@@ -408,6 +408,7 @@ export function AgentChangesCompact({
   };
 
   // Comment handlers
+  // @ts-ignore - unused but kept for future implementation
   const _handleAddComment = useCallback((lineNumber: number, content: string, _sendImmediately: boolean) => {
     // Note: AgentChangesCompact doesn't have onSendReview prop yet
     // For now, just store comments. Will add onSendReview prop later if needed.
