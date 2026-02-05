@@ -1,6 +1,6 @@
 [package]
 name = "Mux"
-version = "0.2.4"
+version = "0.3.1"
 description = "A native Mac app for managing Claude Code agents"
 authors = ["you"]
 edition = "2021"
@@ -44,5 +44,9 @@ libc = "0.2"
 clap = { version = "4", features = ["derive"] }
 
 [[bin]]
-name = "mux"
+name = "Mux"
+path = "src/main.rs"
+
+[[bin]]
+name = "mux-cli"
 path = "src/cli/main.rs"
