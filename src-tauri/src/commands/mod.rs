@@ -11,7 +11,7 @@ mod workspace;
 
 pub use editor::open_in_editor;
 pub use export::export_agents;
-pub use git::{get_branch_base, get_file_diff, get_file_diff_with_context, get_full_diff, get_agent_changes, get_agent_commits, list_branches, refresh_agent_git_stats, revert_file_changes, update_agent_base_branch};
+pub use git::{get_agent_changes, get_agent_changes_filtered, get_agent_commits, get_branch_base, get_file_diff, get_file_diff_with_context, get_full_diff, get_structured_file_diff, list_branches, refresh_agent_git_stats, revert_file_changes, update_agent_base_branch};
 pub use github::{check_github_auth, create_pull_request, get_ci_status, get_pr_preview, open_pr_in_browser};
 pub use permissions::respond_permission;
 pub use settings::{
@@ -21,11 +21,13 @@ pub use settings::{
 };
 pub use slash_commands::get_slash_commands;
 pub use agent::{
-    clear_notifications, spawn_agent, delete_agent, delete_agents, generate_agent_metadata, get_cost_summary,
-    get_notifications, get_agent, get_agent_output, get_agent_output_count, get_agents,
-    get_unread_notification_count, handback_agent, mark_all_notifications_read,
-    mark_notification_read, restart_agent, set_agent_auto_accept_edits, set_agent_pinned, stop_agent,
-    takeover_agent, update_agent_description, update_agent_name, AppState,
+    calculate_worktree_disk_usage, clear_notifications, delete_all_data, spawn_agent, delete_agent,
+    delete_agents, generate_agent_metadata, get_cost_summary, get_notifications, get_agent,
+    get_agent_output, get_agent_output_count, get_agent_messages, get_agent_messages_count,
+    get_agents, get_agents_by_workspace, get_unread_notification_count, handback_agent,
+    mark_all_notifications_read, mark_notification_read, restart_agent, set_agent_auto_accept_edits,
+    set_agent_pinned, stop_agent, takeover_agent, update_agent_description, update_agent_name,
+    AppState,
 };
 pub use terminal::{close_terminal, get_terminal_buffer, open_terminal, terminal_input, terminal_resize, TerminalState};
 pub use workspace::{

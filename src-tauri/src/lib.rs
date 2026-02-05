@@ -1,21 +1,24 @@
 mod commands;
 mod db;
 mod error;
+mod events;
 mod models;
 mod services;
 
 use commands::{
-    add_permission_rule, add_repository_to_workspace, check_claude_hook_status, check_cli_status,
-    check_github_auth, clear_notifications, close_terminal, complete_onboarding,
-    create_pull_request, create_workspace, delete_agent, delete_agents, delete_workspace,
-    delete_workspace_setting, export_agents, generate_agent_metadata, get_all_workspace_settings,
+    add_permission_rule, add_repository_to_workspace, calculate_worktree_disk_usage,
+    check_claude_hook_status, check_cli_status, check_github_auth, clear_notifications,
+    close_terminal, complete_onboarding, create_pull_request, create_workspace, delete_agent,
+    delete_agents, delete_all_data, delete_workspace, delete_workspace_setting, export_agents,
+    generate_agent_metadata, get_agent_changes_filtered, get_all_workspace_settings,
     get_branch_base, get_ci_status, get_cost_summary, get_default_workspace, get_file_diff,
     get_file_diff_with_context, get_full_diff, get_notifications, get_pr_preview, get_settings,
     get_slash_commands, get_agent, get_agent_changes, get_agent_commits, get_agent_output,
-    get_agent_output_count, get_agents, get_unread_notification_count, get_workspace,
-    get_workspace_repositories, get_workspace_repository, get_workspace_setting, get_workspaces,
-    handback_agent, install_claude_hook, install_cli, is_onboarding_completed, list_branches,
-    list_repositories, list_workspace_repositories, mark_all_notifications_read,
+    get_agent_output_count, get_agent_messages, get_agent_messages_count, get_agents,
+    get_agents_by_workspace, get_structured_file_diff, get_unread_notification_count,
+    get_workspace, get_workspace_repositories, get_workspace_repository, get_workspace_setting,
+    get_workspaces, handback_agent, install_claude_hook, install_cli, is_onboarding_completed,
+    list_branches, list_repositories, list_workspace_repositories, mark_all_notifications_read,
     mark_notification_read, open_in_editor, open_pr_in_browser, open_terminal, get_terminal_buffer,
     refresh_agent_git_stats, remove_repository_from_workspace, reset_onboarding, respond_permission,
     restart_agent, revert_file_changes, scan_folder_for_repositories, set_default_workspace,
@@ -106,6 +109,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             get_agents,
             get_agent,
+            get_agents_by_workspace,
             spawn_agent,
             delete_agent,
             delete_agents,
@@ -115,6 +119,8 @@ pub fn run() {
             handback_agent,
             get_agent_output,
             get_agent_output_count,
+            get_agent_messages,
+            get_agent_messages_count,
             get_agent_changes,
             get_file_diff,
             get_file_diff_with_context,
@@ -151,6 +157,8 @@ pub fn run() {
             // Agent management
             set_agent_pinned,
             get_cost_summary,
+            calculate_worktree_disk_usage,
+            delete_all_data,
             // Notifications
             get_notifications,
             get_unread_notification_count,
@@ -163,6 +171,8 @@ pub fn run() {
             get_branch_base,
             update_agent_base_branch,
             refresh_agent_git_stats,
+            get_structured_file_diff,
+            get_agent_changes_filtered,
             // Permissions
             add_permission_rule,
             // Workspaces

@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
 @plugin "@tailwindcss/typography";
 
 :root {
@@ -12,7 +11,7 @@
   --card-foreground: oklch(0.985 0 0);
   --popover: oklch(0.178 0 0);
   --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.789 0.154 211.53);
+  --primary: oklch(0.68 0.15 237);
   --primary-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
@@ -23,20 +22,20 @@
   --destructive: oklch(0.704 0.191 22.216);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.789 0.154 211.53);
-  --chart-1: oklch(0.789 0.154 211.53);
+  --ring: oklch(0.68 0.15 237);
+  --chart-1: oklch(0.68 0.15 237);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
   --sidebar: oklch(0.178 0 0);
   --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.789 0.154 211.53);
+  --sidebar-primary: oklch(0.68 0.15 237);
   --sidebar-primary-foreground: oklch(0.145 0 0);
   --sidebar-accent: oklch(0.269 0 0);
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.789 0.154 211.53);
+  --sidebar-ring: oklch(0.68 0.15 237);
   --radius: 0.375rem;
 
   /* Additional semantic colors for status indicators */
@@ -65,9 +64,6 @@
   --accent-red: var(--destructive);
   --sidebar-width: 280px;
   --z-dropdown: 50;
-  --font-xs: 12px;
-  --font-sm: 13px;
-  --font-base: 14px;
 }
 
 @theme inline {
@@ -111,7 +107,6 @@
   --color-sidebar-ring: var(--sidebar-ring);
   --color-success: var(--success);
   --color-warning: var(--warning);
-  --font-sans: 'Geist Mono', monospace;
   --font-mono: 'Geist Mono', monospace;
 }
 
@@ -119,13 +114,12 @@
   * {
     @apply border-border outline-ring/50;
     box-sizing: border-box;
+    user-select:auto;
+    -webkit-user-select: auto;
   }
 
   html, body {
-    @apply bg-background text-foreground;
-    margin: 0;
-    padding: 0;
-    font-family: 'Geist Mono', monospace;
+    @apply bg-background text-foreground font-mono;
     font-size: 14px;
     line-height: 1.5;
     -webkit-font-smoothing: antialiased;
@@ -141,32 +135,5 @@
 
   input:focus, textarea:focus, select:focus, button:focus {
     outline: none;
-  }
-
-  input, textarea {
-    caret-color: var(--success);
-    caret-shape: block;
-  }
-
-  ::selection {
-    @apply bg-primary text-primary-foreground;
-  }
-
-  /* Scrollbar */
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
-  }
-
-  ::-webkit-scrollbar-track {
-    @apply bg-background;
-  }
-
-  ::-webkit-scrollbar-thumb {
-    @apply bg-border;
-  }
-
-  ::-webkit-scrollbar-corner {
-    @apply bg-background;
   }
 }

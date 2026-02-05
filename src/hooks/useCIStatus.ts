@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Agent, CIStatus, CIStatusResponse } from "../types/agent";
-import * as tauri from "../lib/tauri";
+import * as tauri from "../domains/tauri/commands";
 
 // Cache CI status to avoid excessive API calls
 const ciStatusCache = new Map<string, { status: CIStatusResponse; timestamp: number }>();

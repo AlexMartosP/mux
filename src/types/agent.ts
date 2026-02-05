@@ -79,26 +79,13 @@ export interface BranchInfo {
   last_commit_date: string;
 }
 
-export interface AgentMetadataEvent {
-  agent_id: string;
-  name: string;
-  description: string;
-  branch: string;
-  worktree_path: string;
-}
-
-export interface DescriptionEvent {
-  agent_id: string;
-  description: string;
-}
-
 export interface SpawnAgentInput {
   repository_path: string;
   prompt: string;
   existing_branch?: string;
   base_branch?: string;
   branch_name?: string; // Custom branch name for new branches (if not provided, auto-generated)
-  workspace_id?: string; // Workspace ID to associate with (for setup/teardown scripts)
+  workspace_id: string; // Required: Workspace ID to associate with
 }
 
 export interface OutputLine {
@@ -116,9 +103,41 @@ export interface OutputEvent {
   timestamp: string;
 }
 
-export interface StatusEvent {
+// Message types for new architecture
+export interface TextPart {
+  type: "text";
+  content: string;
+}
+
+export interface ThinkingPart {
+  type: "thinking";
+  content: string;
+}
+
+export interface ToolUsagePart {
+  type: "tool_usage";
+  tool_name: string;
+  tool_input: Record<string, unknown>;
+}
+
+export type MessagePart = TextPart | ThinkingPart | ToolUsagePart;
+
+export interface Message {
+  id: string;
   agent_id: string;
-  status: string;
+  role: "assistant" | "user" | "system";
+  parts: MessagePart[];
+  timestamp: string;
+}
+
+export interface AgentMessageEvent {
+  agent_id: string;
+  message_id: string;
+  event_type: "message_created" | "message_part" | "message_complete";
+  role?: "assistant" | "user" | "system";
+  timestamp?: string;
+  part?: MessagePart;
+  parts?: MessagePart[];
 }
 
 export type SetupStage = "initializing" | "creating_worktree" | "running_setup" | "generating_metadata" | "starting_agent";
@@ -157,6 +176,43 @@ export interface FileChange {
 export interface FileDiff {
   path: string;
   diff: string;
+}
+
+// Structured diff types
+export type DiffLineType = "add" | "delete" | "context";
+
+export interface DiffLine {
+  line_type: DiffLineType;
+  content: string;
+  old_line_num?: number;
+  new_line_num?: number;
+}
+
+export interface DiffHunk {
+  header: string;
+  old_start: number;
+  old_count: number;
+  new_start: number;
+  new_count: number;
+  lines: DiffLine[];
+  can_expand_up: boolean;
+  can_expand_down: boolean;
+  raw_content: string; // Raw hunk string for git-diff-view library
+}
+
+export interface StructuredFileDiff {
+  path: string;
+  hunks: DiffHunk[];
+  is_binary: boolean;
+  is_new_file: boolean;
+  is_deleted: boolean;
+  old_file_header: string;
+  new_file_header: string;
+}
+
+export interface DiffOptions {
+  context_lines: number;
+  exclude_untracked: boolean;
 }
 
 export interface CommitInfo {
@@ -208,5 +264,4 @@ export interface CIStatusResponse {
 // Re-export old names as aliases for backwards compatibility during transition
 export type TaskStatus = AgentStatus;
 export type Task = Agent;
-export type TaskMetadataEvent = AgentMetadataEvent;
 export type CreateTaskInput = SpawnAgentInput;

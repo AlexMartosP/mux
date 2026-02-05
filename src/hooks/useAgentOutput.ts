@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { OutputLine, OutputEvent } from "../types/agent";
-import * as tauri from "../lib/tauri";
+import * as tauri from "../domains/tauri/commands";
 import {
   getCachedOutput,
   setCachedOutput,

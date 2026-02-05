@@ -203,19 +203,6 @@
   color: inherit;
 }
 
-/* Scrollbar in diff viewer */
-.diff-viewer::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.diff-viewer::-webkit-scrollbar-track {
-  background: var(--bg-primary);
-}
-
-.diff-viewer::-webkit-scrollbar-thumb {
-  background: var(--border-active);
-}
 
 /* Comment support styles */
 .diff-with-comments .diff-gutter {

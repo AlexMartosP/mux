@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import * as tauri from "../lib/tauri";
+import * as tauri from "../domains/tauri/commands";
 import { Button } from "@/components/ui/button";
 
 interface OnboardingProps {

@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { Agent, FileChange } from "../types/agent";
-import * as tauri from "../lib/tauri";
+import * as tauri from "../domains/tauri/commands";
 import { Button } from "@/components/ui/button";
 
 interface HandbackModalProps {

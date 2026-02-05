@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { Trash2, Plus, Check, X, Star, Folder, FolderSearch, ChevronRight, ChevronDown, Settings } from "lucide-react";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import type { Workspace, WorkspaceRepository, RepositoryInfo } from "../types/agent";
-import * as tauri from "../lib/tauri";
+import * as tauri from "../domains/tauri/commands";
 
 interface WorkspaceSettingsProps {
   onWorkspacesChange?: () => void;

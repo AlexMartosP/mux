@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import type { PRPreview } from "../types/agent";
-import * as tauri from "../lib/tauri";
+import * as tauri from "../domains/tauri/commands";
 
 interface CreatePRModalProps {
   taskId: string;

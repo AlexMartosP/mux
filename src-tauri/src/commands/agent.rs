@@ -1,6 +1,7 @@
 use crate::db::{Database, OutputLine};
 use crate::error::Result;
-use crate::models::{Agent, AgentStatus, SpawnAgentInput};
+use crate::events::emit_agent_updated;
+use crate::models::{Agent, AgentStatus, Message, SpawnAgentInput};
 use crate::services::{generate_agent_info, ClaudeProcessService, GeneratedAgentInfo, WorktreeService};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
@@ -8,16 +9,6 @@ use tauri::{AppHandle, Emitter, State};
 pub struct AppState {
     pub db: Arc<Database>,
     pub claude: Arc<ClaudeProcessService>,
-}
-
-/// Event emitted when agent metadata is updated
-#[derive(Clone, serde::Serialize)]
-pub struct AgentMetadataEvent {
-    pub agent_id: String,
-    pub name: String,
-    pub description: String,
-    pub branch: String,
-    pub worktree_path: String,
 }
 
 /// Event emitted during agent setup progress
@@ -39,18 +30,31 @@ pub fn get_agent(state: State<Arc<AppState>>, id: String) -> Result<Option<Agent
 }
 
 #[tauri::command]
+pub fn get_agents_by_workspace(
+    state: State<Arc<AppState>>,
+    workspace_id: String,
+) -> Result<Vec<Agent>> {
+    state.db.get_agents_by_workspace(Some(&workspace_id))
+}
+
+#[tauri::command]
 pub async fn spawn_agent(
     app_handle: AppHandle,
     state: State<'_, Arc<AppState>>,
     input: SpawnAgentInput,
 ) -> Result<Agent> {
-    log::info!("[spawn_agent] repo={}, existing_branch={:?}, base_branch={:?}, branch_name={:?}, workspace_id={:?}, prompt={}...",
+    log::info!("[spawn_agent] repo={}, existing_branch={:?}, base_branch={:?}, branch_name={:?}, workspace_id={}, prompt={}...",
         input.repository_path,
         input.existing_branch,
         input.base_branch,
         input.branch_name,
         input.workspace_id,
         &input.prompt[..input.prompt.len().min(80)]);
+
+    // Validate workspace exists
+    let _workspace = state.db.get_workspace(&input.workspace_id)?
+        .ok_or_else(|| crate::error::AppError::Other(format!("Workspace '{}' not found", input.workspace_id)))?;
+
     // 1. Create agent immediately with temp name for instant UI feedback
     let mut agent = if let Some(ref existing_branch) = input.existing_branch {
         // Use existing branch - create agent with that branch name
@@ -75,18 +79,14 @@ pub async fn spawn_agent(
         Agent::new_with_temp_name(input.repository_path.clone(), input.prompt.clone(), input.base_branch.clone())
     };
 
-    // Set workspace_id if provided
-    agent.workspace_id = input.workspace_id.clone();
+    // Set workspace_id (now required)
+    agent.workspace_id = Some(input.workspace_id.clone());
 
-    // Look up setup script from workspace repository (if workspace is set)
-    let setup_script = if let Some(ref ws_id) = input.workspace_id {
-        state.db.get_workspace_repository(ws_id, &input.repository_path)
-            .ok()
-            .flatten()
-            .and_then(|repo| repo.setup_script)
-    } else {
-        None
-    };
+    // Look up setup script from workspace repository
+    let setup_script = state.db.get_workspace_repository(&input.workspace_id, &input.repository_path)
+        .ok()
+        .flatten()
+        .and_then(|repo| repo.setup_script);
 
     // 2. Save to database immediately (with metadata_loading: true, status: SettingUp)
     state.db.insert_agent(&agent)?;
@@ -101,13 +101,7 @@ pub async fn spawn_agent(
             message: "Initializing agent...".to_string(),
         },
     );
-    let _ = app_handle.emit(
-        "agent-status",
-        serde_json::json!({
-            "agent_id": agent.id,
-            "status": "setting_up"
-        }),
-    );
+    emit_agent_updated(&app_handle, &state.db, &agent.id);
 
     // Clone what we need for background tasks
     let agent_id = agent.id.clone();
@@ -198,10 +192,7 @@ pub async fn spawn_agent(
                 if should_queue {
                     // Queue the agent - it will be started when a slot opens
                     let _ = db.update_agent_status(&agent_id, AgentStatus::Queued);
-                    let _ = app_handle_clone.emit("agent-status", serde_json::json!({
-                        "agent_id": agent_id,
-                        "status": "queued"
-                    }));
+                    emit_agent_updated(&app_handle_clone, &db, &agent_id);
                 } else {
                     // Emit starting agent progress
                     let _ = app_handle_clone.emit(
@@ -224,18 +215,12 @@ pub async fn spawn_agent(
                     ) {
                         Ok(_) => {
                             let _ = db.update_agent_status(&agent_id, AgentStatus::Running);
-                            let _ = app_handle_clone.emit("agent-status", serde_json::json!({
-                                "agent_id": agent_id,
-                                "status": "running"
-                            }));
+                            emit_agent_updated(&app_handle_clone, &db, &agent_id);
                         }
                         Err(e) => {
                             log::error!("[spawn_agent] Failed to start Claude for agent {}: {}", agent_id, e);
                             let _ = db.update_agent_status(&agent_id, AgentStatus::Error);
-                            let _ = app_handle_clone.emit("agent-status", serde_json::json!({
-                                "agent_id": agent_id,
-                                "status": "error"
-                            }));
+                            emit_agent_updated(&app_handle_clone, &db, &agent_id);
                         }
                     }
                 }
@@ -243,18 +228,12 @@ pub async fn spawn_agent(
             Ok(Err(e)) => {
                 log::error!("[spawn_agent] Failed to create worktree for agent {}: {}", agent_id, e);
                 let _ = db.update_agent_status(&agent_id, AgentStatus::Error);
-                let _ = app_handle_clone.emit("agent-status", serde_json::json!({
-                    "agent_id": agent_id,
-                    "status": "error"
-                }));
+                emit_agent_updated(&app_handle_clone, &db, &agent_id);
             }
             Err(e) => {
                 log::error!("[spawn_agent] Worktree task panicked for agent {}: {}", agent_id, e);
                 let _ = db.update_agent_status(&agent_id, AgentStatus::Error);
-                let _ = app_handle_clone.emit("agent-status", serde_json::json!({
-                    "agent_id": agent_id,
-                    "status": "error"
-                }));
+                emit_agent_updated(&app_handle_clone, &db, &agent_id);
             }
         }
     });
@@ -362,16 +341,7 @@ pub async fn spawn_agent(
                 );
 
                 // Emit event to notify frontend
-                let _ = app_handle_for_meta.emit(
-                    "agent-metadata",
-                    AgentMetadataEvent {
-                        agent_id: agent_id_for_meta,
-                        name: metadata.title,
-                        description: metadata.description,
-                        branch: new_branch,
-                        worktree_path: current_agent.worktree_path,
-                    },
-                );
+                emit_agent_updated(&app_handle_for_meta, &db_for_meta, &agent_id_for_meta);
             }
         } else {
             // Metadata generation failed, use fallback
@@ -387,16 +357,7 @@ pub async fn spawn_agent(
                     &current_agent.worktree_path,
                 );
 
-                let _ = app_handle_for_meta.emit(
-                    "agent-metadata",
-                    AgentMetadataEvent {
-                        agent_id: agent_id_for_meta,
-                        name: fallback_title,
-                        description: fallback_desc,
-                        branch: current_agent.branch,
-                        worktree_path: current_agent.worktree_path,
-                    },
-                );
+                emit_agent_updated(&app_handle_for_meta, &db_for_meta, &agent_id_for_meta);
             }
         }
     });
@@ -517,10 +478,7 @@ pub fn stop_agent(app_handle: AppHandle, state: State<Arc<AppState>>, id: String
     log::info!("[stop_agent] Stopping agent {}", id);
     state.claude.stop(&id)?;
     state.db.update_agent_status(&id, AgentStatus::Idle)?;
-    let _ = app_handle.emit("agent-status", serde_json::json!({
-        "agent_id": id,
-        "status": "idle"
-    }));
+    emit_agent_updated(&app_handle, &state.db, &id);
     log::info!("[stop_agent] Agent {} stopped", id);
     Ok(())
 }
@@ -543,27 +501,7 @@ pub fn restart_agent(
     // Determine if this is a follow-up (continue conversation) or fresh restart
     let is_follow_up = prompt.is_some();
 
-    // If this is a follow-up, save the user message to the database
-    if let Some(ref follow_up_prompt) = prompt {
-        let timestamp = chrono::Utc::now().to_rfc3339();
-        state.db.append_output(
-            &id,
-            "user_message",
-            follow_up_prompt,
-            None,
-            None,
-        )?;
-        log::info!("[restart_agent] Saved user follow-up message to database");
-
-        // Emit the user message as output so the frontend can display it immediately
-        let _ = app_handle.emit("agent-output", serde_json::json!({
-            "agent_id": id,
-            "output_type": "user_message",
-            "content": follow_up_prompt,
-            "timestamp": timestamp
-        }));
-    }
-
+    // User message is now stored in claude_process.rs when starting
     let prompt_to_use = prompt.unwrap_or(agent.prompt);
 
     log::info!("[restart_agent] Starting Claude in worktree={}, continue={}", agent.worktree_path, is_follow_up);
@@ -579,20 +517,14 @@ pub fn restart_agent(
     ) {
         Ok(_) => {
             state.db.update_agent_status(&id, AgentStatus::Running)?;
-            let _ = app_handle.emit("agent-status", serde_json::json!({
-                "agent_id": id,
-                "status": "running"
-            }));
+            emit_agent_updated(&app_handle, &state.db, &id);
             log::info!("[restart_agent] Agent {} restarted successfully", id);
             Ok(())
         }
         Err(e) => {
             log::error!("[restart_agent] Failed to start Claude for agent {}: {}", id, e);
             state.db.update_agent_status(&id, AgentStatus::Error)?;
-            let _ = app_handle.emit("agent-status", serde_json::json!({
-                "agent_id": id,
-                "status": "error"
-            }));
+            emit_agent_updated(&app_handle, &state.db, &id);
             Err(e)
         }
     }
@@ -614,6 +546,26 @@ pub fn get_agent_output_count(
     agent_id: String,
 ) -> Result<i64> {
     state.db.get_agent_output_count(&agent_id)
+}
+
+/// Get messages for an agent (new architecture)
+#[tauri::command]
+pub fn get_agent_messages(
+    state: State<Arc<AppState>>,
+    agent_id: String,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<Vec<Message>> {
+    state.db.get_messages(&agent_id, limit, offset)
+}
+
+/// Get message count for an agent (new architecture)
+#[tauri::command]
+pub fn get_agent_messages_count(
+    state: State<Arc<AppState>>,
+    agent_id: String,
+) -> Result<i64> {
+    state.db.get_messages_count(&agent_id)
 }
 
 /// Generate agent info (title, description, branch name) from a prompt
@@ -799,14 +751,8 @@ pub fn takeover_agent(
     log::info!("[takeover] Step 7: Updating agent status to manual_control");
     state.db.update_agent_status(&id, AgentStatus::ManualControl)?;
 
-    // Emit status change event
-    let _ = app_handle.emit(
-        "agent-status",
-        serde_json::json!({
-            "agent_id": id,
-            "status": "manual_control"
-        }),
-    );
+    // Emit agent update event
+    emit_agent_updated(&app_handle, &state.db, &id);
 
     log::info!("[takeover] Takeover complete for agent {}", id);
 
@@ -1028,4 +974,128 @@ fn execute_script(script: &str, working_dir: &str) -> Result<()> {
             exit_code, stderr
         )))
     }
+}
+
+/// Response for disk usage calculation
+#[derive(serde::Serialize)]
+pub struct DiskUsageInfo {
+    pub total_bytes: u64,
+    pub total_mb: f64,
+    pub worktree_count: usize,
+}
+
+/// Calculate total disk space used by all worktrees
+#[tauri::command]
+pub async fn calculate_worktree_disk_usage(state: State<'_, Arc<AppState>>) -> Result<DiskUsageInfo> {
+    let agents = state.db.get_all_agents()?;
+
+    let mut total_bytes = 0u64;
+    let mut count = 0;
+
+    for agent in agents {
+        let path = std::path::Path::new(&agent.worktree_path);
+        if path.exists() {
+            if let Ok(size) = calculate_directory_size(path) {
+                total_bytes += size;
+                count += 1;
+            }
+        }
+    }
+
+    Ok(DiskUsageInfo {
+        total_bytes,
+        total_mb: total_bytes as f64 / 1024.0 / 1024.0,
+        worktree_count: count,
+    })
+}
+
+/// Recursively calculate directory size
+fn calculate_directory_size(path: &std::path::Path) -> Result<u64> {
+    let mut total = 0u64;
+
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path)? {
+            let entry = entry?;
+            let entry_path = entry.path();
+
+            if entry_path.is_dir() {
+                // Skip .git directories to avoid double counting
+                if entry_path.file_name() != Some(std::ffi::OsStr::new(".git")) {
+                    total += calculate_directory_size(&entry_path)?;
+                }
+            } else {
+                total += entry.metadata()?.len();
+            }
+        }
+    }
+
+    Ok(total)
+}
+
+/// Delete all agents, clear database, and reset to onboarding
+/// This is the nuclear option for a complete reset
+#[tauri::command]
+pub async fn delete_all_data(
+    state: State<'_, Arc<AppState>>,
+    app_handle: AppHandle,
+) -> Result<()> {
+    log::info!("[delete_all_data] Starting complete data wipe...");
+
+    // 1. Get all agents
+    let agents = state.db.get_all_agents()?;
+    log::info!("[delete_all_data] Found {} agents to delete", agents.len());
+
+    // 2. Stop all running processes
+    log::info!("[delete_all_data] Stopping all processes...");
+    state.claude.shutdown_all();
+
+    // 3. Delete all agents (this also removes worktrees)
+    for agent in agents {
+        log::info!("[delete_all_data] Deleting agent: {}", agent.id);
+
+        // Run teardown script if exists
+        if let Some(ref ws_id) = agent.workspace_id {
+            if let Ok(Some(repo)) = state.db.get_workspace_repository(ws_id, &agent.repository_path) {
+                if let Some(ref script) = repo.teardown_script {
+                    let script = script.clone();
+                    let wt_path = agent.worktree_path.clone();
+                    let _ = tokio::task::spawn_blocking(move || {
+                        execute_script(&script, &wt_path)
+                    }).await;
+                }
+            }
+        }
+
+        // Remove worktree
+        let repo_path = agent.repository_path.clone();
+        let worktree_path = agent.worktree_path.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            WorktreeService::remove_worktree(&repo_path, &worktree_path)
+        }).await;
+
+        // Delete from database
+        state.db.delete_agent(&agent.id)?;
+    }
+
+    // 4. Clear all notifications
+    log::info!("[delete_all_data] Clearing notifications...");
+    state.db.clear_notifications()?;
+
+    // 5. Delete all workspaces
+    log::info!("[delete_all_data] Deleting workspaces...");
+    let workspaces = state.db.get_workspaces()?;
+    for workspace in workspaces {
+        // Try to delete, but ignore errors (workspace might have constraints)
+        let _ = state.db.delete_workspace(&workspace.id);
+    }
+
+    // 6. Reset onboarding status
+    log::info!("[delete_all_data] Resetting onboarding...");
+    state.db.set_setting("onboarding_completed", "false")?;
+
+    // 7. Emit event to refresh UI
+    let _ = app_handle.emit("data-reset", ());
+
+    log::info!("[delete_all_data] Complete data wipe finished successfully");
+    Ok(())
 }

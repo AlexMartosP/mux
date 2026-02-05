@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import type { PermissionRequest } from "../lib/tauri";
-import * as tauri from "../lib/tauri";
+import type { PermissionRequest } from "../domains/tauri/commands";
+import * as tauri from "../domains/tauri/commands";
 import { Button } from "@/components/ui/button";
 
 interface PermissionPopoverProps {

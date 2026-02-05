@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { listen } from "@tauri-apps/api/event";
 import type { NotificationEntry } from "../types/agent";
-import * as tauri from "../lib/tauri";
+import * as tauri from "../domains/tauri/commands";
 import { Button } from "@/components/ui/button";
 
 interface NotificationCenterProps {

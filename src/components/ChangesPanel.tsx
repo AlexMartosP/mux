@@ -4,8 +4,8 @@ import { Maximize2, Minimize2, RefreshCw, RotateCcw, X, FilePlus, FileEdit, File
 import { SimpleDiffViewer } from "./SimpleDiffViewer";
 import { Button } from "@/components/ui/button";
 import { ReviewActionsBar, type ReviewComment } from "./ReviewComment";
-import { getAgentChanges, getFileDiff, getFileDiffWithContext, revertFileChanges, refreshAgentGitStats } from "../lib/tauri";
-import type { FileChange, FileDiff } from "../types/agent";
+import { getAgentChanges, getStructuredFileDiff, revertFileChanges, refreshAgentGitStats } from "../domains/tauri/commands";
+import type { FileChange, StructuredFileDiff } from "../types/agent";
 
 interface ChangesPanelProps {
   agentId: string;
@@ -16,7 +16,7 @@ interface ChangesPanelProps {
 
 // Diff cache entry with timestamp for invalidation
 interface DiffCacheEntry {
-  diff: FileDiff;
+  diff: StructuredFileDiff;
   timestamp: number;
   contextLines: number;
 }
@@ -32,7 +32,7 @@ export const ChangesPanel = memo(function ChangesPanel({
 }: ChangesPanelProps) {
   const [files, setFiles] = useState<FileChange[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileDiff, setFileDiff] = useState<FileDiff | null>(null);
+  const [fileDiff, setFileDiff] = useState<StructuredFileDiff | null>(null);
   const [contextLines, setContextLines] = useState(3);
   const [loading, setLoading] = useState(false);
   const [loadingDiff, setLoadingDiff] = useState(false);
@@ -118,7 +118,7 @@ export const ChangesPanel = memo(function ChangesPanel({
   }, [agentId]);
 
   // Get diff from cache or fetch it
-  const getDiffForFile = useCallback(async (path: string, requestedContextLines: number): Promise<FileDiff | null> => {
+  const getDiffForFile = useCallback(async (path: string, requestedContextLines: number): Promise<StructuredFileDiff | null> => {
     const cache = diffCacheRef.current;
     const cacheKey = `${path}:${requestedContextLines}`;
     const now = Date.now();
@@ -129,11 +129,12 @@ export const ChangesPanel = memo(function ChangesPanel({
       return cached.diff;
     }
 
-    // Fetch from backend
+    // Fetch from backend using structured diff API
     try {
-      const diff = requestedContextLines > 3
-        ? await getFileDiffWithContext(agentId, path, requestedContextLines)
-        : await getFileDiff(agentId, path);
+      const diff = await getStructuredFileDiff(agentId, path, {
+        context_lines: requestedContextLines,
+        exclude_untracked: false,
+      });
 
       // Store in cache
       cache.set(cacheKey, { diff, timestamp: now, contextLines: requestedContextLines });
@@ -568,7 +569,7 @@ export const ChangesPanel = memo(function ChangesPanel({
           )}
           {fileDiff ? (
             <SimpleDiffViewer
-              diff={fileDiff.diff}
+              diff={fileDiff}
               fileName={fileDiff.path}
               onExpandContext={handleLoadMoreContext}
               loadingContext={loadingContext}
@@ -687,10 +688,8 @@ export const ChangesPanel = memo(function ChangesPanel({
         )}
         {fileDiff ? (
           <SimpleDiffViewer
-            diff={fileDiff.diff}
+            diff={fileDiff}
             fileName={fileDiff.path}
-            onExpandContext={handleLoadMoreContext}
-            loadingContext={loadingContext}
             comments={fileComments}
             onAddComment={handleAddComment}
             activeCommentLine={activeCommentLine}

@@ -1,6 +1,7 @@
 use crate::db::Database;
 use crate::error::{AppError, Result};
-use crate::models::AgentStatus;
+use crate::events::emit_agent_updated;
+use crate::models::{AgentMessageEvent, AgentStatus, MessagePart};
 use crate::services::output::ParsedOutput;
 use crate::services::output_batch::BatchedOutputEmitter;
 use crate::services::shell;
@@ -14,19 +15,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Instant;
 use tauri::{AppHandle, Emitter};
+use uuid::Uuid;
 
-#[derive(Clone, Serialize)]
-pub struct StatusEvent {
-    pub agent_id: String,
-    pub status: String,
-}
-
-/// Description update event
-#[derive(Clone, Serialize)]
-pub struct DescriptionEvent {
-    pub agent_id: String,
-    pub description: String,
-}
 
 /// Claude Code JSON output message types
 #[derive(Debug, Deserialize)]
@@ -66,10 +56,86 @@ enum ContentBlock {
     ToolResult { content: Option<String> },
 }
 
+/// Mux Protocol: JSON events emitted by Claude Code to notify Mux of metadata changes
+#[derive(Debug, Deserialize)]
+struct MuxEvent {
+    mux_event: MuxEventPayload,
+}
+
+#[derive(Debug, Deserialize)]
+struct MuxEventPayload {
+    #[serde(rename = "type")]
+    event_type: String,
+    data: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct BranchChangedData {
+    old_branch: String,
+    new_branch: String,
+    reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct TitleUpdatedData {
+    old_title: String,
+    new_title: String,
+    reason: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct PrCreatedData {
+    pr_url: String,
+    pr_number: u32,
+    title: String,
+    branch: String,
+}
+
 pub struct ClaudeProcessService {
     processes: Arc<Mutex<HashMap<String, u32>>>, // agent_id -> pid
     /// Agents that were intentionally stopped (so monitor thread doesn't set Error status)
     intentionally_stopped: Arc<Mutex<std::collections::HashSet<String>>>,
+}
+
+/// Builds a prompt with Mux protocol instructions prepended
+fn build_prompt_with_mux_protocol(user_prompt: &str, agent_name: &str, agent_branch: &str) -> String {
+    format!(
+        r#"## Mux Integration Protocol
+
+You are working in Mux, an AI agent coordinator. When you perform certain actions, please output a JSON block using this exact format so Mux can update its UI:
+
+**Branch Name Changes:**
+When you change or create a git branch, output:
+```json
+{{"mux_event":{{"type":"branch_changed","data":{{"old_branch":"previous-branch","new_branch":"new-branch","reason":"why changed"}}}}}}
+```
+
+**Agent Title Updates:**
+When you want to update the agent's title/name (e.g., after understanding the task better), output:
+```json
+{{"mux_event":{{"type":"title_updated","data":{{"old_title":"previous-title","new_title":"new-title","reason":"why changed"}}}}}}
+```
+
+**Pull Request Creation:**
+When you create a pull request using gh pr create or similar, output:
+```json
+{{"mux_event":{{"type":"pr_created","data":{{"pr_url":"https://...","pr_number":123,"title":"PR title","branch":"branch-name"}}}}}}
+```
+
+**Important:**
+- Output these JSON blocks as assistant text (not as tool output)
+- Current agent title: "{}"
+- Current branch: "{}"
+- Keep these events concise and only emit when actually performing the action
+- The JSON must be on a single line
+
+---
+
+{}"#,
+        agent_name,
+        agent_branch,
+        user_prompt
+    )
 }
 
 impl ClaudeProcessService {
@@ -115,6 +181,31 @@ impl ClaudeProcessService {
         // Only clear output if starting fresh (not continuing)
         if !continue_conversation {
             let _ = db.clear_agent_output(agent_id);
+            // Also clear messages from the new table
+            let _ = db.clear_agent_messages(agent_id);
+        }
+
+        // Store the user prompt as a user message (optimized: single DB op + single event)
+        {
+            let message_id = Uuid::new_v4().to_string();
+            let timestamp = chrono::Utc::now().to_rfc3339();
+            let parts = vec![MessagePart::text(prompt.to_string())];
+
+            if let Err(e) = db.create_message_with_parts(&message_id, agent_id, "user", &timestamp, &parts) {
+                warn!("[{}] Failed to create user message: {}", agent_id, e);
+            } else {
+                // Emit single message_complete event
+                let _ = app_handle.emit(
+                    "agent-message",
+                    AgentMessageEvent::message_complete(
+                        agent_id.to_string(),
+                        message_id,
+                        "user".to_string(),
+                        timestamp,
+                        parts,
+                    ),
+                );
+            }
         }
 
         // Check if we should prompt for permissions or auto-approve
@@ -124,6 +215,19 @@ impl ClaudeProcessService {
             .flatten()
             .map(|v| v == "true")
             .unwrap_or(false);
+
+        // Get agent details for Mux protocol injection
+        let agent = db.get_agent(agent_id)?.ok_or_else(|| {
+            AppError::AgentNotFound(agent_id.to_string())
+        })?;
+
+        // Build prompt with Mux protocol instructions
+        let prompt_with_protocol = build_prompt_with_mux_protocol(
+            prompt,
+            &agent.name,
+            &agent.branch
+        );
+        debug!("[{}] Prompt starts with: {}", agent_id, &prompt_with_protocol.chars().take(200).collect::<String>());
 
         // Build command with JSON output format for structured activity tracking
         // We wrap Claude in a shell script to ensure:
@@ -147,7 +251,7 @@ impl ClaudeProcessService {
         claude_args.push("--verbose".to_string());
         claude_args.push("-p".to_string());
         // Escape prompt for shell
-        let escaped_prompt = prompt.replace("'", "'\\''");
+        let escaped_prompt = prompt_with_protocol.replace("'", "'\\''");
         claude_args.push(format!("'{}'", escaped_prompt));
 
         let claude_cmd = format!("claude {}", claude_args.join(" "));
@@ -280,20 +384,147 @@ impl ClaudeProcessService {
                 while let Ok(line) = rx.recv() {
                     processed += 1;
 
+                    // Try to parse as Mux event first
+                    if let Ok(mux_event) = serde_json::from_str::<MuxEvent>(&line) {
+                        debug!("[{}] Received Mux event: {:?}", agent_id, mux_event);
+                        handle_mux_event(mux_event, &agent_id, &db, &app_handle);
+                        continue;
+                    }
+
                     // Try to parse as JSON for structured output
                     if let Ok(msg) = serde_json::from_str::<ClaudeMessage>(&line) {
                         match msg {
                             ClaudeMessage::Assistant { message } => {
+                                // Create a new message for this assistant turn
+                                let message_id = Uuid::new_v4().to_string();
+                                let timestamp = chrono::Utc::now().to_rfc3339();
+
+                                // Create message in DB (with empty parts initially)
+                                if let Err(e) = db.create_message(&message_id, &agent_id, "assistant", &timestamp) {
+                                    warn!("[{}] Failed to create message in DB: {}", agent_id, e);
+                                }
+
+                                // Emit message_created event
+                                let created_event = AgentMessageEvent::message_created(
+                                    agent_id.clone(),
+                                    message_id.clone(),
+                                    "assistant".to_string(),
+                                    timestamp.clone(),
+                                );
+                                let _ = app_handle.emit("agent-message", &created_event);
+
+                                // Track if any content was actually added to this message
+                                let mut has_content = false;
+
                                 for block in message.content {
                                     match block {
                                         ContentBlock::Text { text } => {
+                                            // Check if entire text is a standalone Mux event
+                                            if let Ok(mux_event) = serde_json::from_str::<MuxEvent>(&text) {
+                                                info!("[{}] Parsed standalone Mux event (type: {})", agent_id, mux_event.mux_event.event_type);
+                                                handle_mux_event(mux_event, &agent_id, &db, &app_handle);
+                                                // Skip storing/emitting - it's a protocol message
+                                                continue;
+                                            }
+
+                                            // Check if text contains embedded Mux event JSON
+                                            if text.contains("mux_event") {
+                                                debug!("[{}] Text contains 'mux_event', attempting extraction...", agent_id);
+
+                                                // Try to extract JSON object containing mux_event
+                                                if let Some(json_str) = extract_json_from_text(&text) {
+                                                    if let Ok(mux_event) = serde_json::from_str::<MuxEvent>(&json_str) {
+                                                        info!("[{}] Extracted Mux event (type: {})", agent_id, mux_event.mux_event.event_type);
+                                                        handle_mux_event(mux_event, &agent_id, &db, &app_handle);
+
+                                                        // Remove the JSON from the text
+                                                        let cleaned = text.replace(&json_str, "").trim().to_string();
+
+                                                        // Skip if text is empty or only contains whitespace/code fence markers
+                                                        let meaningful_text = cleaned.replace("```", "").replace("json", "").trim().to_string();
+                                                        if meaningful_text.is_empty() {
+                                                            // Text was only the Mux event (or just code fences) - skip storing/emitting
+                                                            debug!("[{}] Text was only Mux event/whitespace, skipping", agent_id);
+                                                            continue;
+                                                        }
+
+                                                        // Store and emit the cleaned text (without the JSON)
+                                                        debug!("[{}] Storing cleaned text (len: {})", agent_id, cleaned.len());
+                                                        let part = MessagePart::text(cleaned.clone());
+                                                        if let Err(e) = db.append_message_part(&message_id, &part) {
+                                                            warn!("[{}] Failed to append message part: {}", agent_id, e);
+                                                        } else {
+                                                            has_content = true;
+                                                        }
+                                                        let part_event = AgentMessageEvent::message_part(
+                                                            agent_id.clone(),
+                                                            message_id.clone(),
+                                                            part,
+                                                        );
+                                                        let _ = app_handle.emit("agent-message", &part_event);
+                                                        emitter.emit(ParsedOutput::text(cleaned));
+                                                        continue;
+                                                    } else {
+                                                        warn!("[{}] Found mux_event in text but failed to parse extracted JSON", agent_id);
+                                                    }
+                                                } else {
+                                                    warn!("[{}] Text contains 'mux_event' but couldn't extract valid JSON", agent_id);
+                                                }
+                                            }
+
+                                            // Normal text - store and emit as-is
+                                            let part = MessagePart::text(text.clone());
+                                            if let Err(e) = db.append_message_part(&message_id, &part) {
+                                                warn!("[{}] Failed to append message part: {}", agent_id, e);
+                                            } else {
+                                                has_content = true;
+                                            }
+                                            let part_event = AgentMessageEvent::message_part(
+                                                agent_id.clone(),
+                                                message_id.clone(),
+                                                part,
+                                            );
+                                            let _ = app_handle.emit("agent-message", &part_event);
                                             emitter.emit(ParsedOutput::text(text));
                                         }
                                         ContentBlock::Thinking { thinking } => {
+                                            // Create and store thinking part
+                                            let part = MessagePart::thinking(thinking.clone());
+                                            if let Err(e) = db.append_message_part(&message_id, &part) {
+                                                warn!("[{}] Failed to append message part: {}", agent_id, e);
+                                            } else {
+                                                has_content = true;
+                                            }
+                                            // Emit message_part event
+                                            let part_event = AgentMessageEvent::message_part(
+                                                agent_id.clone(),
+                                                message_id.clone(),
+                                                part,
+                                            );
+                                            let _ = app_handle.emit("agent-message", &part_event);
+
+                                            // Also emit old event for backward compatibility
                                             emitter.emit(ParsedOutput::thinking(thinking));
                                         }
                                         ContentBlock::ToolUse { name, input } => {
                                             debug!("[{}] Tool use: {}", agent_id, name);
+
+                                            // Create and store tool_usage part
+                                            let part = MessagePart::tool_usage(name.clone(), input.clone());
+                                            if let Err(e) = db.append_message_part(&message_id, &part) {
+                                                warn!("[{}] Failed to append message part: {}", agent_id, e);
+                                            } else {
+                                                has_content = true;
+                                            }
+                                            // Emit message_part event
+                                            let part_event = AgentMessageEvent::message_part(
+                                                agent_id.clone(),
+                                                message_id.clone(),
+                                                part,
+                                            );
+                                            let _ = app_handle.emit("agent-message", &part_event);
+
+                                            // Also emit old event for backward compatibility
                                             let summary = format_tool_summary(&name, &input);
                                             emitter.emit(ParsedOutput::tool(summary, name.clone(), input.clone()));
 
@@ -301,20 +532,30 @@ impl ClaudeProcessService {
                                             if name == "TodoWrite" {
                                                 if let Some(description) = extract_description_from_todos(&input) {
                                                     let _ = db.update_agent_description(&agent_id, &description);
-                                                    let desc_event = DescriptionEvent {
-                                                        agent_id: agent_id.clone(),
-                                                        description,
-                                                    };
-                                                    let _ = emitter.app_handle().emit("agent-description", desc_event);
+                                                    emit_agent_updated(emitter.app_handle(), &db, &agent_id);
                                                 }
                                             }
                                         }
                                         ContentBlock::ToolResult { content } => {
                                             if let Some(result) = content {
+                                                // Note: Tool results go to the old system only for now
+                                                // They're not part of the message model yet
                                                 emitter.emit_tool_result(result);
                                             }
                                         }
                                     }
+                                }
+
+                                // If no content was added to the message, emit a deletion event
+                                if !has_content {
+                                    debug!("[{}] Message {} had no content (all Mux events), emitting deletion event", agent_id, message_id);
+                                    // Emit a message_deleted event so frontend can remove the empty message
+                                    let delete_event = serde_json::json!({
+                                        "agent_id": agent_id.clone(),
+                                        "message_id": message_id.clone(),
+                                        "event_type": "message_deleted",
+                                    });
+                                    let _ = app_handle.emit("agent-message", &delete_event);
                                 }
                             }
                             ClaudeMessage::Result { cost_usd, input_tokens, output_tokens, .. } => {
@@ -325,13 +566,8 @@ impl ClaudeProcessService {
                                 if cost > 0.0 || input_tok > 0 || output_tok > 0 {
                                     info!("[{}] Result: ${:.4}, {}in/{}out tokens", agent_id, cost, input_tok, output_tok);
                                     let _ = db.add_agent_cost(&agent_id, cost, input_tok, output_tok);
-                                    // Emit cost event so frontend can update
-                                    let _ = app_handle.emit("agent-cost", serde_json::json!({
-                                        "agent_id": agent_id,
-                                        "cost_usd": cost,
-                                        "input_tokens": input_tok,
-                                        "output_tokens": output_tok,
-                                    }));
+                                    // Emit unified agent update event
+                                    emit_agent_updated(&app_handle, &db, &agent_id);
                                     emitter.emit(ParsedOutput::result(format!("Completed (${:.4})", cost)));
                                 }
                             }
@@ -424,12 +660,8 @@ impl ClaudeProcessService {
             // Update database - clear PID since process is done
             let _ = db.update_agent_status_and_pid(&agent_id_for_monitor, status.clone(), None);
 
-            // Emit status change event
-            let event = StatusEvent {
-                agent_id: agent_id_for_monitor.clone(),
-                status: status.as_str().to_string(),
-            };
-            let _ = app_handle.emit("agent-status", event);
+            // Emit unified agent update event
+            emit_agent_updated(&app_handle, &db, &agent_id_for_monitor);
 
             // Save notification to DB and emit event
             let title = if status == AgentStatus::Completed { "Agent Completed" } else { "Agent Failed" };
@@ -646,6 +878,38 @@ fn extract_description_from_todos(input: &serde_json::Value) -> Option<String> {
     }
 }
 
+/// Extract JSON object from text that might contain other content
+/// Looks for JSON objects containing "mux_event" key
+fn extract_json_from_text(text: &str) -> Option<String> {
+    // Find all potential JSON objects by looking for balanced braces
+    let mut brace_count = 0;
+    let mut start_idx = None;
+    let chars: Vec<char> = text.chars().collect();
+
+    for (i, ch) in chars.iter().enumerate() {
+        if *ch == '{' {
+            if brace_count == 0 {
+                start_idx = Some(i);
+            }
+            brace_count += 1;
+        } else if *ch == '}' {
+            brace_count -= 1;
+            if brace_count == 0 {
+                if let Some(start) = start_idx {
+                    let json_str: String = chars[start..=i].iter().collect();
+                    // Check if this JSON contains mux_event
+                    if json_str.contains("mux_event") {
+                        return Some(json_str);
+                    }
+                }
+                start_idx = None;
+            }
+        }
+    }
+
+    None
+}
+
 /// Format a human-readable summary of tool usage
 fn format_tool_summary(tool_name: &str, input: &serde_json::Value) -> String {
     match tool_name {
@@ -721,4 +985,149 @@ fn format_tool_summary(tool_name: &str, input: &serde_json::Value) -> String {
         }
         _ => format!("Using {}", tool_name),
     }
+}
+
+/// Handles Mux protocol events from Claude Code
+fn handle_mux_event(
+    event: MuxEvent,
+    agent_id: &str,
+    db: &Database,
+    app_handle: &AppHandle,
+) {
+    match event.mux_event.event_type.as_str() {
+        "branch_changed" => {
+            if let Ok(data) = serde_json::from_value::<BranchChangedData>(event.mux_event.data) {
+                handle_branch_changed(agent_id, data, db, app_handle);
+            } else {
+                warn!("[{}] Failed to parse branch_changed data", agent_id);
+            }
+        }
+        "title_updated" => {
+            if let Ok(data) = serde_json::from_value::<TitleUpdatedData>(event.mux_event.data) {
+                handle_title_updated(agent_id, data, db, app_handle);
+            } else {
+                warn!("[{}] Failed to parse title_updated data", agent_id);
+            }
+        }
+        "pr_created" => {
+            if let Ok(data) = serde_json::from_value::<PrCreatedData>(event.mux_event.data) {
+                handle_pr_created(agent_id, data, db, app_handle);
+            } else {
+                warn!("[{}] Failed to parse pr_created data", agent_id);
+            }
+        }
+        _ => {
+            warn!("[{}] Unknown Mux event type: {}", agent_id, event.mux_event.event_type);
+        }
+    }
+}
+
+/// Handles branch name change events
+/// Note: Claude Code has already performed the git branch rename.
+/// We just need to update our database to reflect the change.
+fn handle_branch_changed(
+    agent_id: &str,
+    data: BranchChangedData,
+    db: &Database,
+    app_handle: &AppHandle,
+) {
+    info!(
+        "[Agent {}] Branch changed: {} -> {} (reason: {})",
+        agent_id, data.old_branch, data.new_branch, data.reason
+    );
+
+    // Update database with new branch name
+    // (Claude Code already renamed the git branch via its own git commands)
+    if let Err(e) = db.update_agent_branch(agent_id, &data.new_branch) {
+        warn!("[{}] Failed to update agent branch in DB: {}", agent_id, e);
+        return;
+    }
+
+    // Emit agent-updated event to frontend
+    emit_agent_updated(app_handle, db, agent_id);
+
+    // Store notification
+    let _ = db.insert_notification(
+        Some(agent_id),
+        "Branch Changed",
+        &format!("Branch renamed to {}: {}", data.new_branch, data.reason),
+        "info",
+    );
+}
+
+/// Handles agent title update events
+fn handle_title_updated(
+    agent_id: &str,
+    data: TitleUpdatedData,
+    db: &Database,
+    app_handle: &AppHandle,
+) {
+    info!(
+        "[Agent {}] Title updated: {} -> {} (reason: {})",
+        agent_id, data.old_title, data.new_title, data.reason
+    );
+
+    // Update database
+    if let Err(e) = db.update_agent_name(agent_id, &data.new_title) {
+        warn!("[{}] Failed to update agent name in DB: {}", agent_id, e);
+        return;
+    }
+
+    // Emit agent-updated event to frontend
+    emit_agent_updated(app_handle, db, agent_id);
+
+    // Store notification
+    let _ = db.insert_notification(
+        Some(agent_id),
+        "Title Updated",
+        &format!("Agent renamed: {}", data.new_title),
+        "info",
+    );
+}
+
+/// Handles PR creation events
+fn handle_pr_created(
+    agent_id: &str,
+    data: PrCreatedData,
+    db: &Database,
+    app_handle: &AppHandle,
+) {
+    info!(
+        "[Agent {}] PR created: {} ({})",
+        agent_id, data.pr_url, data.title
+    );
+
+    // Update PR URL
+    if let Err(e) = db.update_agent_pr_url(agent_id, &data.pr_url) {
+        warn!("[{}] Failed to update PR URL in DB: {}", agent_id, e);
+        return;
+    }
+
+    // Update status to InReview
+    if let Err(e) = db.update_agent_status(agent_id, AgentStatus::InReview) {
+        warn!("[{}] Failed to update agent status: {}", agent_id, e);
+    }
+
+    // Emit agent-updated event to frontend
+    emit_agent_updated(app_handle, db, agent_id);
+
+    // Store notification
+    let _ = db.insert_notification(
+        Some(agent_id),
+        "Pull Request Created",
+        &format!("{}: {}", data.title, data.pr_url),
+        "success",
+    );
+
+    // Emit PR-specific event (optional, for direct UI updates)
+    let _ = app_handle.emit(
+        "agent-pr-created",
+        serde_json::json!({
+            "agent_id": agent_id,
+            "pr_url": data.pr_url,
+            "pr_number": data.pr_number,
+            "title": data.title,
+            "branch": data.branch,
+        }),
+    );
 }

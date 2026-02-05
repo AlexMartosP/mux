@@ -1,5 +1,5 @@
 use crate::error::{AppError, Result};
-use crate::models::{Agent, AgentStatus};
+use crate::models::{Agent, AgentStatus, Message, MessagePart};
 use directories::ProjectDirs;
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::PathBuf;
@@ -191,6 +191,109 @@ impl Database {
         // Migration: Add setup_script and teardown_script columns to workspace_repositories
         let _ = conn.execute("ALTER TABLE workspace_repositories ADD COLUMN setup_script TEXT", []);
         let _ = conn.execute("ALTER TABLE workspace_repositories ADD COLUMN teardown_script TEXT", []);
+
+        // === WORKSPACE MIGRATION ===
+        // This migration ensures all users have a default workspace and that orphan agents are assigned to it
+
+        // 1. Create default workspace if none exist
+        let workspace_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM workspaces",
+            [],
+            |row| row.get(0),
+        )?;
+
+        if workspace_count == 0 {
+            // Get base_repo_directory from settings if it exists (for repos_folder_path)
+            let base_dir: Option<String> = conn
+                .query_row(
+                    "SELECT value FROM settings WHERE key = 'base_repo_directory'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()?;
+
+            let repos_folder = base_dir.unwrap_or_else(|| {
+                directories::BaseDirs::new()
+                    .map(|d| d.home_dir().join("repos").to_string_lossy().to_string())
+                    .unwrap_or_else(|| "/tmp/repos".to_string())
+            });
+
+            let default_id = uuid::Uuid::new_v4().to_string();
+            let created_at = chrono::Utc::now().to_rfc3339();
+
+            conn.execute(
+                "INSERT INTO workspaces (id, name, repos_folder_path, created_at, is_default)
+                 VALUES (?1, 'My Workspace', ?2, ?3, 1)",
+                params![default_id, repos_folder, created_at],
+            )?;
+            log::info!("Created default workspace: {}", default_id);
+        }
+
+        // 2. Assign orphan agents to default workspace
+        let default_workspace_id: Option<String> = conn
+            .query_row(
+                "SELECT id FROM workspaces WHERE is_default = 1",
+                [],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        if let Some(ref default_id) = default_workspace_id {
+            let updated = conn.execute(
+                "UPDATE tasks SET workspace_id = ?1 WHERE workspace_id IS NULL",
+                params![default_id],
+            )?;
+            if updated > 0 {
+                log::info!("Migrated {} orphan agents to default workspace", updated);
+            }
+        }
+
+        // 3. Migrate branch_prefix setting from global settings to workspace_settings
+        if let Some(ref default_id) = default_workspace_id {
+            // Check if already migrated
+            let already_migrated: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM workspace_settings WHERE workspace_id = ?1 AND key = 'branch_prefix'",
+                params![default_id],
+                |row| row.get(0),
+            )?;
+
+            if already_migrated == 0 {
+                let branch_prefix: Option<String> = conn
+                    .query_row(
+                        "SELECT value FROM settings WHERE key = 'branch_prefix'",
+                        [],
+                        |row| row.get(0),
+                    )
+                    .optional()?;
+
+                if let Some(prefix) = branch_prefix {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO workspace_settings (workspace_id, key, value) VALUES (?1, 'branch_prefix', ?2)",
+                        params![default_id, prefix],
+                    )?;
+                    log::info!("Migrated branch_prefix setting to default workspace");
+                }
+            }
+        }
+
+        // Agent messages table (for new message-based output)
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS agent_messages (
+                id TEXT PRIMARY KEY,
+                agent_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                parts TEXT NOT NULL,
+                timestamp TEXT NOT NULL,
+                FOREIGN KEY (agent_id) REFERENCES tasks(id) ON DELETE CASCADE
+            )",
+            [],
+        )?;
+
+        // Create index for faster message lookups
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_agent_messages_agent_id ON agent_messages(agent_id, timestamp)",
+            [],
+        )?;
 
         Ok(())
     }
@@ -1116,6 +1219,128 @@ impl Database {
             params![workspace_id, repository_path],
         )?;
         Ok(())
+    }
+
+    // ===== Message Operations =====
+
+    /// Create a new message with no parts
+    pub fn create_message(&self, id: &str, agent_id: &str, role: &str, timestamp: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO agent_messages (id, agent_id, role, parts, timestamp) VALUES (?1, ?2, ?3, '[]', ?4)",
+            params![id, agent_id, role, timestamp],
+        )?;
+        Ok(())
+    }
+
+    /// Create a new message with initial parts (optimized single operation)
+    pub fn create_message_with_parts(&self, id: &str, agent_id: &str, role: &str, timestamp: &str, parts: &[MessagePart]) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let parts_json = serde_json::to_string(parts)
+            .map_err(|e| AppError::Other(format!("Failed to serialize message parts: {}", e)))?;
+        conn.execute(
+            "INSERT INTO agent_messages (id, agent_id, role, parts, timestamp) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, agent_id, role, parts_json, timestamp],
+        )?;
+        Ok(())
+    }
+
+    /// Append a part to an existing message
+    pub fn append_message_part(&self, message_id: &str, part: &MessagePart) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+
+        // Get current parts
+        let current_parts: String = conn.query_row(
+            "SELECT parts FROM agent_messages WHERE id = ?",
+            [message_id],
+            |row| row.get(0),
+        )?;
+
+        // Parse, append, and serialize
+        let mut parts: Vec<MessagePart> = serde_json::from_str(&current_parts)
+            .map_err(|e| AppError::Other(format!("Failed to parse message parts: {}", e)))?;
+        parts.push(part.clone());
+        let new_parts = serde_json::to_string(&parts)
+            .map_err(|e| AppError::Other(format!("Failed to serialize message parts: {}", e)))?;
+
+        // Update
+        conn.execute(
+            "UPDATE agent_messages SET parts = ? WHERE id = ?",
+            params![new_parts, message_id],
+        )?;
+        Ok(())
+    }
+
+    /// Get messages for an agent with pagination
+    pub fn get_messages(&self, agent_id: &str, limit: Option<i64>, offset: Option<i64>) -> Result<Vec<Message>> {
+        let conn = self.conn.lock().unwrap();
+        let limit = limit.unwrap_or(200);
+        let offset = offset.unwrap_or(0);
+
+        let mut stmt = conn.prepare(
+            "SELECT id, agent_id, role, parts, timestamp
+             FROM agent_messages
+             WHERE agent_id = ?
+             ORDER BY timestamp ASC
+             LIMIT ? OFFSET ?",
+        )?;
+
+        let messages = stmt
+            .query_map(params![agent_id, limit, offset], |row| {
+                let parts_str: String = row.get(3)?;
+                let parts: Vec<MessagePart> = serde_json::from_str(&parts_str).unwrap_or_default();
+                Ok(Message {
+                    id: row.get(0)?,
+                    agent_id: row.get(1)?,
+                    role: row.get(2)?,
+                    parts,
+                    timestamp: row.get(4)?,
+                })
+            })?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        Ok(messages)
+    }
+
+    /// Get total message count for an agent
+    pub fn get_messages_count(&self, agent_id: &str) -> Result<i64> {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM agent_messages WHERE agent_id = ?",
+            [agent_id],
+            |row| row.get(0),
+        )?;
+        Ok(count)
+    }
+
+    /// Clear all messages for an agent
+    pub fn clear_agent_messages(&self, agent_id: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM agent_messages WHERE agent_id = ?", [agent_id])?;
+        Ok(())
+    }
+
+    /// Get a single message by ID
+    pub fn get_message(&self, message_id: &str) -> Result<Option<Message>> {
+        let conn = self.conn.lock().unwrap();
+        let message = conn
+            .query_row(
+                "SELECT id, agent_id, role, parts, timestamp FROM agent_messages WHERE id = ?",
+                [message_id],
+                |row| {
+                    let parts_str: String = row.get(3)?;
+                    let parts: Vec<MessagePart> = serde_json::from_str(&parts_str).unwrap_or_default();
+                    Ok(Message {
+                        id: row.get(0)?,
+                        agent_id: row.get(1)?,
+                        role: row.get(2)?,
+                        parts,
+                        timestamp: row.get(4)?,
+                    })
+                },
+            )
+            .optional()?;
+        Ok(message)
     }
 }
 

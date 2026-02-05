@@ -1,13 +1,13 @@
 [package]
-name = "agent-coordinator"
+name = "Mux"
 version = "0.2.4"
 description = "A native Mac app for managing Claude Code agents"
 authors = ["you"]
 edition = "2021"
-default-run = "agent-coordinator"
+default-run = "Mux"
 
 [lib]
-name = "agent_coordinator_lib"
+name = "mux_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

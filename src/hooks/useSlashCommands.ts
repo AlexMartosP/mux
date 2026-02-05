@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import * as tauri from "../lib/tauri";
-import type { SlashCommand } from "../lib/tauri";
+import * as tauri from "../domains/tauri/commands";
+import type { SlashCommand } from "../domains/tauri/commands";
 
 interface CacheEntry {
   commands: SlashCommand[];

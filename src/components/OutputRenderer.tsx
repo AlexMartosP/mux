@@ -1,15 +1,15 @@
 import { useState, useMemo, memo } from "react";
 import Markdown from "react-markdown";
-import type { OutputLine } from "../types/agent";
+import type { Message, MessagePart } from "../types/agent";
 
 interface OutputRendererProps {
-  output: OutputLine[];
+  output: Message[];
   isRunning: boolean;
   repositoryPath?: string;
 }
 
 interface OutputSection {
-  type: "text" | "tool" | "result" | "system" | "thinking" | "agent-group";
+  type: "text" | "tool" | "result" | "system" | "thinking" | "agent-group" | "user_message";
   content: string;
   toolName?: string;
   toolInput?: Record<string, unknown>;
@@ -117,40 +117,100 @@ function stripPathsFromContent(content: string, repositoryPath?: string): string
   return result;
 }
 
+// Convert a MessagePart to an OutputSection
+function partToSection(part: MessagePart): OutputSection {
+  switch (part.type) {
+    case "text":
+      return { type: "text", content: part.content };
+    case "thinking":
+      return { type: "thinking", content: part.content };
+    case "tool_usage":
+      return {
+        type: "tool",
+        content: formatToolContent(part.tool_name, part.tool_input),
+        toolName: part.tool_name,
+        toolInput: part.tool_input,
+      };
+    default:
+      return { type: "text", content: "" };
+  }
+}
+
+// Format tool content for display
+function formatToolContent(toolName: string, toolInput: Record<string, unknown>): string {
+  switch (toolName) {
+    case "Read":
+      return `Reading ${str(toolInput.file_path)}`;
+    case "Write":
+      return `Writing ${str(toolInput.file_path)}`;
+    case "Edit":
+      return `Editing ${str(toolInput.file_path)}`;
+    case "Bash":
+      return `Running: ${str(toolInput.command)}`;
+    case "Glob":
+      return `Finding files: ${str(toolInput.pattern)}`;
+    case "Grep":
+      return `Searching for: ${str(toolInput.pattern)}`;
+    case "Task":
+      return `Spawning agent: ${str(toolInput.description || toolInput.prompt)}`;
+    case "WebFetch":
+      return `Fetching: ${str(toolInput.url)}`;
+    case "TodoWrite":
+      return "Updating task list";
+    default:
+      return `${toolName}`;
+  }
+}
+
 export const OutputRenderer = memo(function OutputRenderer({ output, isRunning, repositoryPath }: OutputRendererProps) {
   const sections = useMemo(() => {
-    // First pass: build flat sections
+    // Convert messages and their parts to sections
     const flat: OutputSection[] = [];
-    let currentTextContent = "";
 
-    for (const line of output) {
-      if (line.output_type === "text") {
-        currentTextContent += (currentTextContent ? "\n" : "") + line.content;
-      } else {
-        if (currentTextContent) {
-          flat.push({ type: "text", content: currentTextContent });
-          currentTextContent = "";
+    for (const message of output) {
+      // Handle user messages specially
+      if (message.role === "user") {
+        // Combine all text parts into one user message
+        const textContent = message.parts
+          .filter((p) => p.type === "text")
+          .map((p) => (p as { type: "text"; content: string }).content)
+          .join("\n");
+        if (textContent) {
+          flat.push({ type: "user_message", content: textContent });
         }
+        continue;
+      }
 
-        if (line.output_type === "tool") {
-          flat.push({
-            type: "tool",
-            content: line.content,
-            toolName: line.tool_name || extractToolName(line.content),
-            toolInput: line.tool_input,
-          });
-        } else if (line.output_type === "result") {
-          flat.push({ type: "result", content: line.content });
-        } else if (line.output_type === "system") {
-          flat.push({ type: "system", content: line.content });
-        } else if (line.output_type === "thinking") {
-          flat.push({ type: "thinking", content: line.content });
+      // Handle system messages
+      if (message.role === "system") {
+        const textContent = message.parts
+          .filter((p) => p.type === "text")
+          .map((p) => (p as { type: "text"; content: string }).content)
+          .join("\n");
+        if (textContent) {
+          flat.push({ type: "system", content: textContent });
+        }
+        continue;
+      }
+
+      // Handle assistant messages - process each part
+      let currentTextContent = "";
+      for (const part of message.parts) {
+        if (part.type === "text") {
+          currentTextContent += (currentTextContent ? "\n" : "") + part.content;
+        } else {
+          // Flush accumulated text
+          if (currentTextContent) {
+            flat.push({ type: "text", content: currentTextContent });
+            currentTextContent = "";
+          }
+          flat.push(partToSection(part));
         }
       }
-    }
-
-    if (currentTextContent) {
-      flat.push({ type: "text", content: currentTextContent });
+      // Flush remaining text
+      if (currentTextContent) {
+        flat.push({ type: "text", content: currentTextContent });
+      }
     }
 
     // Second pass: group Task (agent) tool sections with their children
@@ -359,6 +419,16 @@ function Section({ section, repositoryPath }: { section: OutputSection; reposito
   if (section.type === "system") {
     return (
       <div className="text-xs italic" style={{ color: 'var(--text-dim)' }}>
+        {section.content}
+      </div>
+    );
+  }
+
+  if (section.type === "user_message") {
+    return (
+      <div
+        className="text-sm py-4 px-3 bg-secondary rounded-lg leading-none"
+      >
         {section.content}
       </div>
     );
@@ -706,18 +776,6 @@ function ToolInputDetails({
         </pre>
       );
   }
-}
-
-function extractToolName(content: string): string | undefined {
-  if (content.startsWith("Reading")) return "Read";
-  if (content.startsWith("Writing")) return "Write";
-  if (content.startsWith("Editing")) return "Edit";
-  if (content.startsWith("Running:")) return "Bash";
-  if (content.startsWith("Searching") || content.startsWith("Finding")) return "Search";
-  if (content.startsWith("Spawning agent")) return "Task";
-  if (content.startsWith("Fetching")) return "WebFetch";
-  if (content.startsWith("Updating task")) return "TodoWrite";
-  return undefined;
 }
 
 function getToolIndicator(toolName?: string): string {

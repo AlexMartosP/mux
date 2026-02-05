@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import * as tauri from "../lib/tauri";
-import type { AppSettings } from "../lib/tauri";
+import * as tauri from "../domains/tauri/commands";
+import type { AppSettings } from "../domains/tauri/commands";
 
 // Settings cache with TTL
 interface SettingsCache {

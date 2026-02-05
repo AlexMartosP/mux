@@ -1,5 +1,8 @@
 import type { ActivityEvent } from "../types/agent";
-import type { ActiveAgent } from "../hooks/useAgentActivity";
+
+interface ActiveAgent {
+  description: string;
+}
 
 interface ActivityFeedProps {
   currentActivity: ActivityEvent | null;

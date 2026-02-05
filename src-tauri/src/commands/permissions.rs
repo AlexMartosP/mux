@@ -1,5 +1,6 @@
 use crate::commands::agent::AppState;
 use crate::error::Result;
+use crate::events::emit_agent_updated;
 use crate::models::AgentStatus;
 use crate::services::{respond_to_permission, PermissionDecision};
 use std::sync::Arc;
@@ -50,10 +51,7 @@ pub fn respond_permission(
                 ) {
                     Ok(_) => {
                         let _ = state.db.update_agent_status(&timed_out_req.agent_id, AgentStatus::Running);
-                        let _ = app_handle.emit("agent-status", serde_json::json!({
-                            "agent_id": timed_out_req.agent_id,
-                            "status": "running"
-                        }));
+                        emit_agent_updated(&app_handle, &state.db, &timed_out_req.agent_id);
                     }
                     Err(e) => {
                         log::error!(
@@ -61,10 +59,7 @@ pub fn respond_permission(
                             timed_out_req.agent_id, e
                         );
                         let _ = state.db.update_agent_status(&timed_out_req.agent_id, AgentStatus::Error);
-                        let _ = app_handle.emit("agent-status", serde_json::json!({
-                            "agent_id": timed_out_req.agent_id,
-                            "status": "error"
-                        }));
+                        emit_agent_updated(&app_handle, &state.db, &timed_out_req.agent_id);
                     }
                 }
             }

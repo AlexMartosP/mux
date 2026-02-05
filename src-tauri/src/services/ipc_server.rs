@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::error::Result;
+use crate::events::emit_agent_updated;
 use crate::models::AgentStatus;
 use crate::services::ClaudeProcessService;
 use log::{info, warn};
@@ -35,6 +36,7 @@ pub enum IPCCommand {
     #[serde(rename = "permission_request")]
     PermissionRequest {
         request_id: String,
+        #[serde(alias = "task_id")] // Claude Code sends task_id, we use it as agent_id
         agent_id: String,
         tool_name: String,
         tool_input: serde_json::Value,
@@ -311,13 +313,17 @@ fn handle_client(
     claude: Arc<ClaudeProcessService>,
     app_handle: AppHandle,
 ) -> Result<()> {
+    info!("[IPC] Received connection");
     let mut reader = BufReader::new(stream.try_clone().unwrap());
     let mut line = String::new();
     reader.read_line(&mut line)?;
 
+    info!("[IPC] Received command: {}", line.trim());
+
     let command = match serde_json::from_str::<IPCCommand>(&line) {
         Ok(cmd) => cmd,
         Err(e) => {
+            warn!("[IPC] Failed to parse command: {}", e);
             let response = IPCResponse::error(format!("Invalid command: {}", e));
             let response_json = serde_json::to_string(&response).unwrap_or_default();
             stream.write_all(response_json.as_bytes())?;
@@ -335,6 +341,7 @@ fn handle_client(
         tool_input,
     } = command
     {
+        info!("[IPC] Handling permission request: agent_id={}, tool_name={}", agent_id, tool_name);
         return handle_permission_request(
             stream,
             &db,
@@ -400,15 +407,18 @@ fn handle_permission_request(
     }
 
     // Check if permission prompting is enabled in settings
-    let prompt_for_permissions = db
-        .get_setting("prompt_for_permissions")
-        .ok()
-        .flatten()
+    let setting_value = db.get_setting("prompt_for_permissions").ok().flatten();
+    info!("[IPC] prompt_for_permissions setting value: {:?}", setting_value);
+
+    let prompt_for_permissions = setting_value
         .map(|v| v == "true")
         .unwrap_or(false);
 
+    info!("[IPC] prompt_for_permissions enabled: {}", prompt_for_permissions);
+
     // If permissions are not prompted, auto-approve
     if !prompt_for_permissions {
+        info!("[IPC] Auto-approving permission (prompts disabled)");
         let hook_response = serde_json::json!({
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -500,7 +510,11 @@ fn handle_permission_request(
         tool_name,
         tool_input,
     };
-    let _ = app_handle.emit("permission-request", event);
+    if let Err(e) = app_handle.emit("permission-request", &event) {
+        warn!("Failed to emit permission-request event: {}", e);
+    } else {
+        info!("Emitted permission-request event: request_id={}", request_id);
+    }
 
     // Wait for user response (with timeout)
     // Timeout must be less than Claude Code's 60s hook timeout
@@ -542,11 +556,8 @@ fn handle_permission_request(
                 warn!("[{}] Failed to update agent status after permission timeout: {}", agent_id_for_timeout, e);
             }
 
-            // Emit events to notify frontend (permission request stays visible)
-            let _ = app_handle.emit("agent-status", serde_json::json!({
-                "agent_id": agent_id_for_timeout,
-                "status": "idle"
-            }));
+            // Emit unified agent update event
+            emit_agent_updated(&app_handle, &db, &agent_id_for_timeout);
 
             let _ = app_handle.emit("permission-timeout", serde_json::json!({
                 "agent_id": agent_id_for_timeout,

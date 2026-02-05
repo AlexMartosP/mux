@@ -1,6 +1,6 @@
 use crate::commands::AppState;
 use crate::error::{AppError, Result};
-use crate::services::git::{CommitInfo, FileChange, FileDiff, GitService};
+use crate::services::git::{CommitInfo, DiffOptions, FileChange, FileDiff, FileStatus, GitService, StructuredFileDiff};
 use std::sync::Arc;
 use tauri::State;
 
@@ -47,6 +47,48 @@ pub fn get_file_diff_with_context(
 
     let base_branch = GitService::get_default_branch(&agent.repository_path)?;
     GitService::get_file_diff_with_context(&agent.worktree_path, &base_branch, &file_path, context_lines)
+}
+
+#[tauri::command]
+pub fn get_structured_file_diff(
+    state: State<Arc<AppState>>,
+    agent_id: String,
+    file_path: String,
+    options: Option<DiffOptions>,
+) -> Result<StructuredFileDiff> {
+    let agent = state
+        .db
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
+
+    let opts = options.unwrap_or(DiffOptions {
+        context_lines: 3,
+        exclude_untracked: false,
+    });
+
+    let base_branch = GitService::get_default_branch(&agent.repository_path)?;
+    GitService::get_structured_file_diff(&agent.worktree_path, &base_branch, &file_path, opts)
+}
+
+#[tauri::command]
+pub fn get_agent_changes_filtered(
+    state: State<Arc<AppState>>,
+    agent_id: String,
+    exclude_untracked: bool,
+) -> Result<Vec<FileChange>> {
+    let agent = state
+        .db
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
+
+    let base_branch = GitService::get_default_branch(&agent.repository_path)?;
+    let mut changes = GitService::get_changed_files(&agent.worktree_path, &base_branch)?;
+
+    if exclude_untracked {
+        changes.retain(|f| !matches!(f.status, FileStatus::Untracked));
+    }
+
+    Ok(changes)
 }
 
 #[tauri::command]

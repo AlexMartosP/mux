@@ -41,6 +41,53 @@ pub struct FileDiff {
     pub diff: String,
 }
 
+// Structured diff types for improved frontend performance
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DiffLineType {
+    Add,
+    Delete,
+    Context,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffLine {
+    pub line_type: DiffLineType,
+    pub content: String,
+    pub old_line_num: Option<u32>,
+    pub new_line_num: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffHunk {
+    pub header: String,
+    pub old_start: u32,
+    pub old_count: u32,
+    pub new_start: u32,
+    pub new_count: u32,
+    pub lines: Vec<DiffLine>,
+    pub can_expand_up: bool,
+    pub can_expand_down: bool,
+    pub raw_content: String, // Raw hunk string for git-diff-view library
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructuredFileDiff {
+    pub path: String,
+    pub hunks: Vec<DiffHunk>,
+    pub is_binary: bool,
+    pub is_new_file: bool,
+    pub is_deleted: bool,
+    pub old_file_header: String, // --- a/file line
+    pub new_file_header: String, // +++ b/file line
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DiffOptions {
+    pub context_lines: u32,
+    pub exclude_untracked: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CommitInfo {
     pub hash: String,
@@ -278,6 +325,167 @@ impl GitService {
         Ok(FileDiff {
             path: file_path.to_string(),
             diff,
+        })
+    }
+
+    /// Get structured diff for a file (parsed hunks and lines)
+    pub fn get_structured_file_diff(
+        worktree_path: &str,
+        base_branch: &str,
+        file_path: &str,
+        options: DiffOptions,
+    ) -> Result<StructuredFileDiff> {
+        // Get raw diff using existing function
+        let raw_diff = Self::get_file_diff_with_context(
+            worktree_path,
+            base_branch,
+            file_path,
+            options.context_lines,
+        )?;
+
+        // Parse into structured format
+        Self::parse_unified_diff(&raw_diff.diff, file_path)
+    }
+
+    /// Parse a unified diff string into structured hunks
+    fn parse_unified_diff(diff: &str, file_path: &str) -> Result<StructuredFileDiff> {
+        use regex::Regex;
+
+        let mut hunks: Vec<DiffHunk> = Vec::new();
+        let mut current_hunk: Option<DiffHunk> = None;
+        let mut is_binary = false;
+        let mut is_new_file = false;
+        let mut is_deleted = false;
+        let mut old_line = 0u32;
+        let mut new_line = 0u32;
+        let mut old_file_header = String::new();
+        let mut new_file_header = String::new();
+
+        let hunk_header_regex = Regex::new(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
+            .map_err(|e| AppError::Other(format!("Invalid regex: {}", e)))?;
+
+        for line in diff.lines() {
+            // Check for binary files
+            if line.starts_with("Binary files") {
+                is_binary = true;
+                break;
+            }
+
+            // Check for file mode headers
+            if line.starts_with("new file mode") {
+                is_new_file = true;
+                continue;
+            }
+            if line.starts_with("deleted file mode") {
+                is_deleted = true;
+                continue;
+            }
+
+            // Capture file headers
+            if line.starts_with("--- ") {
+                old_file_header = line.to_string();
+                continue;
+            }
+            if line.starts_with("+++ ") {
+                new_file_header = line.to_string();
+                continue;
+            }
+
+            // Skip other headers
+            if line.starts_with("diff --git") || line.starts_with("index ") {
+                continue;
+            }
+
+            // Check for hunk header
+            if let Some(caps) = hunk_header_regex.captures(line) {
+                // Save previous hunk if exists
+                if let Some(hunk) = current_hunk.take() {
+                    hunks.push(hunk);
+                }
+
+                // Parse hunk header
+                let old_start: u32 = caps.get(1).unwrap().as_str().parse::<u32>().unwrap_or(0);
+                let old_count: u32 = caps.get(2)
+                    .and_then(|m| m.as_str().parse::<u32>().ok())
+                    .unwrap_or(1);
+                let new_start: u32 = caps.get(3).unwrap().as_str().parse::<u32>().unwrap_or(0);
+                let new_count: u32 = caps.get(4)
+                    .and_then(|m| m.as_str().parse::<u32>().ok())
+                    .unwrap_or(1);
+
+                old_line = old_start;
+                new_line = new_start;
+
+                current_hunk = Some(DiffHunk {
+                    header: line.to_string(),
+                    old_start,
+                    old_count,
+                    new_start,
+                    new_count,
+                    lines: Vec::new(),
+                    can_expand_up: old_start > 1,
+                    can_expand_down: true, // Will be determined when we know file length
+                    raw_content: format!("{}\n", line), // Start with header
+                });
+                continue;
+            }
+
+            // Process diff lines within a hunk
+            if let Some(ref mut hunk) = current_hunk {
+                // Append raw line to raw_content
+                hunk.raw_content.push_str(line);
+                hunk.raw_content.push('\n');
+
+                if line.starts_with('+') && !line.starts_with("+++") {
+                    // Addition
+                    hunk.lines.push(DiffLine {
+                        line_type: DiffLineType::Add,
+                        content: line[1..].to_string(),
+                        old_line_num: None,
+                        new_line_num: Some(new_line),
+                    });
+                    new_line += 1;
+                } else if line.starts_with('-') && !line.starts_with("---") {
+                    // Deletion
+                    hunk.lines.push(DiffLine {
+                        line_type: DiffLineType::Delete,
+                        content: line[1..].to_string(),
+                        old_line_num: Some(old_line),
+                        new_line_num: None,
+                    });
+                    old_line += 1;
+                } else if line.starts_with(' ') || line.is_empty() {
+                    // Context line
+                    let content = if line.is_empty() {
+                        String::new()
+                    } else {
+                        line[1..].to_string()
+                    };
+                    hunk.lines.push(DiffLine {
+                        line_type: DiffLineType::Context,
+                        content,
+                        old_line_num: Some(old_line),
+                        new_line_num: Some(new_line),
+                    });
+                    old_line += 1;
+                    new_line += 1;
+                }
+            }
+        }
+
+        // Save last hunk
+        if let Some(hunk) = current_hunk {
+            hunks.push(hunk);
+        }
+
+        Ok(StructuredFileDiff {
+            path: file_path.to_string(),
+            hunks,
+            is_binary,
+            is_new_file,
+            is_deleted,
+            old_file_header,
+            new_file_header,
         })
     }
 

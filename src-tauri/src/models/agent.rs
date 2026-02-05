@@ -292,6 +292,6 @@ pub struct SpawnAgentInput {
     pub base_branch: Option<String>,
     /// Optional: custom branch name for new branches (if not provided, auto-generated)
     pub branch_name: Option<String>,
-    /// Optional: workspace ID to associate the agent with (for setup/teardown scripts)
-    pub workspace_id: Option<String>,
+    /// Required: workspace ID to associate the agent with
+    pub workspace_id: String,
 }

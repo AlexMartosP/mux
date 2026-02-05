@@ -5,7 +5,7 @@ interface KeyboardShortcutsOptions {
   onNewTask: () => void;
   onOpenSettings: () => void;
   onCloseModal: () => void;
-  onFocusSearch: () => void;
+  onFocusSearch?: () => void;
   onToggleSidebar?: () => void;
 
   // Task navigation
@@ -79,7 +79,7 @@ export function useKeyboardShortcuts({
       // Cmd+Shift+F - Focus search
       if (isMod && isShift && e.key.toLowerCase() === "f") {
         e.preventDefault();
-        onFocusSearch();
+        onFocusSearch?.();
         return;
       }
 
