@@ -121,8 +121,31 @@ export function useSetAgentAutoAcceptEdits() {
   return useMutation({
     mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) =>
       tauri.setAgentAutoAcceptEdits(id, enabled),
-    onSuccess: (_data, { id }) => {
-      queryClient.invalidateQueries({ queryKey: agentKeys.detail(id) });
+    onMutate: async ({ id, enabled }) => {
+      // Cancel outgoing refetches
+      await queryClient.cancelQueries({ queryKey: agentKeys.lists() });
+
+      // Snapshot previous value
+      const previousAgents = queryClient.getQueryData<Agent[]>(agentKeys.lists());
+
+      // Optimistically update
+      queryClient.setQueryData<Agent[]>(agentKeys.lists(), (old) =>
+        old?.map((agent) =>
+          agent.id === id ? { ...agent, auto_accept_edits: enabled } : agent
+        )
+      );
+
+      return { previousAgents };
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback on error
+      if (context?.previousAgents) {
+        queryClient.setQueryData(agentKeys.lists(), context.previousAgents);
+      }
+    },
+    onSettled: () => {
+      // Refetch to ensure consistency
+      queryClient.invalidateQueries({ queryKey: agentKeys.lists() });
     },
   });
 }

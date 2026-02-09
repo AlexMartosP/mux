@@ -12,7 +12,7 @@ interface AgentChatV2Props {
   onUpdateAgent?: (agent: Agent) => void;
 }
 
-export function AgentChatV2({ agent }: AgentChatV2Props) {
+export function AgentChatV2({ agent, onStop }: AgentChatV2Props) {
   const { messages, sendMessage, isLoading, isLoadingMore, hasMore, loadMore, isSending } =
     useAgentChat(agent.id);
 
@@ -90,6 +90,7 @@ export function AgentChatV2({ agent }: AgentChatV2Props) {
         <FloatingInput
           agent={agent}
           onSendMessage={sendMessage}
+          onStop={onStop}
           isSending={isSending}
         />
       </div>

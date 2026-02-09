@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { Send } from "lucide-react";
+import { Send, StopCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
@@ -11,6 +11,8 @@ export function AgentChatInput({
   message,
   onChangeMessage,
   onSend,
+  onStop,
+  isAgentRunning = false,
   isSending = false,
   disabled = false,
   repositoryPath,
@@ -22,6 +24,8 @@ export function AgentChatInput({
   message: string;
   onChangeMessage: (message: string) => void;
   onSend: () => void;
+  onStop?: () => void;
+  isAgentRunning?: boolean;
   isSending?: boolean;
   disabled?: boolean;
   repositoryPath: string;
@@ -108,14 +112,24 @@ export function AgentChatInput({
             <div></div>
           )}
 
-          <Button
-            variant={message.trim() ? "default" : "ghost"}
-            size="icon-lg"
-            onClick={onSend}
-            disabled={disabled || !message.trim() || isSending}
-          >
-            <Send />
-          </Button>
+          {isAgentRunning ? (
+            <Button
+              variant="destructive"
+              size="icon-lg"
+              onClick={onStop}
+            >
+              <StopCircle />
+            </Button>
+          ) : (
+            <Button
+              variant={message.trim() ? "default" : "ghost"}
+              size="icon-lg"
+              onClick={onSend}
+              disabled={disabled || !message.trim() || isSending}
+            >
+              <Send />
+            </Button>
+          )}
         </div>
       </div>
     </div>

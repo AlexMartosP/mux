@@ -654,11 +654,14 @@ pub fn clear_notifications(
 
 #[tauri::command]
 pub fn set_agent_auto_accept_edits(
+    app_handle: AppHandle,
     state: State<Arc<AppState>>,
     id: String,
     enabled: bool,
 ) -> Result<()> {
-    state.db.set_agent_auto_accept_edits(&id, enabled)
+    state.db.set_agent_auto_accept_edits(&id, enabled)?;
+    emit_agent_updated(&app_handle, &state.db, &id);
+    Ok(())
 }
 
 /// Take over manual control of an agent (stops Claude, checkouts branch in root)

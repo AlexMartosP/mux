@@ -11,10 +11,12 @@ import { PermissionRequest } from "@/domains/tauri/commands";
 export function FloatingInput({
   agent,
   onSendMessage,
+  onStop,
   isSending,
 }: {
   agent: Agent;
   onSendMessage: (prompt: string) => void;
+  onStop: (id: string) => void;
   isSending: boolean;
 }) {
   const [prompt, setPrompt] = useState("");
@@ -52,6 +54,8 @@ export function FloatingInput({
         message={prompt}
         onChangeMessage={setPrompt}
         onSend={handleSend}
+        onStop={() => onStop(agent.id)}
+        isAgentRunning={isRunning}
         isSending={isSending}
         repositoryPath={agent.repository_path}
         showAcceptEdits={true}

@@ -6,6 +6,7 @@ use std::thread;
 use tauri::{AppHandle, Emitter};
 
 use crate::error::{AppError, Result};
+use crate::services::shell;
 
 /// Maximum size of the output buffer per session (100KB)
 const MAX_BUFFER_SIZE: usize = 100 * 1024;
@@ -89,9 +90,19 @@ impl TerminalService {
         cmd.arg("-i");
         cmd.cwd(working_dir);
 
-        // Copy ALL environment variables from parent process
-        for (key, value) in std::env::vars() {
-            cmd.env(key, value);
+        // Get user's shell environment (sources nvm, rc files, etc.)
+        if let Some(env) = shell::get_shell_env() {
+            for (key, value) in env {
+                // Don't override terminal-specific variables we set later
+                if !key.starts_with("TERM") && key != "COLORTERM" {
+                    cmd.env(key, value);
+                }
+            }
+        } else {
+            // Fallback: copy parent environment
+            for (key, value) in std::env::vars() {
+                cmd.env(key, value);
+            }
         }
 
         // Terminal identification - these help tools detect a proper terminal
