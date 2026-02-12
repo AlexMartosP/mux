@@ -1,6 +1,6 @@
 [package]
 name = "Mux"
-version = "0.3.2"
+version = "0.3.3"
 description = "A native Mac app for managing Claude Code agents"
 authors = ["you"]
 edition = "2021"
