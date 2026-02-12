@@ -1,6 +1,10 @@
 mod claude_process;
+mod crypto;
 pub mod git;
+mod git_watcher;
 pub mod github;
+mod github_client;
+mod github_oauth;
 mod ipc_server;
 pub mod output;
 mod output_batch;
@@ -10,8 +14,12 @@ mod terminal;
 mod worktree;
 
 pub use claude_process::ClaudeProcessService;
-pub use git::{CommitInfo, FileChange, FileDiff, FileStatus, GitService};
+pub use crypto::CryptoService;
+pub use git::{CommitInfo, FileChange, FileDiff, FileDiffData, FileStatus, GitService};
+pub use git_watcher::GitWatcherService;
 pub use github::{GitHubService, PRCreateInput, PRPreview, PullRequest};
+pub use github_client::{CheckRun, CreatePRInput, GitHubClient, GitHubUser, PullRequestListItem, PullRequestResponse};
+pub use github_oauth::{GitHubAuthStatus, GitHubOAuthService};
 pub use ipc_server::{get_ipc_port, respond_to_permission, IPCServer, PermissionDecision, PermissionResponseResult, TimedOutRequest};
 pub use output::ParsedOutput;
 pub use output_batch::init_db_writer;

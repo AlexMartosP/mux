@@ -2,14 +2,12 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import Logo from "@/domains/assets/logo.svg?react";
 import { BranchCombobox } from "@/components/BranchCombobox";
-import { CustomBranchNameInput } from "@/components/BranchSelector";
 import { AgentsRepoSelector } from "./agents-repo-selector";
 import { AgentChatInput } from "./agent-chat-input";
-import { InlineError } from "@/components/ErrorDisplay";
 import { useSelectedWorkspaceId } from "@/contexts/WorkspaceContext";
 import * as tauri from "@/domains/tauri/commands";
 import { useSpawnAgent } from "@/domains/agents/data/agents-mutations";
-import type { BranchInfo } from "@/types/agent";
+import type { BranchInfo, ImageAttachment } from "@/types/agent";
 
 const LAST_REPO_KEY = "mux-last-selected-repo";
 
@@ -23,6 +21,7 @@ export function AgentSpawn() {
     return localStorage.getItem(LAST_REPO_KEY) || "";
   });
   const [prompt, setPrompt] = useState("");
+  const [images, setImages] = useState<ImageAttachment[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [branches, setBranches] = useState<BranchInfo[]>([]);
@@ -71,7 +70,7 @@ export function AgentSpawn() {
 
   // Handle form submission
   const handleSubmit = async () => {
-    if (!repositoryPath.trim() || !prompt.trim() || isSubmitting) return;
+    if (!repositoryPath.trim() || (!prompt.trim() && images.length === 0) || isSubmitting) return;
 
     setIsSubmitting(true);
     setError(null);
@@ -95,10 +94,12 @@ export function AgentSpawn() {
         base_branch: baseBranchToUse,
         branch_name: branchNameToUse,
         workspace_id: workspaceId,
+        images: images.length > 0 ? images : undefined,
       });
 
       // Clear form and navigate
       setPrompt("");
+      setImages([]);
       setSelectedBaseBranch("");
       setCustomBranchName("");
       setNewBranchMode("auto");
@@ -120,13 +121,6 @@ export function AgentSpawn() {
           <Logo className="h-12 w-auto text-foreground" />
         </div>
 
-        {/* Error message */}
-        {error && (
-          <div className="mb-4">
-            <InlineError message={error} />
-          </div>
-        )}
-
         {/* Three dropdowns in a row */}
         <div className="grid grid-cols-3 gap-3">
           {/* Repository selector */}
@@ -146,6 +140,7 @@ export function AgentSpawn() {
             placeholder="Select branch"
             disabled={!repositoryPath}
             showNewBranchOptions={true}
+            repositoryPath={repositoryPath}
           />
 
           {/* Base branch selector */}
@@ -157,16 +152,9 @@ export function AgentSpawn() {
             placeholder="Base branch"
             disabled={!repositoryPath || !!selectedBranch}
             showNewBranchOptions={false}
+            repositoryPath={repositoryPath}
           />
         </div>
-
-        {/* Custom branch name input (conditional) */}
-        {newBranchMode === "custom" && !selectedBranch && (
-          <CustomBranchNameInput
-            value={customBranchName}
-            onChange={setCustomBranchName}
-          />
-        )}
 
         {/* Prompt input */}
         <AgentChatInput
@@ -182,6 +170,8 @@ export function AgentSpawn() {
               : "Select a repository first..."
           }
           showAcceptEdits={false}
+          images={images}
+          onImagesChange={setImages}
         />
       </div>
     </div>

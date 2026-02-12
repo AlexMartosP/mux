@@ -9,7 +9,7 @@ interface OutputRendererProps {
 }
 
 interface OutputSection {
-  type: "text" | "tool" | "result" | "system" | "thinking" | "agent-group" | "user_message";
+  type: "text" | "tool" | "result" | "system" | "thinking" | "agent-group" | "user_message" | "image";
   content: string;
   toolName?: string;
   toolInput?: Record<string, unknown>;
@@ -17,6 +17,9 @@ interface OutputSection {
   children?: OutputSection[];
   /** For agent-group: description of the agent task */
   agentDescription?: string;
+  /** For image sections: media type and data */
+  mediaType?: string;
+  imageData?: string;
 }
 
 // Helper to make absolute paths relative to repository
@@ -130,6 +133,13 @@ function partToSection(part: MessagePart): OutputSection {
         content: formatToolContent(part.tool_name, part.tool_input),
         toolName: part.tool_name,
         toolInput: part.tool_input,
+      };
+    case "image":
+      return {
+        type: "image",
+        content: "",
+        mediaType: part.media_type,
+        imageData: part.data,
       };
     default:
       return { type: "text", content: "" };
@@ -384,6 +394,19 @@ function Section({ section, repositoryPath }: { section: OutputSection; reposito
         >
           {linkifyUrls(section.content)}
         </Markdown>
+      </div>
+    );
+  }
+
+  if (section.type === "image") {
+    return (
+      <div className="my-2">
+        <img
+          src={`data:${section.mediaType};base64,${section.imageData}`}
+          alt="Attached image"
+          className="max-w-md rounded border border-border"
+          style={{ maxHeight: "400px", objectFit: "contain" }}
+        />
       </div>
     );
   }

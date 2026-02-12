@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// A part of a message - can be text, thinking, or tool usage
+/// A part of a message - can be text, thinking, tool usage, or image
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MessagePart {
@@ -13,6 +13,10 @@ pub enum MessagePart {
     ToolUsage {
         tool_name: String,
         tool_input: serde_json::Value,
+    },
+    Image {
+        media_type: String,  // "image/png" or "image/jpeg"
+        data: String,        // base64 encoded image data
     },
 }
 
@@ -30,6 +34,11 @@ impl MessagePart {
     /// Create a new tool usage part
     pub fn tool_usage(tool_name: String, tool_input: serde_json::Value) -> Self {
         MessagePart::ToolUsage { tool_name, tool_input }
+    }
+
+    /// Create a new image part
+    pub fn image(media_type: String, data: String) -> Self {
+        MessagePart::Image { media_type, data }
     }
 }
 

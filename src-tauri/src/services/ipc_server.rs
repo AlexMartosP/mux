@@ -725,6 +725,7 @@ fn handle_handback(
         &agent.worktree_path,
         &resume_prompt,
         true, // Continue conversation for handback
+        None, // No images
     ) {
         Ok(_) => {
             // Update status to running

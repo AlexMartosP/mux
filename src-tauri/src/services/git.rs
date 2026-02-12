@@ -8,9 +8,10 @@ pub struct FileChange {
     pub status: FileStatus,
     pub additions: i32,
     pub deletions: i32,
+    pub new_path: Option<String>, // For renames: the new path
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FileStatus {
     Added,
@@ -39,6 +40,13 @@ impl FileStatus {
 pub struct FileDiff {
     pub path: String,
     pub diff: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FileDiffData {
+    pub git_diff: String,
+    pub old_file_content: String,
+    pub new_file_content: String,
 }
 
 // Structured diff types for improved frontend performance
@@ -139,6 +147,7 @@ impl GitService {
                     status: FileStatus::Modified, // Will be updated below
                     additions,
                     deletions,
+                    new_path: None,
                 });
             }
         }
@@ -155,11 +164,24 @@ impl GitService {
             for line in status_stdout.lines() {
                 let parts: Vec<&str> = line.split('\t').collect();
                 if parts.len() >= 2 {
-                    let status = FileStatus::from_git_status(parts[0]);
-                    let path = parts.last().unwrap().to_string();
+                    let status_code = parts[0];
+                    let status = FileStatus::from_git_status(status_code);
 
-                    if let Some(file) = files.iter_mut().find(|f| f.path == path) {
-                        file.status = status;
+                    // Handle renames: R100\told_path\tnew_path
+                    if status_code.starts_with('R') && parts.len() >= 3 {
+                        let old_path = parts[1].to_string();
+                        let new_path = parts[2].to_string();
+
+                        // Find by old path and update with new path
+                        if let Some(file) = files.iter_mut().find(|f| f.path == old_path) {
+                            file.status = status;
+                            file.new_path = Some(new_path.clone());
+                        }
+                    } else {
+                        let path = parts.last().unwrap().to_string();
+                        if let Some(file) = files.iter_mut().find(|f| f.path == path) {
+                            file.status = status;
+                        }
                     }
                 }
             }
@@ -245,6 +267,7 @@ impl GitService {
                 status,
                 additions,
                 deletions,
+                new_path: None,
             });
         }
 
@@ -486,6 +509,48 @@ impl GitService {
             is_deleted,
             old_file_header,
             new_file_header,
+        })
+    }
+
+    /// Get file content at a specific git ref (commit, branch, etc.)
+    fn get_file_content_at_ref(worktree_path: &str, ref_name: &str, file_path: &str) -> Result<String> {
+        let output = Command::new("git")
+            .args(["show", &format!("{}:{}", ref_name, file_path)])
+            .current_dir(worktree_path)
+            .output()
+            .map_err(|e| AppError::Git(format!("Failed to get file content at ref: {}", e)))?;
+
+        if !output.status.success() {
+            // File might not exist at this ref (e.g., new file)
+            return Ok(String::new());
+        }
+
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    /// Get enhanced file diff data with old content, new content, and git diff
+    pub fn get_file_diff_data(worktree_path: &str, base_branch: &str, file_path: &str) -> Result<FileDiffData> {
+        let merge_base = Self::get_merge_base(worktree_path, base_branch)?;
+
+        // Get git diff
+        let diff_result = Self::get_file_diff(worktree_path, base_branch, file_path)?;
+        let git_diff = diff_result.diff;
+
+        // Get old file content (at merge base)
+        let old_file_content = Self::get_file_content_at_ref(worktree_path, &merge_base, file_path)?;
+
+        // Get new file content (current working directory)
+        let file_full_path = std::path::Path::new(worktree_path).join(file_path);
+        let new_file_content = if file_full_path.exists() {
+            std::fs::read_to_string(&file_full_path).unwrap_or_default()
+        } else {
+            String::new()
+        };
+
+        Ok(FileDiffData {
+            git_diff,
+            old_file_content,
+            new_file_content,
         })
     }
 

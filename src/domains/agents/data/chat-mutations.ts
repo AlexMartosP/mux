@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import * as tauri from "@/domains/tauri/commands";
 import { agentKeys } from "./agents-keys";
 import { chatKeys } from "./chat-keys";
-import type { Message } from "@/types/agent";
+import type { Message, ImageAttachment, MessagePart } from "@/types/agent";
 
 interface MessagesPage {
   messages: Message[];
@@ -19,17 +19,32 @@ export function useSendMessage(agentId: string) {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (prompt: string) => {
-      // Calls restart_agent with the new prompt
+    mutationFn: async ({ prompt, images }: { prompt: string; images?: ImageAttachment[] }) => {
+      // Calls restart_agent with the new prompt and optional images
       // Backend stores the user message and emits agent-message event
-      await tauri.restartAgent(agentId, prompt);
+      await tauri.restartAgent(agentId, prompt, images);
     },
-    onMutate: async (prompt: string) => {
+    onMutate: async ({ prompt, images }: { prompt: string; images?: ImageAttachment[] }) => {
       // Cancel outgoing refetches
       await queryClient.cancelQueries({ queryKey: chatKeys.messages(agentId) });
 
       // Snapshot previous value
       const previousData = queryClient.getQueryData<MessagesData>(chatKeys.messages(agentId));
+
+      // Build message parts (text + images)
+      const parts: MessagePart[] = [];
+      if (prompt.trim()) {
+        parts.push({ type: "text", content: prompt });
+      }
+      if (images && images.length > 0) {
+        parts.push(
+          ...images.map((img): MessagePart => ({
+            type: "image",
+            media_type: img.mediaType,
+            data: img.data,
+          }))
+        );
+      }
 
       // Optimistically add user message
       const optimisticMessage: Message = {
@@ -37,7 +52,7 @@ export function useSendMessage(agentId: string) {
         agent_id: agentId,
         role: "user",
         timestamp: new Date().toISOString(),
-        parts: [{ type: "text", content: prompt }],
+        parts,
       };
 
       queryClient.setQueryData<MessagesData>(chatKeys.messages(agentId), (old) => {

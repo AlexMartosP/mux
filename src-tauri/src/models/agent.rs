@@ -294,4 +294,6 @@ pub struct SpawnAgentInput {
     pub branch_name: Option<String>,
     /// Required: workspace ID to associate the agent with
     pub workspace_id: String,
+    /// Optional: images to include with the initial prompt
+    pub images: Option<Vec<crate::commands::EncodedImage>>,
 }

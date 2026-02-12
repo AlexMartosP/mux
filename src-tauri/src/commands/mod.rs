@@ -11,8 +11,8 @@ mod workspace;
 
 pub use editor::open_in_editor;
 pub use export::export_agents;
-pub use git::{get_agent_changes, get_agent_changes_filtered, get_agent_commits, get_branch_base, get_file_diff, get_file_diff_with_context, get_full_diff, get_structured_file_diff, list_branches, refresh_agent_git_stats, revert_file_changes, update_agent_base_branch};
-pub use github::{check_github_auth, create_pull_request, get_ci_status, get_pr_preview, open_pr_in_browser};
+pub use git::{get_agent_changes, get_agent_changes_filtered, get_agent_commits, get_branch_base, get_file_diff, get_file_diff_with_context, get_full_diff, get_structured_file_diff, list_branches, refresh_agent_git_stats, revert_file_changes, update_agent_base_branch, get_agent_file_changes, get_agent_file_diff_data};
+pub use github::{check_github_auth, check_github_auth_status, create_pull_request, disconnect_github, get_ci_status, get_my_pull_requests, get_pr_preview, get_review_requests, open_pr_in_browser, start_github_oauth, wait_for_github_oauth_callback};
 pub use permissions::respond_permission;
 pub use settings::{
     add_permission_rule, check_claude_hook_status, check_cli_status, complete_onboarding, get_settings,
@@ -25,9 +25,9 @@ pub use agent::{
     delete_agents, generate_agent_metadata, get_cost_summary, get_notifications, get_agent,
     get_agent_output, get_agent_output_count, get_agent_messages, get_agent_messages_count,
     get_agents, get_agents_by_workspace, get_unread_notification_count, handback_agent,
-    mark_all_notifications_read, mark_notification_read, restart_agent, set_agent_auto_accept_edits,
-    set_agent_pinned, stop_agent, takeover_agent, update_agent_description, update_agent_name,
-    AppState,
+    mark_all_notifications_read, mark_notification_read, restart_agent, select_and_encode_images,
+    set_agent_auto_accept_edits, set_agent_pinned, stop_agent, takeover_agent,
+    update_agent_description, update_agent_name, AppState, EncodedImage,
 };
 pub use terminal::{close_terminal, get_terminal_buffer, open_terminal, terminal_input, terminal_resize, TerminalState};
 pub use workspace::{

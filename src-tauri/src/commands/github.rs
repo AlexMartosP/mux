@@ -1,6 +1,7 @@
 use crate::commands::AppState;
 use crate::error::{AppError, Result};
 use crate::services::github::{CIStatusResponse, GitHubService, PRCreateInput, PRPreview, PullRequest};
+use crate::services::{GitHubAuthStatus, GitHubOAuthService};
 use crate::services::agent_generator;
 use std::sync::Arc;
 use tauri::State;
@@ -71,6 +72,8 @@ pub fn create_pull_request(
         &agent.worktree_path,
         input,
         new_branch_name.as_deref(),
+        agent.workspace_id.as_deref(),
+        Some(&state.db),
     )?;
 
     // Update agent with PR URL
@@ -96,6 +99,83 @@ pub fn open_pr_in_browser(url: String) -> Result<()> {
 }
 
 #[tauri::command]
-pub fn get_ci_status(pr_url: String) -> Result<CIStatusResponse> {
-    GitHubService::get_ci_status(&pr_url)
+pub fn get_ci_status(
+    state: State<Arc<AppState>>,
+    pr_url: String,
+    workspace_id: Option<String>,
+) -> Result<CIStatusResponse> {
+    GitHubService::get_ci_status(
+        &pr_url,
+        workspace_id.as_deref(),
+        Some(&state.db),
+    )
+}
+
+// OAuth Commands
+
+/// Start GitHub OAuth flow for a workspace
+/// Returns the authorization URL and the local callback port
+#[tauri::command]
+pub fn start_github_oauth(workspace_id: String) -> Result<(String, u16)> {
+    GitHubOAuthService::start_oauth(&workspace_id)
+}
+
+/// Wait for OAuth callback and complete authentication
+/// This should be called after start_github_oauth
+#[tauri::command]
+pub async fn wait_for_github_oauth_callback(
+    state: State<'_, Arc<AppState>>,
+    workspace_id: String,
+    port: u16,
+) -> Result<()> {
+    let db = Arc::clone(&state.db);
+
+    // Run blocking OAuth server on a separate thread
+    tokio::task::spawn_blocking(move || {
+        GitHubOAuthService::wait_for_callback(port, workspace_id, db)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task join error: {}", e)))?
+}
+
+/// Check GitHub authentication status for a workspace
+#[tauri::command]
+pub fn check_github_auth_status(
+    state: State<Arc<AppState>>,
+    workspace_id: String,
+) -> Result<GitHubAuthStatus> {
+    GitHubOAuthService::check_auth_status(&workspace_id, &state.db)
+}
+
+/// Disconnect GitHub (remove tokens) for a workspace
+#[tauri::command]
+pub fn disconnect_github(
+    state: State<Arc<AppState>>,
+    workspace_id: String,
+) -> Result<()> {
+    GitHubOAuthService::disconnect(&workspace_id, &state.db)
+}
+
+/// Get pull requests created by the authenticated user
+#[tauri::command]
+pub fn get_my_pull_requests(
+    state: State<Arc<AppState>>,
+    workspace_id: String,
+) -> Result<Vec<crate::services::PullRequestListItem>> {
+    use crate::services::GitHubClient;
+
+    let client = GitHubClient::from_workspace(&state.db, &workspace_id)?;
+    client.get_my_pull_requests()
+}
+
+/// Get pull requests where the authenticated user is requested as a reviewer
+#[tauri::command]
+pub fn get_review_requests(
+    state: State<Arc<AppState>>,
+    workspace_id: String,
+) -> Result<Vec<crate::services::PullRequestListItem>> {
+    use crate::services::GitHubClient;
+
+    let client = GitHubClient::from_workspace(&state.db, &workspace_id)?;
+    client.get_review_requests()
 }

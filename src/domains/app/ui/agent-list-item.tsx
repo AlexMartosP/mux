@@ -29,7 +29,7 @@ export function AgentListItem({
 
   return (
     <ContextMenu>
-      <ContextMenuTrigger className={cn("relative group mx-1 px-2 py-2 my-1 flex items-center gap-2 transition-colors cursor-pointer before:content-[''] before:absolute before:inset-0 before:rounded-md before:transition-all before:duration-100 before:z-[-1]", isSelected ? "before:bg-muted before:border-border before:border" : "before:bg-transparent hover:before:bg-muted/50")} onClick={handleClick}>
+      <ContextMenuTrigger className={cn("relative group mx-1 px-2 py-2 my-1 flex items-center gap-2 transition-colors cursor-pointer before:content-[''] before:absolute before:inset-0 before:rounded-md before:transition-all before:duration-100 before:z-[-1]", isSelected ? "before:bg-muted" : "before:bg-transparent hover:before:bg-muted")} onClick={handleClick}>
         {isRunning && (
           <span className="shrink-0">
             <DotSpinner />

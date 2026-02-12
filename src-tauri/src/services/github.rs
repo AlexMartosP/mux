@@ -1,4 +1,6 @@
+use crate::db::Database;
 use crate::error::{AppError, Result};
+use crate::services::github_client::{CreatePRInput as ClientPRInput, GitHubClient};
 use serde::{Deserialize, Serialize};
 use std::process::Command;
 
@@ -108,11 +110,35 @@ impl GitHubService {
     /// Create a pull request
     /// If new_branch_name is provided, renames the branch before pushing
     /// Returns (PullRequest, Option<new_branch_name>) - new_branch_name is set if branch was renamed
+    ///
+    /// If workspace_id and db are provided, tries to use OAuth token first, then falls back to gh CLI
     pub fn create_pr(
         worktree_path: &str,
         input: PRCreateInput,
         new_branch_name: Option<&str>,
+        workspace_id: Option<&str>,
+        db: Option<&Database>,
     ) -> Result<(PullRequest, Option<String>)> {
+        // Try using GitHub OAuth API if workspace is provided
+        if let (Some(workspace_id), Some(db)) = (workspace_id, db) {
+            match Self::create_pr_with_oauth(
+                worktree_path,
+                workspace_id,
+                db,
+                &input,
+                new_branch_name,
+            ) {
+                Ok(result) => {
+                    log::info!("[GitHub] Successfully created PR using OAuth");
+                    return Ok(result);
+                }
+                Err(e) => {
+                    log::warn!("[GitHub] Failed to create PR with OAuth, falling back to gh CLI: {}", e);
+                    // Fall through to gh CLI
+                }
+            }
+        }
+
         // First, push the branch (may rename if new_branch_name is provided)
         let renamed_branch = Self::push_branch(worktree_path, new_branch_name).map_err(|e| {
             AppError::GitHub(format!("Failed to push branch: {}", e))
@@ -319,6 +345,95 @@ impl GitHubService {
         branch.starts_with("task/")
     }
 
+    /// Create PR using OAuth (GitHubClient)
+    fn create_pr_with_oauth(
+        worktree_path: &str,
+        workspace_id: &str,
+        db: &Database,
+        input: &PRCreateInput,
+        new_branch_name: Option<&str>,
+    ) -> Result<(PullRequest, Option<String>)> {
+        // Create GitHub client
+        let client = GitHubClient::from_workspace(db, workspace_id)?;
+
+        // Push branch first (may rename)
+        let renamed_branch = Self::push_branch(worktree_path, new_branch_name)?;
+
+        // Get repository info
+        let (owner, repo) = Self::get_repo_info(worktree_path)?;
+
+        // Get current branch (after potential rename)
+        let head_branch = Self::get_current_branch(worktree_path)?;
+
+        // Determine base branch
+        let base_branch = if let Some(base) = &input.base {
+            base.clone()
+        } else {
+            Self::get_default_branch(worktree_path)?
+        };
+
+        // Create PR via GitHub API
+        let pr_input = ClientPRInput {
+            title: input.title.clone(),
+            body: input.body.clone(),
+            head: head_branch,
+            base: base_branch,
+            draft: input.draft,
+        };
+
+        let api_pr = client.create_pull_request(&owner, &repo, pr_input)?;
+
+        // Map to our PullRequest type
+        let pr = PullRequest {
+            url: api_pr.html_url,
+            number: api_pr.number as i32,
+            title: api_pr.title,
+            state: api_pr.state,
+        };
+
+        Ok((pr, renamed_branch))
+    }
+
+    /// Extract owner and repo name from git remote URL
+    fn get_repo_info(worktree_path: &str) -> Result<(String, String)> {
+        let output = Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .current_dir(worktree_path)
+            .output()
+            .map_err(|e| AppError::Git(format!("Failed to get remote URL: {}", e)))?;
+
+        if !output.status.success() {
+            return Err(AppError::Git("No origin remote found".to_string()));
+        }
+
+        let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+        // Parse owner/repo from URL
+        // Support formats:
+        // - https://github.com/owner/repo.git
+        // - git@github.com:owner/repo.git
+        // - https://github.com/owner/repo
+        let parts = if url.contains("github.com:") {
+            // SSH format: git@github.com:owner/repo.git
+            url.split("github.com:").nth(1)
+        } else if url.contains("github.com/") {
+            // HTTPS format: https://github.com/owner/repo.git
+            url.split("github.com/").nth(1)
+        } else {
+            return Err(AppError::GitHub(format!("Unsupported remote URL format: {}", url)));
+        };
+
+        if let Some(parts) = parts {
+            let cleaned = parts.trim_end_matches(".git");
+            let repo_parts: Vec<&str> = cleaned.split('/').collect();
+            if repo_parts.len() >= 2 {
+                return Ok((repo_parts[0].to_string(), repo_parts[1].to_string()));
+            }
+        }
+
+        Err(AppError::GitHub(format!("Could not parse repository info from URL: {}", url)))
+    }
+
     /// Push branch to remote
     /// If new_branch_name is provided and different from current, renames before pushing
     /// Returns the new branch name if it was renamed
@@ -488,7 +603,99 @@ impl GitHubService {
     }
 
     /// Get CI status for a PR by URL
-    pub fn get_ci_status(pr_url: &str) -> Result<CIStatusResponse> {
+    /// If workspace_id and db are provided, tries to use OAuth token first
+    pub fn get_ci_status(pr_url: &str, workspace_id: Option<&str>, db: Option<&Database>) -> Result<CIStatusResponse> {
+        // Try OAuth first if available
+        if let (Some(workspace_id), Some(db)) = (workspace_id, db) {
+            match Self::get_ci_status_with_oauth(pr_url, workspace_id, db) {
+                Ok(response) => {
+                    log::info!("[GitHub] Successfully fetched CI status using OAuth");
+                    return Ok(response);
+                }
+                Err(e) => {
+                    log::warn!("[GitHub] Failed to get CI status with OAuth, falling back to gh CLI: {}", e);
+                    // Fall through to gh CLI
+                }
+            }
+        }
+
+        // Fall back to gh CLI implementation
+        Self::get_ci_status_with_gh_cli(pr_url)
+    }
+
+    /// Get CI status using OAuth (GitHubClient)
+    fn get_ci_status_with_oauth(pr_url: &str, workspace_id: &str, db: &Database) -> Result<CIStatusResponse> {
+        // Create GitHub client
+        let client = GitHubClient::from_workspace(db, workspace_id)?;
+
+        // Parse owner, repo, and PR number from URL
+        // URL format: https://github.com/owner/repo/pull/123
+        let parts: Vec<&str> = pr_url.trim_end_matches('/').split('/').collect();
+        if parts.len() < 7 {
+            return Err(AppError::GitHub("Invalid PR URL format".to_string()));
+        }
+
+        let owner = parts[parts.len() - 4];
+        let repo = parts[parts.len() - 3];
+        let pr_number = parts[parts.len() - 1]
+            .parse::<i64>()
+            .map_err(|_| AppError::GitHub("Invalid PR number in URL".to_string()))?;
+
+        // Get the PR to get the head SHA
+        let pr = client.get_pull_request(owner, repo, pr_number)?;
+
+        // Get check runs for the PR's head branch
+        let check_runs = client.get_check_runs(owner, repo, &pr.number.to_string())?;
+
+        if check_runs.is_empty() {
+            return Ok(CIStatusResponse {
+                status: CIStatus::NoCi,
+                checks: Vec::new(),
+            });
+        }
+
+        // Convert API check runs to our CICheck format
+        let checks: Vec<CICheck> = check_runs
+            .iter()
+            .map(|run| CICheck {
+                name: run.name.clone(),
+                state: run.status.clone(),
+                conclusion: run.conclusion.clone(),
+                link: run.html_url.clone(),
+            })
+            .collect();
+
+        // Determine overall status
+        let mut has_running = false;
+        let mut has_failing = false;
+
+        for check in &checks {
+            let state = check.state.to_uppercase();
+            if state == "PENDING" || state == "IN_PROGRESS" || state == "QUEUED" {
+                has_running = true;
+            } else if state == "COMPLETED" {
+                if let Some(conclusion) = &check.conclusion {
+                    let conclusion = conclusion.to_uppercase();
+                    if conclusion == "FAILURE" || conclusion == "TIMED_OUT" || conclusion == "CANCELLED" {
+                        has_failing = true;
+                    }
+                }
+            }
+        }
+
+        let status = if has_failing {
+            CIStatus::Failing
+        } else if has_running {
+            CIStatus::Running
+        } else {
+            CIStatus::Passing
+        };
+
+        Ok(CIStatusResponse { status, checks })
+    }
+
+    /// Get CI status using gh CLI (fallback)
+    fn get_ci_status_with_gh_cli(pr_url: &str) -> Result<CIStatusResponse> {
         // Extract repo and PR number from URL
         // URL format: https://github.com/owner/repo/pull/123
         let parts: Vec<&str> = pr_url.trim_end_matches('/').split('/').collect();

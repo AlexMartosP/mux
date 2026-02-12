@@ -112,6 +112,7 @@ pub async fn spawn_agent(
     let existing_branch = input.existing_branch.clone();
     let base_branch = input.base_branch.clone();
     let setup_script_clone = setup_script.clone();
+    let images = input.images.clone();
     let db = Arc::clone(&state.db);
     let claude = Arc::clone(&state.claude);
     let app_handle_clone = app_handle.clone();
@@ -212,6 +213,7 @@ pub async fn spawn_agent(
                         &worktree_path,
                         &prompt,
                         false,
+                        images.as_deref(),
                     ) {
                         Ok(_) => {
                             let _ = db.update_agent_status(&agent_id, AgentStatus::Running);
@@ -473,6 +475,111 @@ pub async fn delete_agents(state: State<'_, Arc<AppState>>, ids: Vec<String>) ->
     Ok(deleted_count)
 }
 
+/// Represents an encoded image ready to be sent to the Claude API
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EncodedImage {
+    pub name: String,
+    pub media_type: String,  // "image/png" or "image/jpeg"
+    pub data: String,        // base64 encoded
+    pub size_bytes: u64,
+}
+
+/// Opens a file dialog to select images, validates them, and returns base64 encoded data
+#[tauri::command]
+pub async fn select_and_encode_images(
+    app_handle: AppHandle,
+    max_size_mb: u32,
+) -> Result<Vec<EncodedImage>> {
+    use base64::{Engine as _, engine::general_purpose};
+    use tauri_plugin_dialog::DialogExt;
+
+    log::info!("[select_and_encode_images] Opening file dialog with max_size={}MB", max_size_mb);
+
+    let max_size_bytes = (max_size_mb as u64) * 1024 * 1024;
+
+    // Open file dialog for selecting images
+    let file_response = app_handle
+        .dialog()
+        .file()
+        .add_filter("Images", &["png", "jpg", "jpeg"])
+        .set_title("Select Images")
+        .blocking_pick_files();
+
+    let Some(files) = file_response else {
+        log::info!("[select_and_encode_images] User cancelled file selection");
+        return Ok(Vec::new());
+    };
+
+    let mut encoded_images = Vec::new();
+
+    for file_path in files {
+        // FilePath from tauri-plugin-dialog is a PathBuf wrapper
+        let path = file_path.as_path().unwrap();
+        log::info!("[select_and_encode_images] Processing file: {:?}", path);
+
+        // Get file name
+        let file_name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        // Determine media type from extension
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let media_type = match extension.as_str() {
+            "png" => "image/png",
+            "jpg" | "jpeg" => "image/jpeg",
+            _ => {
+                log::warn!("[select_and_encode_images] Unsupported file type: {}", extension);
+                continue;
+            }
+        };
+
+        // Read file
+        let file_bytes = match std::fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(e) => {
+                log::error!("[select_and_encode_images] Failed to read file {:?}: {}", path, e);
+                continue;
+            }
+        };
+
+        let size_bytes = file_bytes.len() as u64;
+
+        // Validate file size
+        if size_bytes > max_size_bytes {
+            log::warn!("[select_and_encode_images] File {} is too large: {} bytes (max {} bytes)",
+                file_name, size_bytes, max_size_bytes);
+            return Err(crate::error::AppError::Other(
+                format!("File '{}' is too large ({:.2}MB). Maximum size is {}MB.",
+                    file_name,
+                    size_bytes as f64 / (1024.0 * 1024.0),
+                    max_size_mb)
+            ));
+        }
+
+        // Base64 encode
+        let encoded_data = general_purpose::STANDARD.encode(&file_bytes);
+
+        log::info!("[select_and_encode_images] Successfully encoded {} ({} bytes)", file_name, size_bytes);
+
+        encoded_images.push(EncodedImage {
+            name: file_name,
+            media_type: media_type.to_string(),
+            data: encoded_data,
+            size_bytes,
+        });
+    }
+
+    log::info!("[select_and_encode_images] Encoded {} images", encoded_images.len());
+    Ok(encoded_images)
+}
+
 #[tauri::command]
 pub fn stop_agent(app_handle: AppHandle, state: State<Arc<AppState>>, id: String) -> Result<()> {
     log::info!("[stop_agent] Stopping agent {}", id);
@@ -489,8 +596,10 @@ pub fn restart_agent(
     state: State<Arc<AppState>>,
     id: String,
     prompt: Option<String>,
+    images: Option<Vec<EncodedImage>>,
 ) -> Result<()> {
-    log::info!("[restart_agent] Restarting agent {}, is_follow_up={}", id, prompt.is_some());
+    log::info!("[restart_agent] Restarting agent {}, is_follow_up={}, images={}",
+        id, prompt.is_some(), images.as_ref().map(|i| i.len()).unwrap_or(0));
 
     let agent = state.db.get_agent(&id)?
         .ok_or_else(|| crate::error::AppError::AgentNotFound(id.clone()))?;
@@ -514,6 +623,7 @@ pub fn restart_agent(
         &agent.worktree_path,
         &prompt_to_use,
         is_follow_up,
+        images.as_deref(),
     ) {
         Ok(_) => {
             state.db.update_agent_status(&id, AgentStatus::Running)?;
@@ -926,6 +1036,7 @@ pub fn handback_agent(
         &agent.worktree_path,
         &resume_prompt,
         true, // Continue conversation for handback
+        None, // No images for handback
     )?;
 
     // Update status to running

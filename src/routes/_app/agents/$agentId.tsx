@@ -52,9 +52,7 @@ function AgentDetail() {
 
   return (
     <AgentView
-      key={agent.id}
       agent={agent}
-
     />
   );
 }

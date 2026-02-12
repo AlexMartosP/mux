@@ -8,8 +8,8 @@ import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/componen
 import { AgentChatV2 } from "./agent-chat-v2";
 import { useDeleteAgent, useStopAgent } from "@/domains/agents/data/agents-mutations";
 import { useNavigate } from "@tanstack/react-router";
-import { AgentChangesTab } from "@/domains/agents/ui/agent-changes-tab";
 import { AgentTerminalTab } from "@/domains/agents/ui/agent-terminal-tab";
+import { AgentChangesCompact } from "@/domains/agents/ui/agent-changes-compact";
 
 const TAB_STORAGE_PREFIX = "mux-agent-view-tab-";
 
@@ -103,7 +103,8 @@ export function AgentView({
               minSize="40%"
             >
               {activeTab === "changes" ? (
-                <AgentChangesTab agentId={agent.id} />
+                <AgentChangesCompact
+                  agentId={agent.id} />
               ) : (
                 <AgentTerminalTab agentId={agent.id} />
               )}

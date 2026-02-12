@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { Agent } from "@/types/agent";
+import type { Agent, ImageAttachment } from "@/types/agent";
 import { useSetAgentAutoAcceptEdits } from "@/domains/agents/data/agents-mutations";
 import { StatusBanners } from "@/domains/agents/ui/status-banners";
 import { AgentChatInput } from "./agent-chat-input";
@@ -15,20 +15,22 @@ export function FloatingInput({
   isSending,
 }: {
   agent: Agent;
-  onSendMessage: (prompt: string) => void;
+  onSendMessage: (prompt: string, images?: ImageAttachment[]) => void;
   onStop: (id: string) => void;
   isSending: boolean;
 }) {
   const [prompt, setPrompt] = useState("");
+  const [images, setImages] = useState<ImageAttachment[]>([]);
   const setAgentAutoAcceptEdits = useSetAgentAutoAcceptEdits();
   const isRunning = agent.status === "running";
 
   // Use context hook to get permission requests for this agent
   const { requests: permissionRequests, allowRequest, dismissRequest } = useAgentPermissions(agent.id);
   function handleSend() {
-    if (!prompt.trim() || isRunning) return;
-    onSendMessage(prompt.trim());
+    if ((!prompt.trim() && images.length === 0) || isRunning) return;
+    onSendMessage(prompt.trim(), images.length > 0 ? images : undefined);
     setPrompt("");
+    setImages([]);
   }
 
   function handleAutoAcceptEditsChange(pressed: boolean) {
@@ -61,6 +63,8 @@ export function FloatingInput({
         showAcceptEdits={true}
         acceptEdits={agent.auto_accept_edits ?? false}
         onAcceptEditsChange={handleAutoAcceptEditsChange}
+        images={images}
+        onImagesChange={setImages}
       />
     </div>
   );

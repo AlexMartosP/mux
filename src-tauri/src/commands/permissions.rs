@@ -48,6 +48,7 @@ pub fn respond_permission(
                     &agent.worktree_path,
                     "Continue from where you left off. The user has approved the pending permission.",
                     true, // continue conversation
+                    None, // No images
                 ) {
                     Ok(_) => {
                         let _ = state.db.update_agent_status(&timed_out_req.agent_id, AgentStatus::Running);

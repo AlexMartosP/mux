@@ -7,13 +7,13 @@ mod services;
 
 use commands::{
     add_permission_rule, add_repository_to_workspace, calculate_worktree_disk_usage,
-    check_claude_hook_status, check_cli_status, check_github_auth, clear_notifications,
+    check_claude_hook_status, check_cli_status, check_github_auth, check_github_auth_status, clear_notifications,
     close_terminal, complete_onboarding, create_pull_request, create_workspace, delete_agent,
-    delete_agents, delete_all_data, delete_workspace, delete_workspace_setting, export_agents,
+    delete_agents, delete_all_data, delete_workspace, delete_workspace_setting, disconnect_github, export_agents,
     generate_agent_metadata, get_agent_changes_filtered, get_all_workspace_settings,
     get_branch_base, get_ci_status, get_cost_summary, get_default_workspace, get_file_diff,
-    get_file_diff_with_context, get_full_diff, get_notifications, get_pr_preview, get_settings,
-    get_slash_commands, get_agent, get_agent_changes, get_agent_commits, get_agent_output,
+    get_file_diff_with_context, get_full_diff, get_my_pull_requests, get_notifications, get_pr_preview, get_review_requests, get_settings,
+    get_slash_commands, get_agent, get_agent_changes, get_agent_file_changes, get_agent_file_diff_data, get_agent_commits, get_agent_output,
     get_agent_output_count, get_agent_messages, get_agent_messages_count, get_agents,
     get_agents_by_workspace, get_structured_file_diff, get_unread_notification_count,
     get_workspace, get_workspace_repositories, get_workspace_repository, get_workspace_setting,
@@ -21,15 +21,15 @@ use commands::{
     list_branches, list_repositories, list_workspace_repositories, mark_all_notifications_read,
     mark_notification_read, open_in_editor, open_pr_in_browser, open_terminal, get_terminal_buffer,
     refresh_agent_git_stats, remove_repository_from_workspace, reset_onboarding, respond_permission,
-    restart_agent, revert_file_changes, scan_folder_for_repositories, set_default_workspace,
+    restart_agent, select_and_encode_images, revert_file_changes, scan_folder_for_repositories, set_default_workspace,
     set_setting, set_workspace_setting, set_agent_auto_accept_edits, set_agent_pinned, spawn_agent,
-    stop_agent, takeover_agent, terminal_input, terminal_resize, uninstall_claude_hook,
+    start_github_oauth, stop_agent, takeover_agent, terminal_input, terminal_resize, uninstall_claude_hook,
     update_repository_scripts, update_settings, update_agent_base_branch, update_agent_description,
-    update_agent_name, update_workspace, AppState, TerminalState,
+    update_agent_name, update_workspace, wait_for_github_oauth_callback, AppState, TerminalState,
 };
 use db::Database;
 use models::AgentStatus;
-use services::{init_db_writer, ClaudeProcessService, IPCServer, TerminalService};
+use services::{init_db_writer, ClaudeProcessService, GitWatcherService, IPCServer, TerminalService};
 use std::sync::Arc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -104,6 +104,11 @@ pub fn run() {
             if let Err(e) = ipc_server.start() {
                 eprintln!("Warning: Failed to start IPC server: {}", e);
             }
+
+            // Start Git watcher service for file change monitoring
+            let git_watcher = GitWatcherService::new(db_for_recovery.clone(), app.handle().clone());
+            git_watcher.start();
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -115,6 +120,7 @@ pub fn run() {
             delete_agents,
             stop_agent,
             restart_agent,
+            select_and_encode_images,
             takeover_agent,
             handback_agent,
             get_agent_output,
@@ -122,11 +128,19 @@ pub fn run() {
             get_agent_messages,
             get_agent_messages_count,
             get_agent_changes,
+            get_agent_file_changes,
+            get_agent_file_diff_data,
             get_file_diff,
             get_file_diff_with_context,
             get_full_diff,
             get_agent_commits,
             check_github_auth,
+            check_github_auth_status,
+            start_github_oauth,
+            wait_for_github_oauth_callback,
+            disconnect_github,
+            get_my_pull_requests,
+            get_review_requests,
             get_pr_preview,
             create_pull_request,
             open_pr_in_browser,

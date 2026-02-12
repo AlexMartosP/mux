@@ -17,6 +17,8 @@ import { Route as SettingsIndexRouteImport } from './routes/settings/index'
 import { Route as SettingsWorkspacesRouteImport } from './routes/settings/workspaces'
 import { Route as SettingsNotificationsRouteImport } from './routes/settings/notifications'
 import { Route as SettingsChatRouteImport } from './routes/settings/chat'
+import { Route as AppCodeReviewRouteRouteImport } from './routes/_app/code-review/route'
+import { Route as AppCodeReviewIndexRouteImport } from './routes/_app/code-review/index'
 import { Route as AppAgentsIndexRouteImport } from './routes/_app/agents/index'
 import { Route as SettingsWorkspaceWorkspaceIdRouteImport } from './routes/settings/workspace/$workspaceId'
 import { Route as AppAgentsAgentIdRouteImport } from './routes/_app/agents/$agentId'
@@ -60,6 +62,16 @@ const SettingsChatRoute = SettingsChatRouteImport.update({
   path: '/chat',
   getParentRoute: () => SettingsRouteRoute,
 } as any)
+const AppCodeReviewRouteRoute = AppCodeReviewRouteRouteImport.update({
+  id: '/code-review',
+  path: '/code-review',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCodeReviewIndexRoute = AppCodeReviewIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppCodeReviewRouteRoute,
+} as any)
 const AppAgentsIndexRoute = AppAgentsIndexRouteImport.update({
   id: '/agents/',
   path: '/agents/',
@@ -81,6 +93,7 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRouteRouteWithChildren
   '/onboarding': typeof OnboardingRoute
+  '/code-review': typeof AppCodeReviewRouteRouteWithChildren
   '/settings/chat': typeof SettingsChatRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/workspaces': typeof SettingsWorkspacesRoute
@@ -88,6 +101,7 @@ export interface FileRoutesByFullPath {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/settings/workspace/$workspaceId': typeof SettingsWorkspaceWorkspaceIdRoute
   '/agents/': typeof AppAgentsIndexRoute
+  '/code-review/': typeof AppCodeReviewIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -99,6 +113,7 @@ export interface FileRoutesByTo {
   '/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/settings/workspace/$workspaceId': typeof SettingsWorkspaceWorkspaceIdRoute
   '/agents': typeof AppAgentsIndexRoute
+  '/code-review': typeof AppCodeReviewIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -106,6 +121,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteRouteWithChildren
   '/settings': typeof SettingsRouteRouteWithChildren
   '/onboarding': typeof OnboardingRoute
+  '/_app/code-review': typeof AppCodeReviewRouteRouteWithChildren
   '/settings/chat': typeof SettingsChatRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/workspaces': typeof SettingsWorkspacesRoute
@@ -113,6 +129,7 @@ export interface FileRoutesById {
   '/_app/agents/$agentId': typeof AppAgentsAgentIdRoute
   '/settings/workspace/$workspaceId': typeof SettingsWorkspaceWorkspaceIdRoute
   '/_app/agents/': typeof AppAgentsIndexRoute
+  '/_app/code-review/': typeof AppCodeReviewIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -120,6 +137,7 @@ export interface FileRouteTypes {
     | '/'
     | '/settings'
     | '/onboarding'
+    | '/code-review'
     | '/settings/chat'
     | '/settings/notifications'
     | '/settings/workspaces'
@@ -127,6 +145,7 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/settings/workspace/$workspaceId'
     | '/agents/'
+    | '/code-review/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -138,12 +157,14 @@ export interface FileRouteTypes {
     | '/agents/$agentId'
     | '/settings/workspace/$workspaceId'
     | '/agents'
+    | '/code-review'
   id:
     | '__root__'
     | '/'
     | '/_app'
     | '/settings'
     | '/onboarding'
+    | '/_app/code-review'
     | '/settings/chat'
     | '/settings/notifications'
     | '/settings/workspaces'
@@ -151,6 +172,7 @@ export interface FileRouteTypes {
     | '/_app/agents/$agentId'
     | '/settings/workspace/$workspaceId'
     | '/_app/agents/'
+    | '/_app/code-review/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -218,6 +240,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsChatRouteImport
       parentRoute: typeof SettingsRouteRoute
     }
+    '/_app/code-review': {
+      id: '/_app/code-review'
+      path: '/code-review'
+      fullPath: '/code-review'
+      preLoaderRoute: typeof AppCodeReviewRouteRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/_app/code-review/': {
+      id: '/_app/code-review/'
+      path: '/'
+      fullPath: '/code-review/'
+      preLoaderRoute: typeof AppCodeReviewIndexRouteImport
+      parentRoute: typeof AppCodeReviewRouteRoute
+    }
     '/_app/agents/': {
       id: '/_app/agents/'
       path: '/agents'
@@ -242,12 +278,25 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppCodeReviewRouteRouteChildren {
+  AppCodeReviewIndexRoute: typeof AppCodeReviewIndexRoute
+}
+
+const AppCodeReviewRouteRouteChildren: AppCodeReviewRouteRouteChildren = {
+  AppCodeReviewIndexRoute: AppCodeReviewIndexRoute,
+}
+
+const AppCodeReviewRouteRouteWithChildren =
+  AppCodeReviewRouteRoute._addFileChildren(AppCodeReviewRouteRouteChildren)
+
 interface AppRouteRouteChildren {
+  AppCodeReviewRouteRoute: typeof AppCodeReviewRouteRouteWithChildren
   AppAgentsAgentIdRoute: typeof AppAgentsAgentIdRoute
   AppAgentsIndexRoute: typeof AppAgentsIndexRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
+  AppCodeReviewRouteRoute: AppCodeReviewRouteRouteWithChildren,
   AppAgentsAgentIdRoute: AppAgentsAgentIdRoute,
   AppAgentsIndexRoute: AppAgentsIndexRoute,
 }

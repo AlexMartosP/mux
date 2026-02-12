@@ -1,7 +1,7 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
-import { Folder, FolderSearch, X } from "lucide-react";
+import { open as openDialog, message as showMessage } from "@tauri-apps/plugin-dialog";
+import { Folder, FolderSearch, X, Github, Loader2 } from "lucide-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,7 @@ import * as tauri from "@/domains/tauri/commands";
 import { workspaceKeys } from "@/domains/workspaces/data/workspaces-keys";
 import type { RepositoryInfo } from "@/types/agent";
 import { RepositoryCard } from "./_components/RepositoryCard";
+import { openUrl } from "@tauri-apps/plugin-opener";
 
 export const Route = createFileRoute("/settings/workspace/$workspaceId")({
   component: WorkspaceSettings,
@@ -34,7 +35,12 @@ function WorkspaceSettings() {
     queryFn: () => tauri.getWorkspaceRepositories(workspaceId),
   });
 
-  const isLoading = workspaceLoading || settingsLoading || reposLoading;
+  const { data: githubAuthStatus, isLoading: githubAuthLoading } = useQuery({
+    queryKey: workspaceKeys.githubAuth(workspaceId),
+    queryFn: () => tauri.checkGitHubAuthStatus(workspaceId),
+  });
+
+  const isLoading = workspaceLoading || settingsLoading || reposLoading || githubAuthLoading;
 
   // Show loading state
   if (isLoading) {
@@ -57,11 +63,12 @@ function WorkspaceSettings() {
     );
   }
 
-  // Now workspace and workspaceSettings are guaranteed to exist
+  // Now workspace, workspaceSettings, and githubAuthStatus are guaranteed to exist
   return <WorkspaceSettingsContent
     workspace={workspace}
     workspaceSettings={workspaceSettings}
     repositories={repositories}
+    githubAuthStatus={githubAuthStatus || { authenticated: false, username: null, scopes: null }}
     workspaceId={workspaceId}
   />;
 }
@@ -70,6 +77,7 @@ interface WorkspaceSettingsContentProps {
   workspace: NonNullable<Awaited<ReturnType<typeof tauri.getWorkspace>>>;
   workspaceSettings: Record<string, string>;
   repositories: Awaited<ReturnType<typeof tauri.getWorkspaceRepositories>>;
+  githubAuthStatus: tauri.GitHubAuthStatus;
   workspaceId: string;
 }
 
@@ -77,6 +85,7 @@ function WorkspaceSettingsContent({
   workspace,
   workspaceSettings,
   repositories,
+  githubAuthStatus,
   workspaceId
 }: WorkspaceSettingsContentProps) {
   const queryClient = useQueryClient();
@@ -90,6 +99,9 @@ function WorkspaceSettingsContent({
   const [scannedRepos, setScannedRepos] = useState<RepositoryInfo[]>([]);
   const [selectedScannedRepos, setSelectedScannedRepos] = useState<Set<string>>(new Set());
   const [isScanning, setIsScanning] = useState(false);
+
+  // GitHub OAuth state
+  const [isConnectingGitHub, setIsConnectingGitHub] = useState(false);
 
   // Mutations
   const updateWorkspaceMutation = useMutation({
@@ -114,6 +126,15 @@ function WorkspaceSettingsContent({
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: workspaceKeys.repositories(workspaceId) });
+    },
+  });
+
+  const disconnectGitHubMutation = useMutation({
+    mutationFn: async () => {
+      await tauri.disconnectGitHub(workspaceId);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.githubAuth(workspaceId) });
     },
   });
 
@@ -193,6 +214,47 @@ function WorkspaceSettingsContent({
     });
   };
 
+  const handleConnectGitHub = async () => {
+    try {
+      setIsConnectingGitHub(true);
+
+      // Start OAuth flow
+      const [authUrl, port] = await tauri.startGitHubOAuth(workspaceId);
+
+      // Open browser
+      await openUrl(authUrl);
+
+      // Wait for callback
+      await tauri.waitForGitHubOAuthCallback(workspaceId, port);
+
+      // Refresh auth status
+      queryClient.invalidateQueries({ queryKey: workspaceKeys.githubAuth(workspaceId) });
+
+      await showMessage("Successfully connected to GitHub!", { title: "Success", kind: "info" });
+    } catch (err) {
+      console.error("Failed to connect GitHub:", err);
+      await showMessage(
+        err instanceof Error ? err.message : "Failed to connect to GitHub",
+        { title: "Error", kind: "error" }
+      );
+    } finally {
+      setIsConnectingGitHub(false);
+    }
+  };
+
+  const handleDisconnectGitHub = async () => {
+    try {
+      await disconnectGitHubMutation.mutateAsync();
+      await showMessage("Disconnected from GitHub", { title: "Success", kind: "info" });
+    } catch (err) {
+      console.error("Failed to disconnect GitHub:", err);
+      await showMessage(
+        err instanceof Error ? err.message : "Failed to disconnect from GitHub",
+        { title: "Error", kind: "error" }
+      );
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -242,6 +304,82 @@ function WorkspaceSettingsContent({
               {updateWorkspaceMutation.isPending ? "Saving..." : "Save"}
             </Button>
           </div>
+        </div>
+      </section>
+
+      {/* GitHub Integration Section */}
+      <section className="space-y-4">
+        <h2 className="text-xs font-medium text-foreground">GITHUB INTEGRATION</h2>
+
+        <div className="p-4 bg-card border border-border rounded-lg">
+          {githubAuthStatus.authenticated ? (
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Github className="w-4 h-4 text-foreground" />
+                <span className="text-sm text-foreground">Connected as</span>
+                <span className="text-sm font-medium text-primary">
+                  @{githubAuthStatus.username}
+                </span>
+              </div>
+
+              {githubAuthStatus.scopes && githubAuthStatus.scopes.length > 0 && (
+                <div className="text-xs text-muted-foreground">
+                  Scopes: {githubAuthStatus.scopes.join(", ")}
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleConnectGitHub}
+                  disabled={isConnectingGitHub}
+                >
+                  {isConnectingGitHub ? (
+                    <>
+                      <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                      Reconnecting...
+                    </>
+                  ) : (
+                    "Reconnect"
+                  )}
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={handleDisconnectGitHub}
+                  disabled={disconnectGitHubMutation.isPending}
+                >
+                  {disconnectGitHubMutation.isPending ? "Disconnecting..." : "Disconnect"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Connect your GitHub account to create pull requests and check CI status
+                without relying on the gh CLI.
+              </p>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleConnectGitHub}
+                disabled={isConnectingGitHub}
+              >
+                {isConnectingGitHub ? (
+                  <>
+                    <Loader2 className="w-3 h-3 mr-1.5 animate-spin" />
+                    Connecting...
+                  </>
+                ) : (
+                  <>
+                    <Github className="w-3 h-3 mr-1.5" />
+                    Connect GitHub Account
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
         </div>
       </section>
 

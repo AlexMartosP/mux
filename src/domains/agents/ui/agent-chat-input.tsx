@@ -3,9 +3,11 @@ import { Send, StopCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Toggle } from "@/components/ui/toggle";
 import { AutoResizeTextarea } from "@/components/ui/auto-resize-textarea";
+import { ImageAttachmentPicker } from "@/components/ImageAttachmentPicker";
 import { SlashCommandsDropdown } from "./slash-commands-dropdown";
 import { useSlashCommandNavigation } from "../hooks/use-slash-command-navigation";
 import { useAppSettings } from "@/domains/app/use-app-settings";
+import type { ImageAttachment } from "@/types/agent";
 
 export function AgentChatInput({
   message,
@@ -20,6 +22,8 @@ export function AgentChatInput({
   showAcceptEdits = false,
   acceptEdits = false,
   onAcceptEditsChange,
+  images = [],
+  onImagesChange,
 }: {
   message: string;
   onChangeMessage: (message: string) => void;
@@ -33,6 +37,8 @@ export function AgentChatInput({
   showAcceptEdits?: boolean;
   acceptEdits?: boolean;
   onAcceptEditsChange?: (value: boolean) => void;
+  images?: ImageAttachment[];
+  onImagesChange?: (images: ImageAttachment[]) => void;
 }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -89,6 +95,16 @@ export function AgentChatInput({
       )}
 
       <div ref={containerRef} className="p-4 bg-popover border border-border rounded-2xl">
+        {/* Image attachments */}
+        {onImagesChange && (
+          <ImageAttachmentPicker
+            attachments={images}
+            onAttachmentsChange={onImagesChange}
+            disabled={disabled}
+            className="mb-3"
+          />
+        )}
+
         <AutoResizeTextarea
           ref={textareaRef}
           value={message}
@@ -122,10 +138,10 @@ export function AgentChatInput({
             </Button>
           ) : (
             <Button
-              variant={message.trim() ? "default" : "ghost"}
+              variant={message.trim() || images.length > 0 ? "default" : "ghost"}
               size="icon-lg"
               onClick={onSend}
-              disabled={disabled || !message.trim() || isSending}
+              disabled={disabled || (!message.trim() && images.length === 0) || isSending}
             >
               <Send />
             </Button>

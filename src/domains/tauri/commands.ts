@@ -1,5 +1,25 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { Agent, SpawnAgentInput, OutputLine, Message, FileChange, FileDiff, CommitInfo, PRPreview, PullRequest, NotificationEntry, BranchInfo, CostSummary, Workspace, RepositoryInfo, WorkspaceRepository, CIStatusResponse, StructuredFileDiff, DiffOptions } from "../../types/agent";
+import type {
+  Agent,
+  SpawnAgentInput,
+  OutputLine,
+  Message,
+  FileChange,
+  FileDiff,
+  CommitInfo,
+  PRPreview,
+  PullRequest,
+  NotificationEntry,
+  BranchInfo,
+  CostSummary,
+  Workspace,
+  RepositoryInfo,
+  WorkspaceRepository,
+  CIStatusResponse,
+  DiffOptions,
+  ImageAttachment,
+} from "../../types/agent";
+import { GitDiff } from "@/domains/code-review/ui/git-diff-viewer";
 
 export async function getAgents(): Promise<Agent[]> {
   return invoke("get_agents");
@@ -9,12 +29,27 @@ export async function getAgent(id: string): Promise<Agent | null> {
   return invoke("get_agent", { id });
 }
 
-export async function getAgentsByWorkspace(workspaceId: string): Promise<Agent[]> {
+export async function getAgentsByWorkspace(
+  workspaceId: string,
+): Promise<Agent[]> {
   return invoke("get_agents_by_workspace", { workspaceId });
 }
 
 export async function spawnAgent(input: SpawnAgentInput): Promise<Agent> {
-  return invoke("spawn_agent", { input });
+  // Convert ImageAttachment to EncodedImage format for backend
+  const encodedImages = input.images?.map((img) => ({
+    name: img.name,
+    media_type: img.mediaType,
+    data: img.data,
+    size_bytes: img.sizeBytes,
+  }));
+
+  const backendInput = {
+    ...input,
+    images: encodedImages,
+  };
+
+  return invoke("spawn_agent", { input: backendInput });
 }
 
 export async function deleteAgent(id: string): Promise<void> {
@@ -29,8 +64,51 @@ export async function stopAgent(id: string): Promise<void> {
   return invoke("stop_agent", { id });
 }
 
-export async function restartAgent(id: string, prompt?: string): Promise<void> {
-  return invoke("restart_agent", { id, prompt });
+export async function restartAgent(
+  id: string,
+  prompt?: string,
+  images?: ImageAttachment[],
+): Promise<void> {
+  // Convert ImageAttachment to EncodedImage format for backend
+  const encodedImages = images?.map((img) => ({
+    name: img.name,
+    media_type: img.mediaType,
+    data: img.data,
+    size_bytes: img.sizeBytes,
+  }));
+
+  return invoke("restart_agent", { id, prompt, images: encodedImages });
+}
+
+/**
+ * Opens a file dialog to select images, validates them, and returns base64 encoded data.
+ * @param maxSizeMb Maximum file size in megabytes (default: 5)
+ * @returns Array of encoded images ready to be sent with messages
+ */
+export async function selectAndEncodeImages(
+  maxSizeMb: number = 5,
+): Promise<ImageAttachment[]> {
+  interface EncodedImage {
+    name: string;
+    media_type: string;
+    data: string;
+    size_bytes: number;
+  }
+
+  const encodedImages: EncodedImage[] = await invoke(
+    "select_and_encode_images",
+    { maxSizeMb },
+  );
+
+  // Convert to ImageAttachment format with unique IDs
+  return encodedImages.map((img, index) => ({
+    id: `img-${Date.now()}-${index}`,
+    name: img.name,
+    mediaType: img.media_type as "image/png" | "image/jpeg",
+    data: img.data,
+    sizeBytes: img.size_bytes,
+    preview: `data:${img.media_type};base64,${img.data}`,
+  }));
 }
 
 export interface TakeoverResult {
@@ -48,7 +126,7 @@ export async function takeoverAgent(id: string): Promise<TakeoverResult> {
 export async function handbackAgent(
   id: string,
   commitMessage?: string,
-  prompt?: string
+  prompt?: string,
 ): Promise<void> {
   return invoke("handback_agent", { id, commitMessage, prompt });
 }
@@ -56,7 +134,7 @@ export async function handbackAgent(
 export async function getAgentOutput(
   agentId: string,
   limit?: number,
-  offset?: number
+  offset?: number,
 ): Promise<OutputLine[]> {
   return invoke("get_agent_output", { agentId, limit, offset });
 }
@@ -69,7 +147,7 @@ export async function getAgentOutputCount(agentId: string): Promise<number> {
 export async function getAgentMessages(
   agentId: string,
   limit?: number,
-  offset?: number
+  offset?: number,
 ): Promise<Message[]> {
   return invoke("get_agent_messages", { agentId, limit, offset });
 }
@@ -83,29 +161,52 @@ export async function getAgentChanges(agentId: string): Promise<FileChange[]> {
   return invoke("get_agent_changes", { agentId });
 }
 
-export async function getFileDiff(agentId: string, filePath: string): Promise<FileDiff> {
+// Unified file changes command with optional filtering
+export async function getAgentFileChanges(
+  agentId: string,
+  excludeUntracked?: boolean,
+): Promise<FileChange[]> {
+  return invoke("get_agent_file_changes", { agentId, excludeUntracked });
+}
+
+// Enhanced file diff with old/new content
+export async function getAgentFileDiffData(
+  agentId: string,
+  filePath: string,
+): Promise<GitDiff> {
+  return invoke("get_agent_file_diff_data", { agentId, filePath });
+}
+
+export async function getFileDiff(
+  agentId: string,
+  filePath: string,
+): Promise<FileDiff> {
   return invoke("get_file_diff", { agentId, filePath });
 }
 
 export async function getFileDiffWithContext(
   agentId: string,
   filePath: string,
-  contextLines: number
+  contextLines: number,
 ): Promise<FileDiff> {
-  return invoke("get_file_diff_with_context", { agentId, filePath, contextLines });
+  return invoke("get_file_diff_with_context", {
+    agentId,
+    filePath,
+    contextLines,
+  });
 }
 
 export async function getStructuredFileDiff(
   agentId: string,
   filePath: string,
-  options?: DiffOptions
-): Promise<StructuredFileDiff> {
+  options?: DiffOptions,
+): Promise<GitDiff> {
   return invoke("get_structured_file_diff", { agentId, filePath, options });
 }
 
 export async function getAgentChangesFiltered(
   agentId: string,
-  excludeUntracked: boolean
+  excludeUntracked: boolean,
 ): Promise<FileChange[]> {
   return invoke("get_agent_changes_filtered", { agentId, excludeUntracked });
 }
@@ -114,7 +215,10 @@ export async function getFullDiff(agentId: string): Promise<string> {
   return invoke("get_full_diff", { agentId });
 }
 
-export async function getAgentCommits(agentId: string, limit?: number): Promise<CommitInfo[]> {
+export async function getAgentCommits(
+  agentId: string,
+  limit?: number,
+): Promise<CommitInfo[]> {
   return invoke("get_agent_commits", { agentId, limit });
 }
 
@@ -131,7 +235,7 @@ export async function createPullRequest(
   agentId: string,
   title: string,
   body: string,
-  draft: boolean
+  draft: boolean,
 ): Promise<PullRequest> {
   return invoke("create_pull_request", { agentId, title, body, draft });
 }
@@ -140,11 +244,70 @@ export async function openPRInBrowser(url: string): Promise<void> {
   return invoke("open_pr_in_browser", { url });
 }
 
-export async function getCIStatus(prUrl: string): Promise<CIStatusResponse> {
-  return invoke("get_ci_status", { prUrl });
+export async function getCIStatus(
+  prUrl: string,
+  workspaceId?: string,
+): Promise<CIStatusResponse> {
+  return invoke("get_ci_status", { prUrl, workspaceId });
 }
 
-export async function refreshAgentGitStats(agentId: string): Promise<[number, number]> {
+// GitHub OAuth
+export interface GitHubAuthStatus {
+  authenticated: boolean;
+  username: string | null;
+  scopes: string[] | null;
+}
+
+export async function startGitHubOAuth(
+  workspaceId: string,
+): Promise<[string, number]> {
+  return invoke("start_github_oauth", { workspaceId });
+}
+
+export async function waitForGitHubOAuthCallback(
+  workspaceId: string,
+  port: number,
+): Promise<void> {
+  return invoke("wait_for_github_oauth_callback", { workspaceId, port });
+}
+
+export async function checkGitHubAuthStatus(
+  workspaceId: string,
+): Promise<GitHubAuthStatus> {
+  return invoke("check_github_auth_status", { workspaceId });
+}
+
+export async function disconnectGitHub(workspaceId: string): Promise<void> {
+  return invoke("disconnect_github", { workspaceId });
+}
+
+export interface PullRequestListItem {
+  number: number;
+  title: string;
+  url: string;
+  state: string;
+  author: string;
+  repository: string;
+  created_at: string;
+  updated_at: string;
+  draft: boolean;
+}
+
+export async function getMyPullRequests(
+  workspaceId: string,
+): Promise<PullRequestListItem[]> {
+  return invoke("get_my_pull_requests", { workspaceId });
+}
+
+export async function getReviewRequests(
+  workspaceId: string,
+): Promise<PullRequestListItem[]> {
+  return invoke("get_review_requests", { workspaceId });
+}
+
+export async function refreshAgentGitStats(
+  agentId: string,
+): Promise<[number, number]> {
   return invoke("refresh_agent_git_stats", { agentId });
 }
 
@@ -156,7 +319,9 @@ export interface SlashCommand {
   has_args: boolean;
 }
 
-export async function getSlashCommands(repositoryPath?: string): Promise<SlashCommand[]> {
+export async function getSlashCommands(
+  repositoryPath?: string,
+): Promise<SlashCommand[]> {
   return invoke("get_slash_commands", { repositoryPath });
 }
 
@@ -205,7 +370,7 @@ export interface GeneratedAgentInfo {
 
 export async function generateAgentMetadata(
   prompt: string,
-  repositoryPath: string
+  repositoryPath: string,
 ): Promise<GeneratedAgentInfo> {
   return invoke("generate_agent_metadata", { prompt, repositoryPath });
 }
@@ -214,20 +379,32 @@ export async function updateAgentName(id: string, name: string): Promise<void> {
   return invoke("update_agent_name", { id, name });
 }
 
-export async function updateAgentDescription(id: string, description: string): Promise<void> {
+export async function updateAgentDescription(
+  id: string,
+  description: string,
+): Promise<void> {
   return invoke("update_agent_description", { id, description });
 }
 
-export async function setAgentAutoAcceptEdits(id: string, enabled: boolean): Promise<void> {
+export async function setAgentAutoAcceptEdits(
+  id: string,
+  enabled: boolean,
+): Promise<void> {
   return invoke("set_agent_auto_accept_edits", { id, enabled });
 }
 
-export async function setAgentPinned(id: string, pinned: boolean): Promise<void> {
+export async function setAgentPinned(
+  id: string,
+  pinned: boolean,
+): Promise<void> {
   return invoke("set_agent_pinned", { id, pinned });
 }
 
 // Notifications
-export async function getNotifications(limit?: number, includeRead?: boolean): Promise<NotificationEntry[]> {
+export async function getNotifications(
+  limit?: number,
+  includeRead?: boolean,
+): Promise<NotificationEntry[]> {
   return invoke("get_notifications", { limit, includeRead });
 }
 
@@ -248,12 +425,17 @@ export async function clearNotifications(): Promise<void> {
 }
 
 // File change management
-export async function revertFileChanges(agentId: string, filePath: string): Promise<void> {
+export async function revertFileChanges(
+  agentId: string,
+  filePath: string,
+): Promise<void> {
   return invoke("revert_file_changes", { agentId, filePath });
 }
 
 // Branch listing
-export async function listBranches(repositoryPath: string): Promise<BranchInfo[]> {
+export async function listBranches(
+  repositoryPath: string,
+): Promise<BranchInfo[]> {
   return invoke("list_branches", { repositoryPath });
 }
 
@@ -263,7 +445,10 @@ export async function getBranchBase(agentId: string): Promise<string | null> {
 }
 
 // Update the base branch for an agent (called after rebase)
-export async function updateAgentBaseBranch(agentId: string, baseBranch: string): Promise<void> {
+export async function updateAgentBaseBranch(
+  agentId: string,
+  baseBranch: string,
+): Promise<void> {
   return invoke("update_agent_base_branch", { agentId, baseBranch });
 }
 
@@ -278,7 +463,7 @@ export interface PermissionRequest {
 export async function respondPermission(
   requestId: string,
   behavior: "allow" | "deny",
-  reason?: string
+  reason?: string,
 ): Promise<boolean> {
   return invoke("respond_permission", { requestId, behavior, reason });
 }
@@ -288,12 +473,15 @@ export async function addPermissionRule(
   agentId: string,
   toolName: string,
   toolInput: Record<string, unknown>,
-  scope: "global" | "project"
+  scope: "global" | "project",
 ): Promise<string> {
   return invoke("add_permission_rule", { agentId, toolName, toolInput, scope });
 }
 
-export async function openInEditor(path: string, editor: string): Promise<void> {
+export async function openInEditor(
+  path: string,
+  editor: string,
+): Promise<void> {
   return invoke("open_in_editor", { path, editor });
 }
 
@@ -375,11 +563,18 @@ export async function getDefaultWorkspace(): Promise<Workspace | null> {
   return invoke("get_default_workspace");
 }
 
-export async function createWorkspace(name: string, reposFolderPath: string): Promise<Workspace> {
+export async function createWorkspace(
+  name: string,
+  reposFolderPath: string,
+): Promise<Workspace> {
   return invoke("create_workspace", { name, reposFolderPath });
 }
 
-export async function updateWorkspace(id: string, name: string, reposFolderPath: string): Promise<void> {
+export async function updateWorkspace(
+  id: string,
+  name: string,
+  reposFolderPath: string,
+): Promise<void> {
   return invoke("update_workspace", { id, name, reposFolderPath });
 }
 
@@ -391,51 +586,79 @@ export async function setDefaultWorkspace(id: string): Promise<void> {
   return invoke("set_default_workspace", { id });
 }
 
-export async function listWorkspaceRepositories(reposFolderPath: string): Promise<RepositoryInfo[]> {
+export async function listWorkspaceRepositories(
+  reposFolderPath: string,
+): Promise<RepositoryInfo[]> {
   return invoke("list_workspace_repositories", { reposFolderPath });
 }
 
 // Workspace settings
-export async function getWorkspaceSetting(workspaceId: string, key: string): Promise<string | null> {
+export async function getWorkspaceSetting(
+  workspaceId: string,
+  key: string,
+): Promise<string | null> {
   return invoke("get_workspace_setting", { workspaceId, key });
 }
 
-export async function setWorkspaceSetting(workspaceId: string, key: string, value: string): Promise<void> {
+export async function setWorkspaceSetting(
+  workspaceId: string,
+  key: string,
+  value: string,
+): Promise<void> {
   return invoke("set_workspace_setting", { workspaceId, key, value });
 }
 
-export async function deleteWorkspaceSetting(workspaceId: string, key: string): Promise<void> {
+export async function deleteWorkspaceSetting(
+  workspaceId: string,
+  key: string,
+): Promise<void> {
   return invoke("delete_workspace_setting", { workspaceId, key });
 }
 
-export async function getAllWorkspaceSettings(workspaceId: string): Promise<Record<string, string>> {
+export async function getAllWorkspaceSettings(
+  workspaceId: string,
+): Promise<Record<string, string>> {
   return invoke("get_all_workspace_settings", { workspaceId });
 }
 
 // Workspace repositories
-export async function getWorkspaceRepositories(workspaceId: string): Promise<WorkspaceRepository[]> {
+export async function getWorkspaceRepositories(
+  workspaceId: string,
+): Promise<WorkspaceRepository[]> {
   return invoke("get_workspace_repositories", { workspaceId });
 }
 
 export async function addRepositoryToWorkspace(
   workspaceId: string,
   repositoryPath: string,
-  name: string
+  name: string,
 ): Promise<WorkspaceRepository> {
-  return invoke("add_repository_to_workspace", { workspaceId, repositoryPath, name });
+  return invoke("add_repository_to_workspace", {
+    workspaceId,
+    repositoryPath,
+    name,
+  });
 }
 
-export async function removeRepositoryFromWorkspace(workspaceId: string, repositoryPath: string): Promise<void> {
-  return invoke("remove_repository_from_workspace", { workspaceId, repositoryPath });
+export async function removeRepositoryFromWorkspace(
+  workspaceId: string,
+  repositoryPath: string,
+): Promise<void> {
+  return invoke("remove_repository_from_workspace", {
+    workspaceId,
+    repositoryPath,
+  });
 }
 
-export async function scanFolderForRepositories(folderPath: string): Promise<RepositoryInfo[]> {
+export async function scanFolderForRepositories(
+  folderPath: string,
+): Promise<RepositoryInfo[]> {
   return invoke("scan_folder_for_repositories", { folderPath });
 }
 
 export async function getWorkspaceRepository(
   workspaceId: string,
-  repositoryPath: string
+  repositoryPath: string,
 ): Promise<WorkspaceRepository | null> {
   return invoke("get_workspace_repository", { workspaceId, repositoryPath });
 }
@@ -444,9 +667,14 @@ export async function updateRepositoryScripts(
   workspaceId: string,
   repositoryPath: string,
   setupScript?: string,
-  teardownScript?: string
+  teardownScript?: string,
 ): Promise<void> {
-  return invoke("update_repository_scripts", { workspaceId, repositoryPath, setupScript, teardownScript });
+  return invoke("update_repository_scripts", {
+    workspaceId,
+    repositoryPath,
+    setupScript,
+    teardownScript,
+  });
 }
 
 // Terminal
@@ -454,19 +682,30 @@ export interface OpenTerminalResponse {
   session_existed: boolean;
 }
 
-export async function openTerminal(agentId: string): Promise<OpenTerminalResponse> {
+export async function openTerminal(
+  agentId: string,
+): Promise<OpenTerminalResponse> {
   return invoke("open_terminal", { agentId });
 }
 
-export async function getTerminalBuffer(agentId: string): Promise<string | null> {
+export async function getTerminalBuffer(
+  agentId: string,
+): Promise<string | null> {
   return invoke("get_terminal_buffer", { agentId });
 }
 
-export async function terminalInput(agentId: string, data: string): Promise<void> {
+export async function terminalInput(
+  agentId: string,
+  data: string,
+): Promise<void> {
   return invoke("terminal_input", { agentId, data });
 }
 
-export async function terminalResize(agentId: string, cols: number, rows: number): Promise<void> {
+export async function terminalResize(
+  agentId: string,
+  cols: number,
+  rows: number,
+): Promise<void> {
   return invoke("terminal_resize", { agentId, cols, rows });
 }
 

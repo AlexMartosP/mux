@@ -86,6 +86,7 @@ export interface SpawnAgentInput {
   base_branch?: string;
   branch_name?: string; // Custom branch name for new branches (if not provided, auto-generated)
   workspace_id: string; // Required: Workspace ID to associate with
+  images?: ImageAttachment[]; // Optional images to include with initial prompt
 }
 
 export interface OutputLine {
@@ -120,7 +121,23 @@ export interface ToolUsagePart {
   tool_input: Record<string, unknown>;
 }
 
-export type MessagePart = TextPart | ThinkingPart | ToolUsagePart;
+export interface ImagePart {
+  type: "image";
+  media_type: string; // "image/png" or "image/jpeg"
+  data: string; // base64 encoded image data
+}
+
+export type MessagePart = TextPart | ThinkingPart | ToolUsagePart | ImagePart;
+
+// Image attachment for UI state (before sending to backend)
+export interface ImageAttachment {
+  id: string; // unique ID for React keys
+  name: string; // filename
+  mediaType: "image/png" | "image/jpeg";
+  data: string; // base64 encoded data
+  sizeBytes: number; // file size in bytes
+  preview?: string; // data URL for preview (optional)
+}
 
 export interface Message {
   id: string;
@@ -133,14 +150,23 @@ export interface Message {
 export interface AgentMessageEvent {
   agent_id: string;
   message_id: string;
-  event_type: "message_created" | "message_part" | "message_complete" | "message_deleted";
+  event_type:
+    | "message_created"
+    | "message_part"
+    | "message_complete"
+    | "message_deleted";
   role?: "assistant" | "user" | "system";
   timestamp?: string;
   part?: MessagePart;
   parts?: MessagePart[];
 }
 
-export type SetupStage = "initializing" | "creating_worktree" | "running_setup" | "generating_metadata" | "starting_agent";
+export type SetupStage =
+  | "initializing"
+  | "creating_worktree"
+  | "running_setup"
+  | "generating_metadata"
+  | "starting_agent";
 
 export interface SetupProgressEvent {
   agent_id: string;
@@ -158,13 +184,7 @@ export interface ActivityEvent {
 }
 
 // Git types
-export type FileStatus =
-  | "added"
-  | "modified"
-  | "deleted"
-  | "renamed"
-  | "copied"
-  | "untracked";
+export type FileStatus = "added" | "modified" | "deleted" | "renamed";
 
 export interface FileChange {
   path: string;
@@ -198,16 +218,6 @@ export interface DiffHunk {
   can_expand_up: boolean;
   can_expand_down: boolean;
   raw_content: string; // Raw hunk string for git-diff-view library
-}
-
-export interface StructuredFileDiff {
-  path: string;
-  hunks: DiffHunk[];
-  is_binary: boolean;
-  is_new_file: boolean;
-  is_deleted: boolean;
-  old_file_header: string;
-  new_file_header: string;
 }
 
 export interface DiffOptions {

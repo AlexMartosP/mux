@@ -1,6 +1,6 @@
 use crate::commands::AppState;
 use crate::error::{AppError, Result};
-use crate::services::git::{CommitInfo, DiffOptions, FileChange, FileDiff, FileStatus, GitService, StructuredFileDiff};
+use crate::services::git::{CommitInfo, DiffOptions, FileChange, FileDiff, FileDiffData, FileStatus, GitService, StructuredFileDiff};
 use std::sync::Arc;
 use tauri::State;
 
@@ -89,6 +89,63 @@ pub fn get_agent_changes_filtered(
     }
 
     Ok(changes)
+}
+
+/// Unified command for getting agent file changes with optional filtering
+#[tauri::command]
+pub async fn get_agent_file_changes(
+    state: State<'_, Arc<AppState>>,
+    agent_id: String,
+    exclude_untracked: Option<bool>,
+) -> Result<Vec<FileChange>> {
+    // Get agent info on main thread
+    let agent = state
+        .db
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
+
+    let worktree_path = agent.worktree_path.clone();
+    let repository_path = agent.repository_path.clone();
+
+    // Run git operations on blocking thread pool to avoid blocking async runtime
+    tokio::task::spawn_blocking(move || {
+        let base_branch = GitService::get_default_branch(&repository_path)?;
+        let mut changes = GitService::get_changed_files(&worktree_path, &base_branch)?;
+
+        // Apply filtering if requested
+        if exclude_untracked.unwrap_or(false) {
+            changes.retain(|f| !matches!(f.status, FileStatus::Untracked));
+        }
+
+        Ok(changes)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task join error: {}", e)))?
+}
+
+/// Get enhanced file diff data with old content, new content, and git diff
+#[tauri::command]
+pub async fn get_agent_file_diff_data(
+    state: State<'_, Arc<AppState>>,
+    agent_id: String,
+    file_path: String,
+) -> Result<FileDiffData> {
+    // Get agent info on main thread
+    let agent = state
+        .db
+        .get_agent(&agent_id)?
+        .ok_or_else(|| AppError::AgentNotFound(agent_id.clone()))?;
+
+    let worktree_path = agent.worktree_path.clone();
+    let repository_path = agent.repository_path.clone();
+
+    // Run git operations on blocking thread pool
+    tokio::task::spawn_blocking(move || {
+        let base_branch = GitService::get_default_branch(&repository_path)?;
+        GitService::get_file_diff_data(&worktree_path, &base_branch, &file_path)
+    })
+    .await
+    .map_err(|e| AppError::Other(format!("Task join error: {}", e)))?
 }
 
 #[tauri::command]

@@ -4,7 +4,7 @@ import { useTauriListen } from "@/hooks/useTauriListen";
 import { useMessagesQuery } from "../data/chat-queries";
 import { useSendMessage } from "../data/chat-mutations";
 import { chatKeys } from "../data/chat-keys";
-import type { OutputLine, OutputEvent, Message, AgentMessageEvent } from "@/types/agent";
+import type { OutputLine, OutputEvent, Message, AgentMessageEvent, ImageAttachment } from "@/types/agent";
 
 // Legacy format for backward compatibility
 interface LegacyMessagesPage {
@@ -143,9 +143,9 @@ export function useAgentChat(agentId: string | null) {
 
   // Send message function
   const sendMessage = useCallback(
-    (prompt: string) => {
-      if (!prompt.trim()) return;
-      sendMutation.mutate(prompt.trim());
+    (prompt: string, images?: ImageAttachment[]) => {
+      if (!prompt.trim() && (!images || images.length === 0)) return;
+      sendMutation.mutate({ prompt: prompt.trim(), images });
     },
     [sendMutation]
   );

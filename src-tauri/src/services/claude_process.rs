@@ -156,6 +156,7 @@ impl ClaudeProcessService {
         worktree_path: &str,
         prompt: &str,
         continue_conversation: bool,
+        images: Option<&[crate::commands::EncodedImage]>,
     ) -> Result<u32> {
         let start_time = Instant::now();
         info!("[{}] Starting Claude process in {}", agent_id, worktree_path);
@@ -189,7 +190,17 @@ impl ClaudeProcessService {
         {
             let message_id = Uuid::new_v4().to_string();
             let timestamp = chrono::Utc::now().to_rfc3339();
-            let parts = vec![MessagePart::text(prompt.to_string())];
+
+            // Build message parts (text + images)
+            let mut parts = vec![];
+            if !prompt.is_empty() {
+                parts.push(MessagePart::text(prompt.to_string()));
+            }
+            if let Some(imgs) = images {
+                for img in imgs {
+                    parts.push(MessagePart::image(img.media_type.clone(), img.data.clone()));
+                }
+            }
 
             if let Err(e) = db.create_message_with_parts(&message_id, agent_id, "user", &timestamp, &parts) {
                 warn!("[{}] Failed to create user message: {}", agent_id, e);

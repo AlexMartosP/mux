@@ -1,9 +1,16 @@
-import { Combobox, ComboboxContent, ComboboxInput, ComboboxTrigger, ComboboxEmpty, ComboboxList, ComboboxItem, ComboboxValue } from "@/components/ui/combobox";
+import { useState, useMemo } from "react";
+import { Combobox, ComboboxContent, ComboboxInput, ComboboxTrigger, ComboboxEmpty, ComboboxList, ComboboxItem, ComboboxValue, ComboboxGroup, ComboboxLabel } from "@/components/ui/combobox";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { BranchInfo } from "@/types/agent";
+import { useRecentItems } from "@/hooks/useRecentItems";
 
 type BranchItem = BranchInfo | { type: "new-auto" } | { type: "new-custom" };
+type BranchSection = {
+  type: 'section';
+  label?: string;
+  items: BranchItem[];
+};
 
 export function BranchCombobox({
   branches,
@@ -16,6 +23,7 @@ export function BranchCombobox({
   disabled = false,
   showNewBranchOptions = true,
   className,
+  repositoryPath,
 }: {
   branches: BranchInfo[];
   value: string;
@@ -27,32 +35,102 @@ export function BranchCombobox({
   disabled?: boolean;
   showNewBranchOptions?: boolean;
   className?: string;
+  repositoryPath?: string;
 }) {
-  // Build items list
-  const items: BranchItem[] = [];
-
+  const [searchValue, setSearchValue] = useState("");
+  const { recentItems, addRecentItem } = useRecentItems<string>(
+    `mux-recent-branches-${repositoryPath || 'default'}`,
+    5
+  );
+  // Build new branch options
+  const newBranchOptions: BranchItem[] = [];
   if (showNewBranchOptions) {
-    items.push({ type: "new-auto" } as const);
-    items.push({ type: "new-custom" } as const);
+    newBranchOptions.push({ type: "new-auto" } as const);
+    newBranchOptions.push({ type: "new-custom" } as const);
   }
 
-  items.push(...branches);
-
-  // Find selected item
-  const getSelectedItem = (): BranchItem | null => {
-    if (value) {
-      return branches.find(b => b.name === value) || null;
+  // Helper to flatten items
+  const flattenItems = (items: (BranchItem | BranchSection)[]): BranchItem[] => {
+    const result: BranchItem[] = [];
+    for (const item of items) {
+      if ('type' in item && item.type === 'section') {
+        result.push(...item.items);
+      } else {
+        result.push(item as BranchItem);
+      }
     }
-    if (newBranchMode === "auto") {
-      return { type: "new-auto" };
-    }
-    if (newBranchMode === "custom") {
-      return { type: "new-custom" };
-    }
-    return null;
+    return result;
   };
 
-  const selectedItem = getSelectedItem();
+  // Build items based on search state
+  const items: (BranchItem | BranchSection)[] = useMemo(() => {
+    if (searchValue === "") {
+      // Not searching: show new branch options + sections
+      const recentBranches = recentItems
+        .map((branchName) => branches.find((b) => b.name === branchName))
+        .filter((b): b is BranchInfo => b !== undefined);
+
+      const recentBranchNames = new Set(recentBranches.map((b) => b.name));
+      const allBranchesExcludingRecent = branches.filter((b) => !recentBranchNames.has(b.name));
+
+      const sections: (BranchItem | BranchSection)[] = [];
+
+      // Add new branch options section (unlabeled)
+      if (newBranchOptions.length > 0) {
+        sections.push({
+          type: 'section' as const,
+          items: newBranchOptions,
+        });
+      }
+
+      // Add recent branches section if we have any
+      if (recentBranches.length > 0) {
+        sections.push({
+          type: 'section' as const,
+          label: 'Recently used',
+          items: recentBranches,
+        });
+      }
+
+      // Add all branches section
+      sections.push({
+        type: 'section' as const,
+        label: recentBranches.length > 0 ? 'All' : undefined,
+        items: allBranchesExcludingRecent,
+      });
+
+      return sections;
+    }
+
+    // Searching: filter branches manually and return as flat list
+    const searchLower = searchValue.toLowerCase();
+    const filteredBranches = branches.filter((b) =>
+      b.name.toLowerCase().includes(searchLower)
+    );
+    return filteredBranches;
+  }, [searchValue, recentItems, branches, newBranchOptions]);
+
+  // Flatten all items for selection lookup
+  const allItems = useMemo(() => flattenItems(items), [items]);
+
+  // Find selected item from all items
+  const selectedItem = useMemo(() => {
+    if (value) {
+      return allItems.find(item => {
+        if ("type" in item && (item.type === "new-auto" || item.type === "new-custom")) {
+          return false;
+        }
+        return (item as BranchInfo).name === value;
+      }) || null;
+    }
+    if (newBranchMode === "auto") {
+      return { type: "new-auto" } as const;
+    }
+    if (newBranchMode === "custom") {
+      return { type: "new-custom" } as const;
+    }
+    return null;
+  }, [value, newBranchMode, allItems]);
 
   // Get display text for the trigger button
   const getDisplayText = () => {
@@ -66,7 +144,7 @@ export function BranchCombobox({
   const handleValueChange = (item: BranchItem | null) => {
     if (!item) return;
 
-    if ("type" in item) {
+    if ("type" in item && (item.type === "new-auto" || item.type === "new-custom")) {
       // New branch option
       onChange("");
       if (item.type === "new-auto") {
@@ -76,8 +154,12 @@ export function BranchCombobox({
       }
     } else {
       // Existing branch
-      onChange(item.name);
+      const branchInfo = item as BranchInfo;
+      onChange(branchInfo.name);
       onNewBranchModeChange?.(null);
+
+      // Add to recent items
+      addRecentItem(branchInfo.name);
     }
   };
 
@@ -129,25 +211,52 @@ export function BranchCombobox({
           </Button>
         }
       />
-      <ComboboxContent>
-        <ComboboxInput showTrigger={false} placeholder="Search branches..." />
-        <ComboboxEmpty>No branches found.</ComboboxEmpty>
+      <ComboboxContent className="min-w-[400px]">
+        <ComboboxInput
+          showTrigger={false}
+          placeholder="Search branches..."
+          value={searchValue}
+          onChange={(e) => setSearchValue(e.target.value)}
+        />
+        {allItems.length === 0 && <ComboboxEmpty>No branches found.</ComboboxEmpty>}
         <ComboboxList>
-          {items.map((item) => {
-            const key = getItemKey(item);
-            const label = getItemLabel(item);
-            const isNewBranch = "type" in item;
-            const isCurrent = !isNewBranch && item.is_current;
+          {items.map((item, idx) => {
+            // Check if this is a section
+            if ('type' in item && item.type === 'section') {
+              return (
+                <ComboboxGroup key={idx}>
+                  {item.label && <ComboboxLabel>{item.label}</ComboboxLabel>}
+                  {item.items.map((subItem) => {
+                    const key = getItemKey(subItem);
+                    const label = getItemLabel(subItem);
+                    const isNewBranch = "type" in subItem && (subItem.type === "new-auto" || subItem.type === "new-custom");
+                    const isCurrent = !isNewBranch && (subItem as BranchInfo).is_current;
+
+                    return (
+                      <ComboboxItem
+                        key={key}
+                        value={subItem}
+                        className={cn(isNewBranch && "text-primary")}
+                      >
+                        <div className="flex items-center justify-between w-full">
+                          <span className="truncate">{label}</span>
+                          {isCurrent && <span className="text-success ml-2">*</span>}
+                        </div>
+                      </ComboboxItem>
+                    );
+                  })}
+                </ComboboxGroup>
+              );
+            }
+
+            // Plain item (when searching)
+            const branchItem = item as BranchItem;
+            const key = getItemKey(branchItem);
+            const label = getItemLabel(branchItem);
+            const isCurrent = "is_current" in branchItem && branchItem.is_current;
 
             return (
-              <ComboboxItem
-                key={key}
-                value={item}
-                className={cn(
-                  isNewBranch && "border-b border-border",
-                  isNewBranch && "text-primary"
-                )}
-              >
+              <ComboboxItem key={key} value={branchItem}>
                 <div className="flex items-center justify-between w-full">
                   <span className="truncate">{label}</span>
                   {isCurrent && <span className="text-success ml-2">*</span>}
