@@ -1,0 +1,22 @@
+[package]
+name = "core-service"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+actix-web = "4"
+utoipa = { version = "5", features = ["actix_extras"] }
+utoipa-actix-web = "0.1"
+sqlx = { version = "0.8", features = ["sqlite", "runtime-tokio", "macros", "uuid"] }
+uuid = { version = "1", features = ["v4"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dotenv = "0.15.0"
+thiserror = "2.0.18"
+rand = "0.10.0"
+strum = "0.28"
+strum_macros = "0.28"
+actix-ws = "0.3"
+futures-util = "0.3"
+tokio-stream = "0.1"
